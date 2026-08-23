@@ -32,7 +32,7 @@ async function api(url, options = {}) {
 
 async function finishWith(clientId, clientSecret) {
   const code = qs('code');
-  const redirectUri = `${location.origin}/control/twitch-callback.html`;
+  const redirectUri = `${location.origin}/twitch-callback.html`;
   if (!code) { document.getElementById('status').textContent = 'No code present in the URL.'; document.getElementById('manual').style.display='block'; return; }
   try {
     document.getElementById('status').textContent = 'Exchanging code for token...';
