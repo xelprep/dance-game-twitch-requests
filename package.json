@@ -16,6 +16,7 @@
     "chokidar": "^5.0.0",
     "dotenv": "^17.4.2",
     "express": "^5.1.0",
+    "selfsigned": "^2.0.1",
     "tmi.js": "^1.8.5"
   }
 }

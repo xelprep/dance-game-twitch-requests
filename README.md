@@ -35,15 +35,17 @@ http://STREAMING-PC:3000
 Streamer control panel:
 
 ```text
-http://STREAMING-PC:3001
+https://STREAMING-PC:3001
 ```
+
+The control panel uses a locally generated self-signed certificate, so browsers will show an HTTPS warning the first time you connect. This is expected for a private LAN-only admin page.
 
 Both servers listen on `0.0.0.0` by default, so another computer on your LAN can connect using the streaming PC's LAN IP.
 
 Example:
 
 ```text
-http://192.168.1.50:3001
+https://192.168.1.50:3001
 ```
 
 Do not expose port 3001 to the public Internet. It is intended for your LAN.
@@ -78,7 +80,7 @@ The control panel then uses HTTP Basic Authentication. The browser will ask for:
 - Username: `streamer`
 - Password: your `CONTROL_PASSWORD`
 
-This is not encryption, so keep the control panel LAN-only. For a hostile/untrusted network, use HTTPS behind a reverse proxy/VPN instead.
+This page is now served with HTTPS using a locally generated self-signed certificate, so it stays private on your LAN while allowing Twitch OAuth redirects from a custom port. For a hostile/untrusted network, use HTTPS behind a reverse proxy/VPN instead.
 
 ## Install
 
