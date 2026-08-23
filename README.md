@@ -73,9 +73,19 @@ The control panel provides:
 - Rescan the StepMania Songs folder
 - Live queue/stat updates
 
-## Control-panel password
+## Install
 
-Set:
+```bash
+npm install
+```
+
+Copy `.env.example` to `.env` and set:
+
+```text
+SONGS_DIR=C:\Path\To\StepMania\Songs
+```
+
+Also Set:
 
 ```text
 CONTROL_PASSWORD=a-long-random-password
@@ -88,20 +98,6 @@ The control panel then uses HTTP Basic Authentication. The browser will ask for:
 
 This page is now served with HTTPS using a locally generated self-signed certificate, so it stays private on your LAN while allowing Twitch OAuth redirects from a custom port. For a hostile/untrusted network, use HTTPS behind a reverse proxy/VPN instead.
 
-## Install
-
-```bash
-npm install
-```
-
-Copy `.env.example` to `.env` and set:
-
-```text
-TWITCH_USERNAME=your_bot_username
-TWITCH_OAUTH_TOKEN=oauth:...
-TWITCH_CHANNEL=your_channel
-SONGS_DIR=C:\Path\To\StepMania\Songs
-```
 
 Then:
 
