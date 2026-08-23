@@ -811,24 +811,19 @@ async function startTmiClient(cfg) {
       return;
     }
 
-    const tokens = normalize(arg).split(/\s+/).filter(Boolean);
-    const clauses = [];
-    const params = {};
-    tokens.forEach((token, i) => {
-      const key = `q${i}`;
-      params[key] = `%${token}%`;
-      clauses.push(`(
-        lower(title) LIKE @${key} OR lower(artist) LIKE @${key}
-        OR lower(subtitle) LIKE @${key} OR lower(pack) LIKE @${key}
-      )`);
-    });
+    // Use the same fuzzy/transliteration search logic as the public API so chat requests
+    // behave identically when matching titles with accents/diacritics or transliterated text.
+    // getSongSearchRows will normalize the query and candidate fields and apply fuzzy matching.
+    const matches = getSongSearchRows(5, arg);
 
-    const matches = db.prepare(`
-      SELECT * FROM songs WHERE ${clauses.join(" AND ")}
-      ORDER BY CASE WHEN lower(title)=lower(@exact) THEN 0 ELSE 1 END,
-               title COLLATE NOCASE
-      LIMIT 5
-    `).all({ ...params, exact: arg });
+    // Prefer exact (case-insensitive) title matches first, then sort by title case-insensitively.
+    const exactLower = String(arg || "").toLowerCase();
+    matches.sort((a, b) => {
+      const aExact = String(a.title || "").toLowerCase() === exactLower ? 0 : 1;
+      const bExact = String(b.title || "").toLowerCase() === exactLower ? 0 : 1;
+      if (aExact !== bExact) return aExact - bExact;
+      return (a.title || "").localeCompare(b.title || "", undefined, { sensitivity: 'base' });
+    });
 
     if (!matches.length) {
       await client.say(cfg.channel, `@${display}, no song matched "${arg}".`);
