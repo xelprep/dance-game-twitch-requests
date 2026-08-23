@@ -181,11 +181,17 @@ function levenshteinDistance(a, b) {
 
 function fuzzyTokenMatches(queryToken, valueToken) {
   if (!queryToken || !valueToken) return false;
-  if (valueToken.includes(queryToken)) return true;
-  if (queryToken.includes(valueToken) || valueToken.includes(queryToken)) return true;
+  // Fast accept if one contains the other (substring match)
+  if (valueToken.includes(queryToken) || queryToken.includes(valueToken)) return true;
+
   const distance = levenshteinDistance(queryToken, valueToken);
-  const allowedDistance = Math.max(1, Math.min(2, Math.floor(queryToken.length * 0.25), Math.floor(valueToken.length * 0.25)));
-  return distance <= allowedDistance;
+  const maxLen = Math.max(queryToken.length, valueToken.length);
+
+  // Allow a single-character typo only when it's a small fraction of the token length.
+  // This prevents long-distance matches from being considered similar.
+  if (distance === 1 && (distance / maxLen) <= 0.34) return true;
+
+  return false;
 }
 
 function songMatchesQuery(song, query) {
@@ -213,7 +219,7 @@ function songMatchesQuery(song, query) {
       const fieldTokens = field.split(/\s+/).filter(Boolean);
       if (!fieldTokens.length) return false;
       if (fieldTokens.some((fieldToken) => fuzzyTokenMatches(token, fieldToken))) return true;
-      return fieldTokens.some((fieldToken) => fieldToken.startsWith(token.slice(0, 2)) && levenshteinDistance(token, fieldToken) <= 2);
+      return fieldTokens.some((fieldToken) => fieldToken.startsWith(token.slice(0, 3)) && levenshteinDistance(token, fieldToken) <= 1);
     });
   });
 }
@@ -813,14 +819,34 @@ async function startTmiClient(cfg) {
 
     // Use the same fuzzy/transliteration search logic as the public API so chat requests
     // behave identically when matching titles with accents/diacritics or transliterated text.
-    // getSongSearchRows will normalize the query and candidate fields and apply fuzzy matching.
-    const matches = getSongSearchRows(5, arg);
+    // Query a larger result set so an exact-normalized title will be found even if not
+    // in the top few fuzzy matches.
+    const normalizedArg = normalize(arg);
+    const matches = getSongSearchRows(100, arg);
 
-    // Prefer exact (case-insensitive) title matches first, then sort by title case-insensitively.
-    const exactLower = String(arg || "").toLowerCase();
+    // If a single title exactly matches the normalized query, treat it as an exact match
+    // (this handles cases where punctuation/spacing differs but the normalized form is equal).
+    const exactNormalized = matches.filter(m => normalize(m.title) === normalizedArg);
+    if (exactNormalized.length === 1) {
+      try {
+        const r = addRequest(exactNormalized[0].id, tags.username, display);
+        await client.say(cfg.channel, `@${display}, added "${r.song.title}" to the request queue!`);
+      } catch (e) {
+        await client.say(cfg.channel, `@${display}, ${e.message}`);
+      }
+      return;
+    }
+    if (exactNormalized.length > 1) {
+      const names = exactNormalized.slice(0, 3).map(s => `"${s.title}"`).join(", ");
+      await client.say(cfg.channel, `@${display}, multiple matches: ${names}. Be more specific.`);
+      return;
+    }
+
+    // Otherwise, prefer normalized-exact matches first (none in the previous block), then
+    // sort by title case-insensitively for consistent ordering.
     matches.sort((a, b) => {
-      const aExact = String(a.title || "").toLowerCase() === exactLower ? 0 : 1;
-      const bExact = String(b.title || "").toLowerCase() === exactLower ? 0 : 1;
+      const aExact = normalize(a.title) === normalizedArg ? 0 : 1;
+      const bExact = normalize(b.title) === normalizedArg ? 0 : 1;
       if (aExact !== bExact) return aExact - bExact;
       return (a.title || "").localeCompare(b.title || "", undefined, { sensitivity: 'base' });
     });
