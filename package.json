@@ -18,5 +18,8 @@
     "express": "^5.1.0",
     "selfsigned": "^2.0.1",
     "tmi.js": "^1.8.5"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true
   }
 }
