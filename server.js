@@ -16,6 +16,7 @@ const CONTROL_HOST = process.env.CONTROL_HOST || "0.0.0.0";
 const SONGS_DIR = path.resolve(process.env.SONGS_DIR || "./Songs");
 const PREFIX = process.env.BOT_PREFIX || "!";
 const REQUEST_COMMAND = (process.env.REQUEST_COMMAND || "request").toLowerCase();
+const REQUEST_ID_COMMAND = (process.env.REQUEST_ID_COMMAND || "requestid").toLowerCase();
 const MAX_REQUESTS_PER_USER = Number(process.env.MAX_REQUESTS_PER_USER || 2);
 const QUEUE_LIMIT = Number(process.env.QUEUE_LIMIT || 25);
 const ALLOW_WEB_REQUESTS = String(process.env.ALLOW_WEB_REQUESTS).toLowerCase() === "true";
@@ -194,17 +195,21 @@ function fuzzyTokenMatches(queryToken, valueToken) {
   return false;
 }
 
-function songMatchesQuery(song, query) {
+function songMatchesQuery(song, query, allowedFields = ['title','subtitle','artist','pack']) {
   const q = normalize(query);
   if (!q) return true;
 
-  const candidateFields = [
-    song.title,
-    song.subtitle,
-    song.artist,
-    song.pack,
-    [song.title, song.subtitle, song.artist, song.pack].join(" ")
-  ].map((value) => normalize(value));
+  const fieldsMap = {
+    title: song.title || '',
+    subtitle: song.subtitle || '',
+    artist: song.artist || '',
+    pack: song.pack || ''
+  };
+
+  // Build candidate fields only from allowedFields to avoid accidental matches from other fields
+  const candidateFields = allowedFields.map((k) => normalize(fieldsMap[k] || ""));
+  // Also include a combined field of the allowed fields for multi-token queries
+  candidateFields.push(normalize(allowedFields.map(k => fieldsMap[k] || '').join(' ')));
 
   const qString = q.trim();
   if (candidateFields.some((field) => field.includes(qString))) {
@@ -224,9 +229,13 @@ function songMatchesQuery(song, query) {
   });
 }
 
-function getSongSearchRows(limit = 25, query = "") {
+function getSongSearchRows(limit = 25, query = "", mode = "all") {
   const rows = db.prepare(`SELECT * FROM songs ORDER BY title COLLATE NOCASE`).all();
-  const filtered = query ? rows.filter((row) => songMatchesQuery(row, query)) : rows;
+  let filtered = rows;
+  if (query) {
+    const allowed = (mode === 'title_artist') ? ['title','artist'] : ['title','subtitle','artist','pack'];
+    filtered = rows.filter((row) => songMatchesQuery(row, query, allowed));
+  }
   return filtered.slice(0, Math.max(1, limit));
 }
 
@@ -366,7 +375,8 @@ function createApi(app, options = {}) {
     const limit = Math.min(Math.max(Number(req.query.limit || 25), 1), 100);
     if (!q) return res.json([]);
 
-    const rows = getSongSearchRows(limit, q);
+    // Public search endpoint should restrict to title and artist only
+    const rows = getSongSearchRows(limit, q, 'title_artist');
     res.json(rows.map(songRow));
   });
 
@@ -419,7 +429,8 @@ function createApi(app, options = {}) {
 
     const baseRows = db.prepare(`SELECT * FROM songs ${whereSql} ${orderSql}`).all(params);
     const q = String(req.query.q || "").trim();
-    const rows = q ? baseRows.filter((row) => songMatchesQuery(row, q)) : baseRows;
+    // When browsing via the public songs endpoint, limit text queries to title + artist only
+    const rows = q ? baseRows.filter((row) => songMatchesQuery(row, q, ['title','artist'])) : baseRows;
     const total = rows.length;
     const pageRows = rows.slice(offset, offset + perPage);
 
@@ -807,6 +818,30 @@ async function startTmiClient(cfg) {
     const arg = space === -1 ? "" : body.slice(space + 1).trim();
     const display = tags["display-name"] || tags.username;
 
+    // Support requesting by numeric ID: !requestid <id>
+    if (command === REQUEST_ID_COMMAND) {
+      if (!arg) {
+        await client.say(cfg.channel, `@${display}, usage: ${PREFIX}${REQUEST_ID_COMMAND} <song id>`);
+        return;
+      }
+      const id = Number(arg);
+      if (!Number.isInteger(id)) {
+        await client.say(cfg.channel, `@${display}, "${arg}" is not a valid song id.`);
+        return;
+      }
+      if (!canRequest(tags.username)) {
+        await client.say(cfg.channel, `@${display}, you already have the maximum number of active requests.`);
+        return;
+      }
+      try {
+        const r = addRequest(id, tags.username, display);
+        await client.say(cfg.channel, `@${display}, added "${r.song.title}" (ID ${id}) to the request queue!`);
+      } catch (e) {
+        await client.say(cfg.channel, `@${display}, ${e.message}`);
+      }
+      return;
+    }
+
     if (command !== REQUEST_COMMAND) return;
     if (!arg) {
       await client.say(cfg.channel, `@${display}, usage: ${PREFIX}${REQUEST_COMMAND} <song title or artist>`);
@@ -817,56 +852,30 @@ async function startTmiClient(cfg) {
       return;
     }
 
-    // Use the same fuzzy/transliteration search logic as the public API so chat requests
-    // behave identically when matching titles with accents/diacritics or transliterated text.
-    // Query a larger result set so an exact-normalized title will be found even if not
-    // in the top few fuzzy matches.
+    // If the normalized query uniquely matches a single song title, auto-add it.
     const normalizedArg = normalize(arg);
-    const matches = getSongSearchRows(100, arg);
-
-    // If a single title exactly matches the normalized query, treat it as an exact match
-    // (this handles cases where punctuation/spacing differs but the normalized form is equal).
+    const matches = getSongSearchRows(100, arg, 'all');
     const exactNormalized = matches.filter(m => normalize(m.title) === normalizedArg);
     if (exactNormalized.length === 1) {
       try {
-        const r = addRequest(exactNormalized[0].id, tags.username, display);
-        await client.say(cfg.channel, `@${display}, added "${r.song.title}" to the request queue!`);
+        const song = exactNormalized[0];
+        const r = addRequest(song.id, tags.username, display);
+        await client.say(cfg.channel, `@${display}, added "${r.song.title}" (ID ${song.id}) to the request queue!`);
       } catch (e) {
         await client.say(cfg.channel, `@${display}, ${e.message}`);
       }
       return;
     }
-    if (exactNormalized.length > 1) {
-      const names = exactNormalized.slice(0, 3).map(s => `"${s.title}"`).join(", ");
-      await client.say(cfg.channel, `@${display}, multiple matches: ${names}. Be more specific.`);
-      return;
-    }
-
-    // Otherwise, prefer normalized-exact matches first (none in the previous block), then
-    // sort by title case-insensitively for consistent ordering.
-    matches.sort((a, b) => {
-      const aExact = normalize(a.title) === normalizedArg ? 0 : 1;
-      const bExact = normalize(b.title) === normalizedArg ? 0 : 1;
-      if (aExact !== bExact) return aExact - bExact;
-      return (a.title || "").localeCompare(b.title || "", undefined, { sensitivity: 'base' });
-    });
 
     if (!matches.length) {
       await client.say(cfg.channel, `@${display}, no song matched "${arg}".`);
       return;
     }
-    if (matches.length > 1) {
-      const names = matches.slice(0, 3).map(s => `"${s.title}"`).join(", ");
-      await client.say(cfg.channel, `@${display}, multiple matches: ${names}. Be more specific.`);
-      return;
-    }
 
-    try {
-      const r = addRequest(matches[0].id, tags.username, display);
-      await client.say(cfg.channel, `@${display}, added "${r.song.title}" to the request queue!`);
-    } catch (e) {
-      await client.say(cfg.channel, `@${display}, ${e.message}`);
-    }
+    // Otherwise, present top 3 matches with IDs so the user can request an explicit ID
+    const top = matches.slice(0, 3);
+    const reply = top.map(s => `${s.id} - "${s.title}"${s.artist ? ` by ${s.artist}` : ''}`).join(' | ');
+    await client.say(cfg.channel, `@${display}, top matches: ${reply}. To request, type ${PREFIX}${REQUEST_ID_COMMAND} <id>.`);
   });
   // Schedule a refresh if we have expiry information
   scheduleTwitchRefresh();
