@@ -116,21 +116,23 @@ async function getFilters() {
     meterMinSel.querySelectorAll('option:not([value=""])').forEach(n => n.remove());
     meterMaxSel.querySelectorAll('option:not([value=""])').forEach(n => n.remove());
 
-    (f.packs || []).forEach(p => {
+    const sortAlpha = (a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+
+    [...(f.packs || [])].sort((a, b) => sortAlpha(a.pack, b.pack)).forEach(p => {
       const opt = document.createElement('option');
       opt.value = p.pack;
       opt.textContent = `${p.pack} (${p.count})`;
       packSel.appendChild(opt);
     });
 
-    (f.genres || []).forEach(g => {
+    [...(f.genres || [])].sort((a, b) => sortAlpha(a.genre, b.genre)).forEach(g => {
       const opt = document.createElement('option');
       opt.value = g.genre;
       opt.textContent = `${g.genre} (${g.count})`;
       genreSel.appendChild(opt);
     });
 
-    (f.difficulties || []).forEach(d => {
+    [...(f.difficulties || [])].sort((a, b) => sortAlpha(a.difficulty, b.difficulty)).forEach(d => {
       const opt = document.createElement('option');
       opt.value = d.difficulty;
       opt.textContent = `${d.difficulty} (${d.count})`;
