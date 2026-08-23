@@ -424,20 +424,20 @@ function createApi(app, options = {}) {
     const packs = db.prepare(`
       SELECT pack, COUNT(*) count FROM songs
       WHERE pack IS NOT NULL AND pack != ''
-      GROUP BY pack ORDER BY count DESC
+      GROUP BY pack ORDER BY pack COLLATE NOCASE ASC
       LIMIT 200
     `).all();
     const genres = db.prepare(`
       SELECT genre, COUNT(*) count FROM songs
       WHERE genre IS NOT NULL AND genre != ''
-      GROUP BY genre ORDER BY count DESC
+      GROUP BY genre ORDER BY genre COLLATE NOCASE ASC
       LIMIT 200
     `).all();
 
     const difficulties = db.prepare(`
       SELECT difficulty, COUNT(DISTINCT song_id) count FROM charts
       WHERE difficulty IS NOT NULL AND difficulty != ''
-      GROUP BY difficulty ORDER BY count DESC LIMIT 200
+      GROUP BY difficulty ORDER BY difficulty COLLATE NOCASE ASC LIMIT 200
     `).all();
 
     const meters = db.prepare(`

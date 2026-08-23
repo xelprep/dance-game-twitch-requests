@@ -61,11 +61,13 @@ function readPackIniDisplayTitle(packDir) {
     if (!fs.existsSync(iniPath)) continue;
 
     const text = fs.readFileSync(iniPath, "utf8");
-    const match = text.match(/^[\s\r\n]*DisplayTitle\s*[:=]\s*(.+?)\s*$/im);
-    if (!match) continue;
+    for (const line of text.split(/\r?\n/)) {
+      const match = line.match(/^\s*DisplayTitle\s*[:=]\s*(.*?)\s*$/i);
+      if (!match) continue;
 
-    const value = match[1].trim();
-    if (value) return value;
+      const value = (match[1] || "").trim();
+      return value;
+    }
   }
 
   return "";
