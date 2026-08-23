@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StepMania Streamer Control</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+<header>
+  <div>
+    <h1>Streamer Control</h1>
+    <p id="stats">Loading…</p>
+  </div>
+  <div class="actions">
+    <button id="next">Play Next</button>
+    <button id="rescan">Rescan Songs</button>
+    <button id="clear">Clear Queue</button>
+  </div>
+</header>
+
+<section class="now panel">
+  <div class="section-head"><h2>Now Playing</h2></div>
+  <div id="now">Nothing playing.</div>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Request Queue</h2>
+    <button id="refresh">Refresh</button>
+  </div>
+  <div id="queue"></div>
+</section>
+
+<section class="panel">
+  <div class="section-head"><h2>Blacklist</h2></div>
+  <div class="blacklist-form">
+    <input id="blackUser" placeholder="Twitch username">
+    <input id="blackReason" placeholder="Reason (optional)">
+    <button id="addUser">Blacklist User</button>
+  </div>
+  <div id="blacklist"></div>
+</section>
+
+<div id="toast"></div>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

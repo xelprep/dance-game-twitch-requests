@@ -1,0 +1,106 @@
+const $ = id => document.getElementById(id);
+
+async function api(url, options = {}) {
+  const res = await fetch(url, {
+    headers: {"Content-Type": "application/json", ...(options.headers || {})},
+    ...options
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, c =>
+    ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"})[c]);
+}
+
+function toast(msg) {
+  $("toast").textContent = msg;
+  $("toast").classList.add("show");
+  setTimeout(() => $("toast").classList.remove("show"), 2200);
+}
+
+async function render() {
+  try {
+    const [stats, now, queue, blacklist] = await Promise.all([
+      api("/api/stats"), api("/api/now-playing"),
+      api("/api/queue"), api("/api/blacklist")
+    ]);
+
+    $("stats").textContent =
+      `${stats.songs.toLocaleString()} songs • ${stats.queued} queued • ${stats.playing} playing`;
+
+    $("now").innerHTML = now ? `
+      <div class="now-card">
+        <div>
+          <strong>${esc(now.title)}</strong>
+          <span>${esc(now.artist)}</span>
+          <small>requested by ${esc(now.requested_display)}</small>
+        </div>
+        <button onclick="complete(${now.id})">Complete</button>
+      </div>` : "Nothing playing.";
+
+    $("queue").innerHTML = queue.length ? queue.map((r, i) => `
+      <article class="request">
+        <div class="rank">${i + 1}</div>
+        <div class="info">
+          <strong>${esc(r.title)}</strong>
+          <span>${esc(r.artist)}${r.pack ? " • " + esc(r.pack) : ""}</span>
+          <small>requested by ${esc(r.requested_display)}</small>
+        </div>
+        <div class="row-actions">
+          <button onclick="move(${r.id},'up')">↑</button>
+          <button onclick="move(${r.id},'down')">↓</button>
+          <button onclick="play(${r.id})">Play</button>
+          <button onclick="skip(${r.id})">Skip</button>
+          <button onclick="blackSong(${r.song_id})">Block Song</button>
+          <button onclick="blackUser('${esc(r.requested_by)}')">Block User</button>
+        </div>
+      </article>
+    `).join("") : `<p class="muted">Queue is empty.</p>`;
+
+    $("blacklist").innerHTML = blacklist.length ? blacklist.map(b => `
+      <div class="black-item">
+        <span>${b.username ? "User: " + esc(b.username) : "Song #" + b.songId}</span>
+        <small>${esc(b.reason)}</small>
+        <button onclick="removeBlacklist(${b.id})">Remove</button>
+      </div>
+    `).join("") : `<p class="muted">Nothing blacklisted.</p>`;
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+window.play = async id => { try { await api(`/api/queue/${id}/play`, {method:"POST"}); toast("Playing request."); render(); } catch(e){toast(e.message)} };
+window.complete = async id => { try { await api(`/api/queue/${id}/complete`, {method:"POST"}); toast("Marked complete."); render(); } catch(e){toast(e.message)} };
+window.skip = async id => { try { await api(`/api/queue/${id}/skip`, {method:"POST"}); toast("Skipped."); render(); } catch(e){toast(e.message)} };
+window.move = async (id,direction) => { try { await api(`/api/queue/${id}/move`, {method:"POST",body:JSON.stringify({direction})}); render(); } catch(e){toast(e.message)} };
+window.blackSong = async songId => { try { await api("/api/blacklist/song",{method:"POST",body:JSON.stringify({songId})}); toast("Song blacklisted."); render(); } catch(e){toast(e.message)} };
+window.blackUser = async username => {
+  try { await api("/api/blacklist/user",{method:"POST",body:JSON.stringify({username})}); toast("User blacklisted."); render(); }
+  catch(e){toast(e.message)}
+};
+window.removeBlacklist = async id => { try { await api(`/api/blacklist/${id}`,{method:"DELETE"}); render(); } catch(e){toast(e.message)} };
+
+$("next").onclick = async () => {
+  try { await api("/api/queue/next",{method:"POST"}); toast("Moved next request to Now Playing."); render(); }
+  catch(e){toast(e.message)}
+};
+
+$("clear").onclick = async () => {
+  if (!confirm("Skip every queued request?")) return;
+  try { await api("/api/queue/clear",{method:"POST"}); toast("Queue cleared."); render(); }
+  catch(e){toast(e.message)}
+};
+
+$("rescan").onclick = async () => {
+  try { const r = await api("/api/rescan",{method:"POST"}); toast(`Scanned ${r.songs} songs.`); render(); }
+  catch(e){toast(e.message)}
+};
+
+$("addUser").onclick = () => blackUser($("blackUser").value.trim());
+$("refresh").onclick = render;
+
+render();
+setInterval(render, 2500);

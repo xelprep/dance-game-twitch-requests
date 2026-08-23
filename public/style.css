@@ -1,0 +1,58 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #111318;
+  color: #f4f5f7;
+}
+main {
+  width: min(1000px, calc(100% - 32px));
+  margin: 32px auto;
+}
+header, .section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+h1, h2 { margin: 0; }
+p { color: #aeb4c0; }
+.panel {
+  background: #1a1d24;
+  border: 1px solid #2a2f3a;
+  border-radius: 14px;
+  padding: 20px;
+  margin-top: 20px;
+}
+label { display: block; margin-bottom: 8px; font-weight: 700; }
+input {
+  width: 100%;
+  padding: 13px 14px;
+  border-radius: 9px;
+  border: 1px solid #3b4250;
+  background: #0f1116;
+  color: white;
+  font-size: 16px;
+}
+button {
+  border: 1px solid #3b4250;
+  background: #252a34;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.results { margin-top: 14px; }
+.song {
+  padding: 14px 0;
+  border-bottom: 1px solid #2a2f3a;
+}
+.song strong, .song span, .song small {
+  display: block;
+}
+.song span { color: #d0d4dc; margin-top: 3px; }
+.song small, li small { color: #8f97a6; margin-top: 4px; }
+ol { margin: 16px 0 0; padding-left: 26px; }
+li { padding: 12px 0; border-bottom: 1px solid #2a2f3a; }
+li div strong, li div span { display: block; }
+a { color: inherit; }

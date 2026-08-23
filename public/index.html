@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StepMania Song Requests</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>StepMania Requests</h1>
+        <p id="stats">Loading library…</p>
+      </div>
+      <a href="https://www.twitch.tv/" target="_blank" rel="noreferrer">Twitch</a>
+    </header>
+
+    <section class="panel">
+      <label for="search">Search songs</label>
+      <input id="search" autocomplete="off" placeholder="Title, artist, subtitle, or pack">
+      <div id="results" class="results"></div>
+    </section>
+
+    <section class="panel">
+      <div class="section-title">
+        <h2>Request Queue</h2>
+        <button id="refresh">Refresh</button>
+      </div>
+      <ol id="queue"></ol>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
