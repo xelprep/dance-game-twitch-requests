@@ -229,7 +229,7 @@ function songMatchesQuery(song, query, allowedFields = ['title','subtitle','arti
   });
 }
 
-function getSongSearchRows(limit = 25, query = "", mode = "all") {
+function getSongSearchRows(limit = 25, query = "", mode = "title_artist") {
   const rows = db.prepare(`SELECT * FROM songs ORDER BY title COLLATE NOCASE`).all();
   let filtered = rows;
   if (query) {
@@ -854,7 +854,7 @@ async function startTmiClient(cfg) {
 
     // If the normalized query uniquely matches a single song title, auto-add it.
     const normalizedArg = normalize(arg);
-    const matches = getSongSearchRows(100, arg, 'all');
+    const matches = getSongSearchRows(100, arg, 'title_artist');
     const exactNormalized = matches.filter(m => normalize(m.title) === normalizedArg);
     if (exactNormalized.length === 1) {
       try {
