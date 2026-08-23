@@ -22,7 +22,13 @@ Used genAI in VSCode to add an OAuth "Connect Twitch" flow and a simple control-
 
 - Node.js 20+
 - A local StepMania Songs directory
-- A Twitch bot account/token
+- A Twitch app
+  - Go to dev.twitch.com and register an application 
+  - Give it any name
+  - Set OAuth Redirect URL to https://localhost:3001/twitch-callback.html
+  - Set Category to Chat Bot
+  - Set Client Type to Confidential
+  - Make note of the Client ID and generate a Client Secret as these will be needed later to authoriza the tool to read and write to your chat 
 
 ## Ports
 
