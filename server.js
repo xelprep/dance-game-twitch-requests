@@ -532,7 +532,7 @@ function createApi(app, options = {}) {
 
     app.post("/api/twitch/start-auth", (req, res) => {
       const clientId = String(req.body.clientId || (twitchConfig && twitchConfig.clientId) || "").trim();
-      const redirectUri = String(req.body.redirectUri || req.body.redirect || `https://localhost:${CONTROL_PORT}/control/twitch-callback.html`).trim();
+      const redirectUri = String(req.body.redirectUri || req.body.redirect || `https://localhost:${CONTROL_PORT}/twitch-callback.html`).trim();
       const scopes = String(req.body.scopes || "chat:read chat:edit");
       if (!clientId || !redirectUri) return res.status(400).json({ error: "clientId and redirectUri are required" });
       const state = Math.random().toString(36).slice(2);
@@ -545,7 +545,7 @@ function createApi(app, options = {}) {
       const code = String(req.body.code || "").trim();
       const clientId = String(req.body.clientId || "").trim();
       const clientSecret = String(req.body.clientSecret || "").trim();
-      const redirectUri = String(req.body.redirectUri || `https://localhost:${CONTROL_PORT}/control/twitch-callback.html`).trim();
+      const redirectUri = String(req.body.redirectUri || `https://localhost:${CONTROL_PORT}/twitch-callback.html`).trim();
       const channel = String(req.body.channel || "").trim();
       if (!code || !clientId || !clientSecret) return res.status(400).json({ error: "code, clientId and clientSecret are required" });
       try {

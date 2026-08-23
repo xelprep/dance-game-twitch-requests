@@ -127,7 +127,7 @@ $("connectTwitch").onclick = async () => {
     sessionStorage.setItem('twitch_clientId', clientId);
     sessionStorage.setItem('twitch_clientSecret', clientSecret);
     if (channel) sessionStorage.setItem('twitch_channel', channel);
-    const redirectUri = `${location.origin}/control/twitch-callback.html`;
+    const redirectUri = `${location.origin}/twitch-callback.html`;
     const r = await api('/api/twitch/start-auth', { method: 'POST', body: JSON.stringify({ clientId, redirectUri, scopes: 'chat:read chat:edit' }) });
     if (r && r.url) window.location = r.url;
   } catch (e) { toast(e.message); }
