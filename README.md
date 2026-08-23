@@ -119,7 +119,7 @@ Viewers use:
 !request song title
 ```
 
-The bot searches title, subtitle, artist, and pack. If exactly one match is found, it is added to the queue.
+The bot searches title, subtitle, artist, and pack. Searches are accent-insensitive, transliterated to plain English characters, and fuzzy enough to catch close misspellings. If exactly one match is found, it is added to the queue.
 
 Examples:
 

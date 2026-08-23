@@ -126,13 +126,102 @@ function refreshDatabase() {
 }
 refreshDatabase();
 
-function normalize(s) {
+function transliterateLatin(s) {
   return String(s || "")
-    .toLowerCase()
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[ß]/g, "ss")
+    .replace(/[æ]/g, "ae")
+    .replace(/[œ]/g, "oe")
+    .replace(/[ø]/g, "o")
+    .replace(/[ð]/g, "d")
+    .replace(/[þ]/g, "th")
+    .replace(/[ł]/g, "l")
+    .replace(/[đ]/g, "d")
+    .replace(/[ħ]/g, "h")
+    .replace(/[ı]/g, "i")
+    .replace(/[ĸ]/g, "k")
+    .replace(/[ŋ]/g, "ng")
+    .replace(/[ŧ]/g, "t")
+    .replace(/[ÆŒØÞ]/g, ch => ({
+      "Æ": "AE",
+      "Œ": "OE",
+      "Ø": "O",
+      "Þ": "TH"
+    }[ch]))
+    .replace(/[\u00A0]/g, " ");
+}
+
+function normalize(s) {
+  return transliterateLatin(s)
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function levenshteinDistance(a, b) {
+  const matrix = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+  for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return matrix[a.length][b.length];
+}
+
+function fuzzyTokenMatches(queryToken, valueToken) {
+  if (!queryToken || !valueToken) return false;
+  if (valueToken.includes(queryToken)) return true;
+  if (queryToken.includes(valueToken) || valueToken.includes(queryToken)) return true;
+  const distance = levenshteinDistance(queryToken, valueToken);
+  const allowedDistance = Math.max(1, Math.min(2, Math.floor(queryToken.length * 0.25), Math.floor(valueToken.length * 0.25)));
+  return distance <= allowedDistance;
+}
+
+function songMatchesQuery(song, query) {
+  const q = normalize(query);
+  if (!q) return true;
+
+  const candidateFields = [
+    song.title,
+    song.subtitle,
+    song.artist,
+    song.pack,
+    [song.title, song.subtitle, song.artist, song.pack].join(" ")
+  ].map((value) => normalize(value));
+
+  const qString = q.trim();
+  if (candidateFields.some((field) => field.includes(qString))) {
+    return true;
+  }
+
+  const qTokens = qString.split(/\s+/).filter(Boolean);
+  if (!qTokens.length) return true;
+
+  return qTokens.every((token) => {
+    return candidateFields.some((field) => {
+      const fieldTokens = field.split(/\s+/).filter(Boolean);
+      if (!fieldTokens.length) return false;
+      if (fieldTokens.some((fieldToken) => fuzzyTokenMatches(token, fieldToken))) return true;
+      return fieldTokens.some((fieldToken) => fieldToken.startsWith(token.slice(0, 2)) && levenshteinDistance(token, fieldToken) <= 2);
+    });
+  });
+}
+
+function getSongSearchRows(limit = 25, query = "") {
+  const rows = db.prepare(`SELECT * FROM songs ORDER BY title COLLATE NOCASE`).all();
+  const filtered = query ? rows.filter((row) => songMatchesQuery(row, query)) : rows;
+  return filtered.slice(0, Math.max(1, limit));
 }
 
 function getQueue(limit = QUEUE_LIMIT) {
@@ -271,24 +360,7 @@ function createApi(app, options = {}) {
     const limit = Math.min(Math.max(Number(req.query.limit || 25), 1), 100);
     if (!q) return res.json([]);
 
-    const tokens = normalize(q).split(/\s+/).filter(Boolean);
-    const where = [];
-    const params = {};
-    tokens.forEach((token, i) => {
-      const key = `q${i}`;
-      params[key] = `%${token}%`;
-      where.push(`(
-        lower(title) LIKE @${key} OR lower(artist) LIKE @${key}
-        OR lower(subtitle) LIKE @${key} OR lower(pack) LIKE @${key}
-      )`);
-    });
-
-    const rows = db.prepare(`
-      SELECT * FROM songs
-      WHERE ${where.join(" AND ")}
-      ORDER BY title COLLATE NOCASE
-      LIMIT ${limit}
-    `).all(params);
+    const rows = getSongSearchRows(limit, q);
     res.json(rows.map(songRow));
   });
 
@@ -307,14 +379,6 @@ function createApi(app, options = {}) {
     if (req.query.genre) {
       where.push("genre = @genre");
       params.genre = String(req.query.genre);
-    }
-    if (req.query.q) {
-      const tokens = normalize(String(req.query.q)).split(/\s+/).filter(Boolean);
-      tokens.forEach((token, i) => {
-        const key = `q${i}`;
-        params[key] = `%${token}%`;
-        where.push(`(lower(title) LIKE @${key} OR lower(artist) LIKE @${key} OR lower(subtitle) LIKE @${key} OR lower(pack) LIKE @${key})`);
-      });
     }
 
     // Chart-based filters: difficulty, meter range
@@ -343,21 +407,17 @@ function createApi(app, options = {}) {
 
     const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
 
-    // Sorting
-    const allowedSort = new Set(["title","artist","pack","last_modified"]);
-    const sort = allowedSort.has(req.query.sort) ? req.query.sort : "title";
+    const sort = (new Set(["title","artist","pack","last_modified"]).has(req.query.sort)) ? req.query.sort : "title";
     const order = (String(req.query.order || "asc").toLowerCase() === "desc") ? "DESC" : "ASC";
     const orderSql = (sort === "last_modified") ? `ORDER BY ${sort} ${order}` : `ORDER BY ${sort} COLLATE NOCASE ${order}`;
 
-    const total = db.prepare(`SELECT COUNT(*) n FROM songs ${whereSql}`).get(params).n;
-    const rows = db.prepare(`
-      SELECT * FROM songs
-      ${whereSql}
-      ${orderSql}
-      LIMIT @limit OFFSET @offset
-    `).all(Object.assign({}, params, { limit: perPage, offset }));
+    const baseRows = db.prepare(`SELECT * FROM songs ${whereSql} ${orderSql}`).all(params);
+    const q = String(req.query.q || "").trim();
+    const rows = q ? baseRows.filter((row) => songMatchesQuery(row, q)) : baseRows;
+    const total = rows.length;
+    const pageRows = rows.slice(offset, offset + perPage);
 
-    res.json({ songs: rows.map(songRow), total, page, perPage });
+    res.json({ songs: pageRows.map(songRow), total, page, perPage });
   });
 
   app.get("/api/song-filters", (_req, res) => {
