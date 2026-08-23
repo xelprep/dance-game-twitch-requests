@@ -17,8 +17,50 @@
     </header>
 
     <section class="panel">
-      <label for="search">Search songs</label>
+      <label for="search">Search or browse songs</label>
       <input id="search" autocomplete="off" placeholder="Title, artist, subtitle, or pack">
+      <div class="filters">
+        <label>Pack
+          <select id="filter-pack"><option value="">All packs</option></select>
+        </label>
+        <label>Genre
+          <select id="filter-genre"><option value="">All genres</option></select>
+        </label>
+        <label>Difficulty
+          <select id="filter-difficulty"><option value="">All difficulties</option></select>
+        </label>
+        <label>Meter
+          <select id="filter-meter-min"><option value="">Min</option></select>
+          <select id="filter-meter-max"><option value="">Max</option></select>
+        </label>
+        <label>Sort
+          <select id="sort-field">
+            <option value="title">Title</option>
+            <option value="artist">Artist</option>
+            <option value="pack">Pack</option>
+            <option value="last_modified">Last modified</option>
+          </select>
+        </label>
+        <label>Order
+          <select id="sort-order">
+            <option value="asc">Asc</option>
+            <option value="desc">Desc</option>
+          </select>
+        </label>
+        <label>Per page
+          <select id="per-page">
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
+        <div class="pager">
+          <button id="prev" disabled>Prev</button>
+          <span id="pageInfo">Page 1</span>
+          <button id="next" disabled>Next</button>
+        </div>
+      </div>
       <div id="results" class="results"></div>
     </section>
 
