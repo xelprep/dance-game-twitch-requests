@@ -119,7 +119,12 @@ Viewers use:
 !request song title
 ```
 
-The bot searches title, subtitle, artist, and pack. Searches are accent-insensitive, transliterated to plain English characters, and fuzzy enough to catch close misspellings. If exactly one match is found, it is added to the queue.
+The viewer text search on the public page only matches song title or artist (use the dropdowns to filter by pack, genre, difficulty, or meter). Searches are accent-insensitive and fuzzy when matching, but the public text box will not search subtitle or pack to reduce irrelevant results.
+
+In chat, viewers can discover songs and then request by a unique numeric ID. Viewers use:
+
+- `!request <query>` — the bot will attempt to auto-add if the normalized query uniquely matches a single song title; otherwise it returns the top 3 matches along with their numeric IDs so viewers can choose an explicit ID. Example reply: `123 - "Some Song" by Artist | 456 - "Another" by Artist2`.
+- `!requestid <id>` — request a song explicitly by its numeric ID; this will add it to the queue if allowed.
 
 Examples:
 

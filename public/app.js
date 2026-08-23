@@ -18,7 +18,7 @@ function songCard(song) {
     <div>
       <strong>${escapeHTML(song.title)}</strong>
       ${song.subtitle ? `<span>${escapeHTML(song.subtitle)}</span>` : ""}
-      <small>${escapeHTML(song.artist)} ${song.pack ? "• " + escapeHTML(song.pack) : ""}</small>
+      <small>ID: ${escapeHTML(String(song.id))} • ${escapeHTML(song.artist)} ${song.pack ? "• " + escapeHTML(song.pack) : ""}</small>
       <small>${escapeHTML(charts)}</small>
     </div>
   `;
