@@ -54,12 +54,29 @@ function parseNotesBlocks(text) {
   return charts;
 }
 
-function readSongFile(filePath) {
+function readPackIniDisplayTitle(packDir) {
+  const iniNames = ["pack.ini", "Pack.ini"];
+  for (const fileName of iniNames) {
+    const iniPath = path.join(packDir, fileName);
+    if (!fs.existsSync(iniPath)) continue;
+
+    const text = fs.readFileSync(iniPath, "utf8");
+    const match = text.match(/^[\s\r\n]*DisplayTitle\s*[:=]\s*(.+?)\s*$/im);
+    if (!match) continue;
+
+    const value = match[1].trim();
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function readSongFile(filePath, packOverride) {
   const text = fs.readFileSync(filePath, "utf8");
   const tags = parseTags(text);
 
   const stat = fs.statSync(filePath);
-  const pack = path.basename(path.dirname(filePath));
+  const pack = packOverride || path.basename(path.dirname(filePath));
 
   return {
     filePath,
@@ -74,23 +91,37 @@ function readSongFile(filePath) {
   };
 }
 
-function walk(dir) {
-  const out = [];
-  if (!fs.existsSync(dir)) return out;
+function collectSongFiles(songsDir) {
+  const files = [];
+  if (!fs.existsSync(songsDir)) return files;
 
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      out.push(...walk(full));
-    } else if (entry.isFile() && /\.(sm|ssc)$/i.test(entry.name)) {
-      out.push(full);
+  for (const packEntry of fs.readdirSync(songsDir, { withFileTypes: true })) {
+    if (!packEntry.isDirectory()) continue;
+
+    const packDir = path.join(songsDir, packEntry.name);
+    for (const songEntry of fs.readdirSync(packDir, { withFileTypes: true })) {
+      if (!songEntry.isDirectory()) continue;
+
+      const songDir = path.join(packDir, songEntry.name);
+      const songFiles = [];
+      for (const fileEntry of fs.readdirSync(songDir, { withFileTypes: true })) {
+        if (fileEntry.isFile() && /\.(sm|ssc)$/i.test(fileEntry.name)) {
+          songFiles.push(path.join(songDir, fileEntry.name));
+        }
+      }
+
+      if (!songFiles.length) continue;
+
+      const preferredFile = songFiles.find(file => /\.ssc$/i.test(file)) || songFiles[0];
+      files.push(preferredFile);
     }
   }
-  return out;
+
+  return files.sort();
 }
 
 function scanSongs(songsDir, db) {
-  const files = walk(songsDir);
+  const files = collectSongFiles(songsDir);
   const seen = new Set();
 
   const upsertSong = db.prepare(`
@@ -119,7 +150,10 @@ function scanSongs(songsDir, db) {
   const tx = db.transaction(() => {
     for (const filePath of files) {
       const normalizedPath = path.resolve(filePath);
-      const song = readSongFile(normalizedPath);
+      const relativePath = path.relative(songsDir, normalizedPath);
+      const packDir = path.join(songsDir, relativePath.split(path.sep)[0] || "");
+      const pack = readPackIniDisplayTitle(packDir) || (relativePath.split(path.sep)[0] || "");
+      const song = readSongFile(normalizedPath, pack);
 
       upsertSong.run(song);
       const row = getSong.get(normalizedPath);
