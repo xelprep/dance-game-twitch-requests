@@ -14,6 +14,10 @@ A small local application that:
 
 This version adds a dedicated streamer control panel on a separate port.
 
+## StepMania Twitch Requests — V3
+
+Used genAI in VSCode to add an OAuth "Connect Twitch" flow and a simple control-panel UI to the control site so you can connect the bot from the browser instead of manually creating/managing tokens. At this point in the tool's lifecycle, I still haven't even bothered attempting to run this yet.
+
 ## Requirements
 
 - Node.js 20+

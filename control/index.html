@@ -34,6 +34,31 @@
 </section>
 
 <section class="panel">
+  <div class="section-head"><h2>Twitch</h2></div>
+  <div class="twitch-form">
+    <p class="muted">Quick guide: You may authorize either the streamer&apos;s account (messages will appear as the streamer) or a separate bot account (messages appear from the bot). See the note below before connecting.</p>
+    <div class="twitch-note">
+      <strong>Streamer vs Bot account</strong>
+      <ul>
+        <li><strong>Streamer account</strong>: Authorize the streamer to make the bot send messages as the streamer (useful if you want requests to appear from the streamer). This requires the streamer to sign in.</li>
+        <li><strong>Bot account</strong>: Create a dedicated bot account, authorize it, and it will send messages as the bot. This is recommended for production since it separates broadcaster credentials from bot activity.</li>
+      </ul>
+    </div>
+
+    <label>Client ID: <input id="twitchClientId" placeholder="Twitch app client ID"></label>
+    <label>Client Secret: <input id="twitchClientSecret" placeholder="Twitch app client secret" type="password"></label>
+    <label>Channel (optional): <input id="twitchChannel" placeholder="channel name (defaults to connected user)"></label>
+    <div class="twitch-actions">
+      <button id="checkTwitch">Check Status</button>
+      <button id="connectTwitch">Connect Twitch</button>
+      <button id="disconnectTwitch">Disconnect</button>
+    </div>
+    <div id="twitchStatus" class="muted">Not connected</div>
+    <p class="small muted">Note: The Client Secret is temporarily stored in your browser during authorization and then persisted to the server in <code>data/twitch.json</code> so the server can automatically refresh tokens. Keep that file secure or use the Disconnect button to remove stored credentials.</p>
+  </div>
+</section>
+
+<section class="panel">
   <div class="section-head"><h2>Blacklist</h2></div>
   <div class="blacklist-form">
     <input id="blackUser" placeholder="Twitch username">

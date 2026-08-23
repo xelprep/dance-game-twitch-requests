@@ -102,5 +102,44 @@ $("rescan").onclick = async () => {
 $("addUser").onclick = () => blackUser($("blackUser").value.trim());
 $("refresh").onclick = render;
 
+async function renderTwitch() {
+  try {
+    const status = await api('/api/twitch/status');
+    if (status.configured) {
+      $("twitchStatus").textContent = (status.connected ? `Connected as ${status.username} to #${status.channel}` : `Configured for ${status.clientId}${status.username ? ' (' + status.username + ')' : ''}`);
+    } else {
+      $("twitchStatus").textContent = 'Not connected';
+    }
+  } catch (e) {
+    $("twitchStatus").textContent = 'Twitch status unavailable';
+  }
+}
+
+$("checkTwitch").onclick = async () => { try { await renderTwitch(); toast('Checked Twitch status.'); } catch(e){toast(e.message)} };
+
+$("connectTwitch").onclick = async () => {
+  const clientId = $("twitchClientId").value.trim();
+  const clientSecret = $("twitchClientSecret").value.trim();
+  const channel = $("twitchChannel").value.trim();
+  if (!clientId || !clientSecret) { toast('Client ID and secret required'); return; }
+  try {
+    // store the secret in sessionStorage temporarily so the callback can complete the exchange
+    sessionStorage.setItem('twitch_clientId', clientId);
+    sessionStorage.setItem('twitch_clientSecret', clientSecret);
+    if (channel) sessionStorage.setItem('twitch_channel', channel);
+    const redirectUri = `${location.origin}/control/twitch-callback.html`;
+    const r = await api('/api/twitch/start-auth', { method: 'POST', body: JSON.stringify({ clientId, redirectUri, scopes: 'chat:read chat:edit' }) });
+    if (r && r.url) window.location = r.url;
+  } catch (e) { toast(e.message); }
+};
+
+$("disconnectTwitch").onclick = async () => {
+  if (!confirm('Disconnect the Twitch bot and remove stored credentials?')) return;
+  try { await api('/api/twitch/disconnect', { method: 'POST' }); toast('Disconnected.'); render(); renderTwitch(); }
+  catch(e){toast(e.message)}
+};
+
 render();
+renderTwitch();
 setInterval(render, 2500);
+setInterval(renderTwitch, 5000);

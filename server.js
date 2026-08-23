@@ -374,6 +374,92 @@ function createApi(app, options = {}) {
         res.status(500).json({ error: e.message });
       }
     });
+
+    // Twitch control endpoints for the control panel OAuth flow.
+    app.get("/api/twitch/status", (_req, res) => {
+      const cfg = twitchConfig || loadTwitchConfig();
+      res.json({
+        configured: !!cfg,
+        connected: !!twitchClient,
+        channel: cfg ? cfg.channel : null,
+        username: cfg ? cfg.username : null,
+        clientId: cfg ? cfg.clientId : null
+      });
+    });
+
+    app.post("/api/twitch/start-auth", (req, res) => {
+      const clientId = String(req.body.clientId || (twitchConfig && twitchConfig.clientId) || "").trim();
+      const redirectUri = String(req.body.redirectUri || req.body.redirect || `http://localhost:${CONTROL_PORT}/control/twitch-callback`).trim();
+      const scopes = String(req.body.scopes || "chat:read chat:edit");
+      if (!clientId || !redirectUri) return res.status(400).json({ error: "clientId and redirectUri are required" });
+      const state = Math.random().toString(36).slice(2);
+      twitchAuthStates.add(state);
+      const url = `https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${encodeURIComponent(state)}`;
+      res.json({ url, state });
+    });
+
+    app.post("/api/twitch/exchange", async (req, res) => {
+      const code = String(req.body.code || "").trim();
+      const clientId = String(req.body.clientId || "").trim();
+      const clientSecret = String(req.body.clientSecret || "").trim();
+      const redirectUri = String(req.body.redirectUri || `http://localhost:${CONTROL_PORT}/control/twitch-callback`).trim();
+      const channel = String(req.body.channel || "").trim();
+      if (!code || !clientId || !clientSecret) return res.status(400).json({ error: "code, clientId and clientSecret are required" });
+      try {
+        // Exchange code for token
+        const params = new URLSearchParams();
+        params.append("client_id", clientId);
+        params.append("client_secret", clientSecret);
+        params.append("code", code);
+        params.append("grant_type", "authorization_code");
+        params.append("redirect_uri", redirectUri);
+
+        const tokenResp = await globalThis.fetch("https://id.twitch.tv/oauth2/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: params
+        });
+        const tokenJson = await tokenResp.json();
+        if (!tokenJson.access_token) return res.status(400).json({ error: "Token exchange failed", details: tokenJson });
+
+        // Fetch user info
+        const userResp = await globalThis.fetch("https://api.twitch.tv/helix/users", {
+          headers: { Authorization: `Bearer ${tokenJson.access_token}`, "Client-Id": clientId }
+        });
+        const userJson = await userResp.json();
+        const login = (userJson && userJson.data && userJson.data[0] && userJson.data[0].login) || null;
+        const finalChannel = channel || login;
+
+        const cfg = {
+          clientId,
+          clientSecret,
+          accessToken: tokenJson.access_token,
+          refreshToken: tokenJson.refresh_token,
+          expiresAt: tokenJson.expires_in ? Date.now() + (Number(tokenJson.expires_in) * 1000) : null,
+          username: login,
+          channel: finalChannel
+        };
+        saveTwitchConfig(cfg);
+        await startTmiClient(cfg);
+        // Schedule automatic token refresh if supported
+        scheduleTwitchRefresh();
+        res.json({ ok: true, cfg: { username: cfg.username, channel: cfg.channel } });
+      } catch (e) {
+        console.error("Twitch exchange error:", e);
+        res.status(500).json({ error: e.message });
+      }
+    });
+
+    app.post("/api/twitch/disconnect", async (_req, res) => {
+      try {
+        await stopTmiClient();
+        if (fs.existsSync(TWITCH_DATA_FILE)) fs.unlinkSync(TWITCH_DATA_FILE);
+        twitchConfig = null;
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(500).json({ error: e.message });
+      }
+    });
   }
 }
 
@@ -391,18 +477,114 @@ controlApp.listen(CONTROL_PORT, CONTROL_HOST, () => {
   console.log(`Streamer control panel: http://${CONTROL_HOST === "0.0.0.0" ? "localhost" : CONTROL_HOST}:${CONTROL_PORT}`);
 });
 
-const twitchUsername = process.env.TWITCH_USERNAME;
-const oauthToken = process.env.TWITCH_OAUTH_TOKEN;
-const channel = (process.env.TWITCH_CHANNEL || "").replace(/^#/, "");
+// Twitch connection and OAuth helper support.
+const TWITCH_DATA_FILE = path.resolve("./data/twitch.json");
+let twitchClient = null;
+let twitchConfig = null; // loaded config (clientId, clientSecret, username, channel, accessToken...)
+const twitchAuthStates = new Set();
 
-if (twitchUsername && oauthToken && channel) {
+function saveTwitchConfig(cfg) {
+  fs.mkdirSync(path.dirname(TWITCH_DATA_FILE), { recursive: true });
+  fs.writeFileSync(TWITCH_DATA_FILE, JSON.stringify(cfg, null, 2));
+  twitchConfig = cfg;
+}
+
+function loadTwitchConfig() {
+  try {
+    if (fs.existsSync(TWITCH_DATA_FILE)) {
+      twitchConfig = JSON.parse(fs.readFileSync(TWITCH_DATA_FILE, "utf8"));
+      return twitchConfig;
+    }
+  } catch (e) {
+    console.error("Failed to load twitch config:", e.message);
+  }
+  twitchConfig = null;
+  return null;
+}
+
+let twitchRefreshTimer = null;
+
+function clearTwitchRefreshTimer() {
+  if (twitchRefreshTimer) {
+    clearTimeout(twitchRefreshTimer);
+    twitchRefreshTimer = null;
+  }
+}
+
+async function refreshTwitchToken() {
+  const cfg = twitchConfig || loadTwitchConfig();
+  if (!cfg || !cfg.refreshToken || !cfg.clientId || !cfg.clientSecret) {
+    console.warn('Twitch token refresh skipped: missing refresh token or client credentials.');
+    return false;
+  }
+
+  try {
+    console.log('Refreshing Twitch access token...');
+    const params = new URLSearchParams();
+    params.append('grant_type', 'refresh_token');
+    params.append('refresh_token', cfg.refreshToken);
+    params.append('client_id', cfg.clientId);
+    params.append('client_secret', cfg.clientSecret);
+
+    const resp = await globalThis.fetch('https://id.twitch.tv/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params
+    });
+    const json = await resp.json();
+    if (!json.access_token) {
+      console.error('Twitch refresh failed:', json);
+      return false;
+    }
+
+    cfg.accessToken = json.access_token;
+    if (json.refresh_token) cfg.refreshToken = json.refresh_token;
+    cfg.expiresAt = json.expires_in ? Date.now() + Number(json.expires_in) * 1000 : null;
+    saveTwitchConfig(cfg);
+
+    // restart client with new token
+    await startTmiClient(cfg);
+    scheduleTwitchRefresh();
+    console.log('Twitch access token refreshed.');
+    return true;
+  } catch (e) {
+    console.error('Error refreshing Twitch token:', e.message || e);
+    return false;
+  }
+}
+
+function scheduleTwitchRefresh() {
+  clearTwitchRefreshTimer();
+  const cfg = twitchConfig || loadTwitchConfig();
+  if (!cfg || !cfg.expiresAt) return;
+  const msUntilExpiry = cfg.expiresAt - Date.now();
+  // Refresh 60s before expiry or in 1s if already expired
+  const refreshIn = Math.max(1000, msUntilExpiry - 60000);
+  twitchRefreshTimer = setTimeout(() => {
+    refreshTwitchToken().catch(err => console.error('Scheduled refresh failed:', err));
+  }, refreshIn);
+}
+
+async function startTmiClient(cfg) {
+  if (!cfg || !cfg.accessToken || !cfg.channel) {
+    console.warn("Twitch client not started: missing config.");
+    return;
+  }
+
+  if (twitchClient) {
+    try { await twitchClient.disconnect(); } catch (e) {}
+    twitchClient = null;
+  }
+
+  const identityPassword = String(cfg.accessToken).startsWith("oauth:") ? cfg.accessToken : `oauth:${cfg.accessToken}`;
   const client = new tmi.Client({
     options: { debug: false },
-    identity: { username: twitchUsername, password: oauthToken },
-    channels: [channel]
+    identity: { username: cfg.username || (cfg.channel || "").replace(/^#/, ""), password: identityPassword },
+    channels: [cfg.channel]
   });
 
-  client.connect().then(() => console.log(`Twitch bot connected to #${channel}`))
+  twitchClient = client;
+  client.connect().then(() => console.log(`Twitch bot connected to #${cfg.channel}`))
     .catch(err => console.error("Twitch connection failed:", err.message));
 
   client.on("message", async (_channel, tags, message, self) => {
@@ -416,11 +598,11 @@ if (twitchUsername && oauthToken && channel) {
 
     if (command !== REQUEST_COMMAND) return;
     if (!arg) {
-      await client.say(channel, `@${display}, usage: ${PREFIX}${REQUEST_COMMAND} <song title or artist>`);
+      await client.say(cfg.channel, `@${display}, usage: ${PREFIX}${REQUEST_COMMAND} <song title or artist>`);
       return;
     }
     if (!canRequest(tags.username)) {
-      await client.say(channel, `@${display}, you already have the maximum number of active requests.`);
+      await client.say(cfg.channel, `@${display}, you already have the maximum number of active requests.`);
       return;
     }
 
@@ -444,22 +626,73 @@ if (twitchUsername && oauthToken && channel) {
     `).all({ ...params, exact: arg });
 
     if (!matches.length) {
-      await client.say(channel, `@${display}, no song matched "${arg}".`);
+      await client.say(cfg.channel, `@${display}, no song matched "${arg}".`);
       return;
     }
     if (matches.length > 1) {
       const names = matches.slice(0, 3).map(s => `"${s.title}"`).join(", ");
-      await client.say(channel, `@${display}, multiple matches: ${names}. Be more specific.`);
+      await client.say(cfg.channel, `@${display}, multiple matches: ${names}. Be more specific.`);
       return;
     }
 
     try {
       const r = addRequest(matches[0].id, tags.username, display);
-      await client.say(channel, `@${display}, added "${r.song.title}" to the request queue!`);
+      await client.say(cfg.channel, `@${display}, added "${r.song.title}" to the request queue!`);
     } catch (e) {
-      await client.say(channel, `@${display}, ${e.message}`);
+      await client.say(cfg.channel, `@${display}, ${e.message}`);
     }
   });
-} else {
-  console.warn("Twitch bot disabled: set TWITCH_USERNAME, TWITCH_OAUTH_TOKEN and TWITCH_CHANNEL.");
+  // Schedule a refresh if we have expiry information
+  scheduleTwitchRefresh();
 }
+
+async function stopTmiClient() {
+  if (twitchClient) {
+    try { await twitchClient.disconnect(); } catch (e) { /* ignore */ }
+    twitchClient = null;
+  }
+  clearTwitchRefreshTimer();
+}
+
+// Load config from disk or environment and start client if present.
+(function initializeTwitch() {
+  // Environment variables take precedence; if present write them to persistent config.
+  const envUsername = process.env.TWITCH_USERNAME;
+  const envOauth = process.env.TWITCH_OAUTH_TOKEN;
+  const envChannel = (process.env.TWITCH_CHANNEL || "").replace(/^#/, "");
+  const envClientId = process.env.TWITCH_CLIENT_ID || null;
+  const envClientSecret = process.env.TWITCH_CLIENT_SECRET || null;
+
+  if (envUsername && envOauth && envChannel) {
+    saveTwitchConfig({ username: envUsername, accessToken: String(envOauth).replace(/^oauth:/, ""), channel: envChannel, clientId: envClientId, clientSecret: envClientSecret });
+  }
+
+  const cfg = loadTwitchConfig();
+  if (cfg && cfg.accessToken && cfg.channel) {
+    startTmiClient(cfg);
+    scheduleTwitchRefresh();
+  } else {
+    console.warn("Twitch bot disabled: set TWITCH_USERNAME, TWITCH_OAUTH_TOKEN and TWITCH_CHANNEL, or use the control panel to connect.");
+  }
+})();
+
+// Control-panel API endpoints for OAuth flow.
+if (true) {
+  // These endpoints are registered inside createApi when options.control is true.
+  // We'll attach handlers below by decorating createApi's control block. To do this,
+  // monkey-patch createApi by re-opening the control-app handlers earlier is not necessary;
+  // instead, re-register routes on a new express.Router when control app is created.
+  // However, for simplicity, add a middleware that will be used in the control app.
+}
+
+// Attach control-specific Twitch endpoints when control mode is initialized.
+// Find place where createApi registers control routes and add more routes there.
+(function augmentControlApi() {
+  // We will patch the createApi function's behavior by adding routes to controlApp after it's created.
+  // The actual controlApp is created later; expose a small helper on exports to allow adding routes then.
+  // Instead, monkey-patch express.static stack by adding a small property so we can find controlApp.
+})();
+
+// Note: The control API endpoints will be attached directly below when the control app is available.
+
+// End of Twitch section
