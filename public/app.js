@@ -26,22 +26,8 @@ function songCard(song) {
 }
 
 async function search() {
-  const q = $("search").value.trim();
-  const results = $("results");
-  results.replaceChildren();
-
-  if (!q) return;
-
-  try {
-    const songs = await getJSON(`/api/search?q=${encodeURIComponent(q)}&limit=25`);
-    if (!songs.length) {
-      results.textContent = "No matches.";
-      return;
-    }
-    songs.forEach(song => results.appendChild(songCard(song)));
-  } catch (e) {
-    results.textContent = e.message;
-  }
+  // use the unified /api/songs endpoint which supports q + filters
+  loadSongs(1);
 }
 
 async function queue() {
@@ -88,16 +74,150 @@ function escapeHTML(value) {
   }[c]));
 }
 
+// Browsing / filtering state
 let timer;
+let currentPage = 1;
+let totalPages = 1;
+
+function getPerPage() {
+  return Number($('per-page').value) || 25;
+}
+
 $("search").addEventListener("input", () => {
   clearTimeout(timer);
-  timer = setTimeout(search, 180);
+  timer = setTimeout(() => {
+    loadSongs(1);
+  }, 180);
 });
+
+['filter-pack','filter-genre','filter-difficulty','filter-meter-min','filter-meter-max','sort-field','sort-order','per-page'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', () => loadSongs(1));
+});
+
+$('prev').addEventListener('click', () => { if (currentPage > 1) loadSongs(currentPage - 1); });
+$('next').addEventListener('click', () => { if (currentPage < totalPages) loadSongs(currentPage + 1); });
 
 $("refresh").addEventListener("click", queue);
 
+async function getFilters() {
+  try {
+    const f = await getJSON('/api/song-filters');
+    const packSel = $('filter-pack');
+    const genreSel = $('filter-genre');
+    const diffSel = $('filter-difficulty');
+    const meterMinSel = $('filter-meter-min');
+    const meterMaxSel = $('filter-meter-max');
+
+    // Clear existing (keep the first "All"/Min option)
+    packSel.querySelectorAll('option:not([value=""])').forEach(n => n.remove());
+    genreSel.querySelectorAll('option:not([value=""])').forEach(n => n.remove());
+    diffSel.querySelectorAll('option:not([value=""])').forEach(n => n.remove());
+    meterMinSel.querySelectorAll('option:not([value=""])').forEach(n => n.remove());
+    meterMaxSel.querySelectorAll('option:not([value=""])').forEach(n => n.remove());
+
+    (f.packs || []).forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.pack;
+      opt.textContent = `${p.pack} (${p.count})`;
+      packSel.appendChild(opt);
+    });
+
+    (f.genres || []).forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = g.genre;
+      opt.textContent = `${g.genre} (${g.count})`;
+      genreSel.appendChild(opt);
+    });
+
+    (f.difficulties || []).forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.difficulty;
+      opt.textContent = `${d.difficulty} (${d.count})`;
+      diffSel.appendChild(opt);
+    });
+
+    // meters are returned as {meter, count}
+    const meters = (f.meters || []).map(m => ({ meter: Number(m.meter), count: m.count }))
+      .filter(m => !Number.isNaN(m.meter))
+      .sort((a,b) => a.meter - b.meter);
+
+    meters.forEach(m => {
+      const optMin = document.createElement('option');
+      optMin.value = String(m.meter);
+      optMin.textContent = String(m.meter);
+      meterMinSel.appendChild(optMin);
+
+      const optMax = document.createElement('option');
+      optMax.value = String(m.meter);
+      optMax.textContent = String(m.meter);
+      meterMaxSel.appendChild(optMax);
+    });
+  } catch (e) {
+    console.error('Failed to load filters', e);
+  }
+}
+
+async function loadSongs(page = 1) {
+  const results = $('results');
+  results.replaceChildren();
+
+  const pack = $('filter-pack').value;
+  const genre = $('filter-genre').value;
+  const difficulty = $('filter-difficulty').value;
+  const meterMin = $('filter-meter-min').value;
+  const meterMax = $('filter-meter-max').value;
+  const sort = $('sort-field').value;
+  const order = $('sort-order').value;
+  const q = $('search').value.trim();
+  const perPage = getPerPage();
+
+  const params = new URLSearchParams();
+  params.set('page', page);
+  params.set('perPage', perPage);
+  if (pack) params.set('pack', pack);
+  if (genre) params.set('genre', genre);
+  if (difficulty) params.set('difficulty', difficulty);
+  if (meterMin) params.set('meterMin', meterMin);
+  if (meterMax) params.set('meterMax', meterMax);
+  if (sort) params.set('sort', sort);
+  if (order) params.set('order', order);
+  if (q) params.set('q', q);
+
+  try {
+    const res = await getJSON(`/api/songs?${params.toString()}`);
+    const songs = res.songs || [];
+    const total = res.total || 0;
+    currentPage = res.page || page;
+    totalPages = Math.max(1, Math.ceil(total / (res.perPage || perPage)));
+
+    if (!songs.length) {
+      results.textContent = 'No songs.';
+      updatePager();
+      return;
+    }
+
+    songs.forEach(song => results.appendChild(songCard(song)));
+    updatePager();
+  } catch (e) {
+    results.textContent = e.message;
+    updatePager();
+  }
+}
+
+function updatePager() {
+  const prev = $('prev');
+  const next = $('next');
+  const info = $('pageInfo');
+  prev.disabled = currentPage <= 1;
+  next.disabled = currentPage >= totalPages;
+  info.textContent = `Page ${currentPage} of ${totalPages}`;
+}
+
 stats();
 queue();
+getFilters();
+loadSongs(1);
 setInterval(() => {
   queue();
   stats();

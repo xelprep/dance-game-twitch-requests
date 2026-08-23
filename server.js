@@ -246,6 +246,103 @@ function createApi(app, options = {}) {
     res.json(rows.map(songRow));
   });
 
+  // Browse songs with pagination and optional filters
+  app.get("/api/songs", (req, res) => {
+    const page = Math.max(1, Number(req.query.page || 1));
+    const perPage = Math.min(100, Math.max(1, Number(req.query.perPage || 25)));
+    const offset = (page - 1) * perPage;
+    const where = [];
+    const params = {};
+
+    if (req.query.pack) {
+      where.push("pack = @pack");
+      params.pack = String(req.query.pack);
+    }
+    if (req.query.genre) {
+      where.push("genre = @genre");
+      params.genre = String(req.query.genre);
+    }
+    if (req.query.q) {
+      const tokens = normalize(String(req.query.q)).split(/\s+/).filter(Boolean);
+      tokens.forEach((token, i) => {
+        const key = `q${i}`;
+        params[key] = `%${token}%`;
+        where.push(`(lower(title) LIKE @${key} OR lower(artist) LIKE @${key} OR lower(subtitle) LIKE @${key} OR lower(pack) LIKE @${key})`);
+      });
+    }
+
+    // Chart-based filters: difficulty, meter range
+    const chartWhere = [];
+    if (req.query.difficulty) {
+      chartWhere.push("difficulty = @difficulty");
+      params.difficulty = String(req.query.difficulty);
+    }
+    const meterMin = (typeof req.query.meterMin !== 'undefined' && req.query.meterMin !== '') ? Number(req.query.meterMin) : null;
+    const meterMax = (typeof req.query.meterMax !== 'undefined' && req.query.meterMax !== '') ? Number(req.query.meterMax) : null;
+    if (meterMin !== null && meterMax !== null) {
+      chartWhere.push("CAST(meter AS INTEGER) BETWEEN @meterMin AND @meterMax");
+      params.meterMin = meterMin;
+      params.meterMax = meterMax;
+    } else if (meterMin !== null) {
+      chartWhere.push("CAST(meter AS INTEGER) >= @meterMin");
+      params.meterMin = meterMin;
+    } else if (meterMax !== null) {
+      chartWhere.push("CAST(meter AS INTEGER) <= @meterMax");
+      params.meterMax = meterMax;
+    }
+
+    if (chartWhere.length) {
+      where.push(`id IN (SELECT song_id FROM charts WHERE ${chartWhere.join(" AND ")})`);
+    }
+
+    const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
+
+    // Sorting
+    const allowedSort = new Set(["title","artist","pack","last_modified"]);
+    const sort = allowedSort.has(req.query.sort) ? req.query.sort : "title";
+    const order = (String(req.query.order || "asc").toLowerCase() === "desc") ? "DESC" : "ASC";
+    const orderSql = (sort === "last_modified") ? `ORDER BY ${sort} ${order}` : `ORDER BY ${sort} COLLATE NOCASE ${order}`;
+
+    const total = db.prepare(`SELECT COUNT(*) n FROM songs ${whereSql}`).get(params).n;
+    const rows = db.prepare(`
+      SELECT * FROM songs
+      ${whereSql}
+      ${orderSql}
+      LIMIT @limit OFFSET @offset
+    `).all(Object.assign({}, params, { limit: perPage, offset }));
+
+    res.json({ songs: rows.map(songRow), total, page, perPage });
+  });
+
+  app.get("/api/song-filters", (_req, res) => {
+    const packs = db.prepare(`
+      SELECT pack, COUNT(*) count FROM songs
+      WHERE pack IS NOT NULL AND pack != ''
+      GROUP BY pack ORDER BY count DESC
+      LIMIT 200
+    `).all();
+    const genres = db.prepare(`
+      SELECT genre, COUNT(*) count FROM songs
+      WHERE genre IS NOT NULL AND genre != ''
+      GROUP BY genre ORDER BY count DESC
+      LIMIT 200
+    `).all();
+
+    const difficulties = db.prepare(`
+      SELECT difficulty, COUNT(DISTINCT song_id) count FROM charts
+      WHERE difficulty IS NOT NULL AND difficulty != ''
+      GROUP BY difficulty ORDER BY count DESC LIMIT 200
+    `).all();
+
+    const meters = db.prepare(`
+      SELECT CAST(meter AS INTEGER) meter, COUNT(DISTINCT song_id) count FROM charts
+      WHERE meter IS NOT NULL AND trim(meter) != ''
+      GROUP BY meter ORDER BY meter ASC LIMIT 200
+    `).all();
+
+    res.json({ packs, genres, difficulties, meters });
+  });
+
   app.get("/api/queue", (_req, res) => res.json(getQueue()));
   app.get("/api/now-playing", (_req, res) => res.json(getNowPlaying()));
 
