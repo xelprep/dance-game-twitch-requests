@@ -3,7 +3,9 @@ require("dotenv").config();
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
+const https = require("https");
 const Database = require("better-sqlite3");
+const selfsigned = require("selfsigned");
 const tmi = require("tmi.js");
 const { scanSongs } = require("./scanner");
 
@@ -18,8 +20,52 @@ const MAX_REQUESTS_PER_USER = Number(process.env.MAX_REQUESTS_PER_USER || 2);
 const QUEUE_LIMIT = Number(process.env.QUEUE_LIMIT || 25);
 const ALLOW_WEB_REQUESTS = String(process.env.ALLOW_WEB_REQUESTS).toLowerCase() === "true";
 const CONTROL_PASSWORD = process.env.CONTROL_PASSWORD || "";
+const CONTROL_TLS_DIR = path.resolve("./data/control-panel");
+const CONTROL_TLS_KEY_PATH = path.join(CONTROL_TLS_DIR, "key.pem");
+const CONTROL_TLS_CERT_PATH = path.join(CONTROL_TLS_DIR, "cert.pem");
 
 fs.mkdirSync(path.resolve("./data"), { recursive: true });
+
+function getControlTlsOptions() {
+  fs.mkdirSync(CONTROL_TLS_DIR, { recursive: true });
+  if (fs.existsSync(CONTROL_TLS_KEY_PATH) && fs.existsSync(CONTROL_TLS_CERT_PATH)) {
+    return {
+      key: fs.readFileSync(CONTROL_TLS_KEY_PATH, "utf8"),
+      cert: fs.readFileSync(CONTROL_TLS_CERT_PATH, "utf8")
+    };
+  }
+
+  const altNames = [
+    { type: 2, value: "localhost" },
+    { type: 7, ip: "127.0.0.1" },
+    { type: 7, ip: "::1" },
+    { type: 2, value: "0.0.0.0" },
+    { type: 2, value: "127.0.0.1" }
+  ];
+  if (CONTROL_HOST && CONTROL_HOST !== "0.0.0.0") {
+    const ipLike = /^\d+(?:\.\d+){3}$/.test(CONTROL_HOST);
+    altNames.push(ipLike ? { type: 7, ip: CONTROL_HOST } : { type: 2, value: CONTROL_HOST });
+  }
+  if (HOST && HOST !== "0.0.0.0") {
+    const ipLike = /^\d+(?:\.\d+){3}$/.test(HOST);
+    altNames.push(ipLike ? { type: 7, ip: HOST } : { type: 2, value: HOST });
+  }
+
+  const cert = selfsigned.generate(
+    [{ name: "commonName", value: "localhost" }],
+    {
+      algorithm: "sha256",
+      keySize: 2048,
+      days: 365,
+      extensions: [{ name: "subjectAltName", altNames }]
+    }
+  );
+
+  fs.writeFileSync(CONTROL_TLS_KEY_PATH, cert.private);
+  fs.writeFileSync(CONTROL_TLS_CERT_PATH, cert.cert);
+
+  return { key: cert.private, cert: cert.cert };
+}
 const db = new Database(path.resolve("./data/stepmania.db"));
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
@@ -486,7 +532,7 @@ function createApi(app, options = {}) {
 
     app.post("/api/twitch/start-auth", (req, res) => {
       const clientId = String(req.body.clientId || (twitchConfig && twitchConfig.clientId) || "").trim();
-      const redirectUri = String(req.body.redirectUri || req.body.redirect || `http://localhost:${CONTROL_PORT}/control/twitch-callback`).trim();
+      const redirectUri = String(req.body.redirectUri || req.body.redirect || `https://localhost:${CONTROL_PORT}/control/twitch-callback.html`).trim();
       const scopes = String(req.body.scopes || "chat:read chat:edit");
       if (!clientId || !redirectUri) return res.status(400).json({ error: "clientId and redirectUri are required" });
       const state = Math.random().toString(36).slice(2);
@@ -499,7 +545,7 @@ function createApi(app, options = {}) {
       const code = String(req.body.code || "").trim();
       const clientId = String(req.body.clientId || "").trim();
       const clientSecret = String(req.body.clientSecret || "").trim();
-      const redirectUri = String(req.body.redirectUri || `http://localhost:${CONTROL_PORT}/control/twitch-callback`).trim();
+      const redirectUri = String(req.body.redirectUri || `https://localhost:${CONTROL_PORT}/control/twitch-callback.html`).trim();
       const channel = String(req.body.channel || "").trim();
       if (!code || !clientId || !clientSecret) return res.status(400).json({ error: "code, clientId and clientSecret are required" });
       try {
@@ -570,8 +616,10 @@ publicApp.listen(PORT, HOST, () => {
 const controlApp = express();
 controlApp.use(express.static(path.join(__dirname, "control")));
 createApi(controlApp, { control: true });
-controlApp.listen(CONTROL_PORT, CONTROL_HOST, () => {
-  console.log(`Streamer control panel: http://${CONTROL_HOST === "0.0.0.0" ? "localhost" : CONTROL_HOST}:${CONTROL_PORT}`);
+const controlTlsOptions = getControlTlsOptions();
+https.createServer(controlTlsOptions, controlApp).listen(CONTROL_PORT, CONTROL_HOST, () => {
+  const hostLabel = CONTROL_HOST === "0.0.0.0" ? "localhost" : CONTROL_HOST;
+  console.log(`Streamer control panel: https://${hostLabel}:${CONTROL_PORT}`);
 });
 
 // Twitch connection and OAuth helper support.
