@@ -46,12 +46,38 @@ button {
 .song {
   padding: 14px 0;
   border-bottom: 1px solid #2a2f3a;
+  border-radius: 8px;
+  transition: background-color 0.15s ease;
+  cursor: pointer;
+}
+.song:hover, .song:focus-visible {
+  background: rgba(255, 255, 255, 0.03);
+  outline: none;
 }
 .song strong, .song span, .song small {
   display: block;
 }
 .song span { color: #d0d4dc; margin-top: 3px; }
 .song small, li small { color: #8f97a6; margin-top: 4px; }
+.copy-status {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  background: rgba(25, 31, 41, 0.96);
+  border: 1px solid #3b4250;
+  color: #edf3ff;
+  padding: 10px 14px;
+  border-radius: 999px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.copy-status.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
 ol { margin: 16px 0 0; padding-left: 26px; }
 li { padding: 12px 0; border-bottom: 1px solid #2a2f3a; }
 li div strong, li div span { display: block; }
