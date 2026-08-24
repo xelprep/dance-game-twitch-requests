@@ -105,8 +105,8 @@ async function queue() {
       const li = document.createElement("li");
       li.innerHTML = `
         <div>
-          <strong>${i + 1}. ${escapeHTML(item.title)}</strong>
-          <span>${escapeHTML(item.artist)}</span>
+          <strong>${escapeHTML(item.title)}</strong>
+          <span>${escapeHTML(item.artist)}${item.pack ? " • " + escapeHTML(item.pack) : ""}</span>
         </div>
         <small>requested by ${escapeHTML(item.requested_display)}</small>
       `;
