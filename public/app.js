@@ -7,6 +7,52 @@ async function getJSON(url, options) {
   return data;
 }
 
+function showCopyStatus(message) {
+  const status = $('copy-status');
+  if (!status) return;
+
+  status.textContent = message;
+  status.classList.add('visible');
+  clearTimeout(status.hideTimer);
+  status.hideTimer = setTimeout(() => {
+    status.classList.remove('visible');
+  }, 2200);
+}
+
+function fallbackCopyText(value) {
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '-9999px';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  document.body.removeChild(textarea);
+  return copied;
+}
+
+async function copyRequestCommand(songId) {
+  const id = String(songId ?? '').trim();
+  if (!id) return;
+
+  const command = `!requestid ${id}`;
+
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(command);
+    } else if (!fallbackCopyText(command)) {
+      throw new Error('Clipboard fallback failed');
+    }
+
+    showCopyStatus(`Copied ${command} to your clipboard.`);
+  } catch (e) {
+    console.error('Failed to copy request command', e);
+    showCopyStatus('Copy failed. Please copy the command manually.');
+  }
+}
+
 function songCard(song) {
   const charts = song.charts.length
     ? song.charts.map(c => `${c.difficulty || "?"} ${c.meter || ""}`).join(" • ")
@@ -14,6 +60,9 @@ function songCard(song) {
 
   const div = document.createElement("article");
   div.className = "song";
+  div.tabIndex = 0;
+  div.setAttribute('role', 'button');
+  div.setAttribute('aria-label', `Copy request command for ${song.title}`);
   div.innerHTML = `
     <div>
       <strong>ID: ${escapeHTML(String(song.id))} - ${escapeHTML(song.title)}</strong>
@@ -22,6 +71,15 @@ function songCard(song) {
       <small>${escapeHTML(charts)}</small>
     </div>
   `;
+
+  div.addEventListener('click', () => copyRequestCommand(song.id));
+  div.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      copyRequestCommand(song.id);
+    }
+  });
+
   return div;
 }
 
