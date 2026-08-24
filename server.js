@@ -15,7 +15,7 @@ const HOST = process.env.HOST || "0.0.0.0";
 const CONTROL_HOST = process.env.CONTROL_HOST || "0.0.0.0";
 const SONGS_DIR = path.resolve(process.env.SONGS_DIR || "./Songs");
 const PREFIX = process.env.BOT_PREFIX || "!";
-const REQUEST_COMMAND = (process.env.REQUEST_COMMAND || "request").toLowerCase();
+const SEARCH_COMMAND = (process.env.SEARCH_COMMAND || "search").toLowerCase();
 const REQUEST_ID_COMMAND = (process.env.REQUEST_ID_COMMAND || "requestid").toLowerCase();
 const MAX_REQUESTS_PER_USER = Number(process.env.MAX_REQUESTS_PER_USER || 2);
 const QUEUE_LIMIT = Number(process.env.QUEUE_LIMIT || 25);
@@ -853,9 +853,9 @@ async function startTmiClient(cfg) {
       return;
     }
 
-    if (command !== REQUEST_COMMAND) return;
+    if (command !== SEARCH_COMMAND) return;
     if (!arg) {
-      await client.say(cfg.channel, `@${display}, usage: ${PREFIX}${REQUEST_COMMAND} <song title>`);
+      await client.say(cfg.channel, `@${display}, usage: ${PREFIX}${SEARCH_COMMAND} <song title>`);
       return;
     }
     if (!canRequest(tags.username)) {
