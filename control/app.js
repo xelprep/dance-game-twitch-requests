@@ -35,7 +35,7 @@ async function render() {
       <div class="now-card">
         <div>
           <strong>${esc(now.title)}</strong>
-          <span>${esc(now.artist)}</span>
+          <span>${esc(now.artist)}${now.pack ? " • " + esc(now.pack) : ""}</span>
           <small>requested by ${esc(now.requested_display)}</small>
         </div>
         <button onclick="complete(${now.id})">Complete</button>
