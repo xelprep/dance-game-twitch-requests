@@ -852,8 +852,9 @@ async function postInstructionsOnce() {
   if (!getInstructionsEnabled()) return;
   const channel = String(twitchConfig.channel).replace(/^#/, "");
   const parts = [];
-  parts.push(`Use ${PREFIX}${SEARCH_COMMAND} <song title> to search.`);
-  parts.push(`Use ${PREFIX}${REQUEST_ID_COMMAND} <songID> to request a song.`);
+  parts.push(`Use "${PREFIX}${SEARCH_COMMAND} <title>" to search available song titles.`);
+  parts.push(`Use "${PREFIX}${REQUEST_ID_COMMAND} <songID>" to request a song.`);
+  parts.push(`Use "${PREFIX}queue" to view the next 5 songs in the request queue.`);
   if (PUBLIC_URL) parts.push(`Visit ${PUBLIC_URL} for a more robust song browse and search experience.`);
   const message = parts.join(' ');
   try {
@@ -937,6 +938,19 @@ async function startTmiClient(cfg) {
       } catch (e) {
         await sendChatMessage(client, cfg.channel, `@${display}, ${e.message}`);
       }
+      return;
+    }
+
+    // Add a !queue command that lists up to 5 songs from the top of the request queue.
+    if (command === "queue") {
+      const queued = getQueue(5);
+      if (!queued || !queued.length) {
+        await sendChatMessage(client, cfg.channel, `@${display}, the request queue is currently empty.`);
+        return;
+      }
+      const top = queued.slice(0, 5);
+      const reply = top.map((req) => `ID:${req.song_id} Title:${req.title} Artist:${req.artist || ''} Pack:${req.pack || ''}`).join(' | ');
+      await sendChatMessage(client, cfg.channel, `@${display}, ${reply}`);
       return;
     }
 
