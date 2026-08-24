@@ -161,41 +161,7 @@ function normalize(s) {
     .trim();
 }
 
-function levenshteinDistance(a, b) {
-  const matrix = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
-  for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
-  for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
-
-  for (let i = 1; i <= a.length; i++) {
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      matrix[i][j] = Math.min(
-        matrix[i - 1][j] + 1,
-        matrix[i][j - 1] + 1,
-        matrix[i - 1][j - 1] + cost
-      );
-    }
-  }
-
-  return matrix[a.length][b.length];
-}
-
-function fuzzyTokenMatches(queryToken, valueToken) {
-  if (!queryToken || !valueToken) return false;
-  // Fast accept if one contains the other (substring match)
-  if (valueToken.includes(queryToken) || queryToken.includes(valueToken)) return true;
-
-  const distance = levenshteinDistance(queryToken, valueToken);
-  const maxLen = Math.max(queryToken.length, valueToken.length);
-
-  // Allow a single-character typo only when it's a small fraction of the token length.
-  // This prevents long-distance matches from being considered similar.
-  if (distance === 1 && (distance / maxLen) <= 0.34) return true;
-
-  return false;
-}
-
-function songMatchesQuery(song, query, allowedFields = ['title','subtitle','artist','pack']) {
+function songMatchesQuery(song, query, allowedFields = ['title']) {
   const q = normalize(query);
   if (!q) return true;
 
@@ -206,36 +172,16 @@ function songMatchesQuery(song, query, allowedFields = ['title','subtitle','arti
     pack: song.pack || ''
   };
 
-  // Build candidate fields only from allowedFields to avoid accidental matches from other fields
-  const candidateFields = allowedFields.map((k) => normalize(fieldsMap[k] || ""));
-  // Also include a combined field of the allowed fields for multi-token queries
-  candidateFields.push(normalize(allowedFields.map(k => fieldsMap[k] || '').join(' ')));
+  const candidateFields = allowedFields
+    .filter((field) => Object.prototype.hasOwnProperty.call(fieldsMap, field))
+    .map((field) => normalize(fieldsMap[field] || ''));
 
-  const qString = q.trim();
-  if (candidateFields.some((field) => field.includes(qString))) {
-    return true;
-  }
-
-  const qTokens = qString.split(/\s+/).filter(Boolean);
-  if (!qTokens.length) return true;
-
-  return qTokens.every((token) => {
-    return candidateFields.some((field) => {
-      const fieldTokens = field.split(/\s+/).filter(Boolean);
-      if (!fieldTokens.length) return false;
-      if (fieldTokens.some((fieldToken) => fuzzyTokenMatches(token, fieldToken))) return true;
-      return fieldTokens.some((fieldToken) => fieldToken.startsWith(token.slice(0, 3)) && levenshteinDistance(token, fieldToken) <= 1);
-    });
-  });
+  return candidateFields.some((field) => field.includes(q));
 }
 
-function getSongSearchRows(limit = 25, query = "", mode = "title_artist") {
+function getSongSearchRows(limit = 25, query = "") {
   const rows = db.prepare(`SELECT * FROM songs ORDER BY title COLLATE NOCASE`).all();
-  let filtered = rows;
-  if (query) {
-    const allowed = (mode === 'title_artist') ? ['title','artist'] : ['title','subtitle','artist','pack'];
-    filtered = rows.filter((row) => songMatchesQuery(row, query, allowed));
-  }
+  const filtered = query ? rows.filter((row) => songMatchesQuery(row, query, ['title'])) : rows;
   return filtered.slice(0, Math.max(1, limit));
 }
 
@@ -366,6 +312,56 @@ function songRow(row) {
   };
 }
 
+function formatSongRequestLabel(song) {
+  const id = song.song_id ?? song.id;
+  const title = song.title || "";
+  const artist = song.artist || "";
+  const pack = song.pack || "";
+  return `ID:${id} Title:${title} Artist:${artist} Pack:${pack}`;
+}
+
+function getRequestById(id) {
+  return db.prepare(`
+    SELECT r.id, r.requested_by, r.requested_display, s.id AS song_id, s.title, s.artist, s.pack
+    FROM requests r JOIN songs s ON s.id = r.song_id
+    WHERE r.id = ?
+  `).get(id) || null;
+}
+
+function getRequestBySongId(songId) {
+  return db.prepare(`
+    SELECT r.id, r.requested_by, r.requested_display, s.id AS song_id, s.title, s.artist, s.pack
+    FROM requests r JOIN songs s ON s.id = r.song_id
+    WHERE s.id = ? AND r.status IN ('queued', 'playing')
+    ORDER BY r.created_at DESC
+    LIMIT 1
+  `).get(songId) || null;
+}
+
+async function announceRequestAction(action, request) {
+  if (!request || !twitchClient || !twitchConfig || !twitchConfig.channel) return;
+  const channel = String(twitchConfig.channel).replace(/^#/, "");
+  const label = formatSongRequestLabel(request);
+
+  let message = "";
+  if (action === "playing") {
+    const requester = request.requested_display || request.requested_by || "requester";
+    message = `@${requester}, your request for ${label} is playing next.`;
+  } else if (action === "skipped") {
+    message = `The request for ${label} was skipped.`;
+  } else if (action === "blacklisted") {
+    message = `The song ${label} has been blacklisted.`;
+  }
+
+  if (!message) return;
+
+  try {
+    await twitchClient.say(channel, message);
+  } catch (error) {
+    console.error("Failed to announce request action:", error);
+  }
+}
+
 function createApi(app, options = {}) {
   app.use(express.json({ limit: "32kb" }));
   app.get("/api/stats", (_req, res) => res.json(getStats()));
@@ -375,8 +371,7 @@ function createApi(app, options = {}) {
     const limit = Math.min(Math.max(Number(req.query.limit || 25), 1), 100);
     if (!q) return res.json([]);
 
-    // Public search endpoint should restrict to title and artist only
-    const rows = getSongSearchRows(limit, q, 'title_artist');
+    const rows = getSongSearchRows(limit, q);
     res.json(rows.map(songRow));
   });
 
@@ -429,8 +424,7 @@ function createApi(app, options = {}) {
 
     const baseRows = db.prepare(`SELECT * FROM songs ${whereSql} ${orderSql}`).all(params);
     const q = String(req.query.q || "").trim();
-    // When browsing via the public songs endpoint, limit text queries to title + artist only
-    const rows = q ? baseRows.filter((row) => songMatchesQuery(row, q, ['title','artist'])) : baseRows;
+    const rows = q ? baseRows.filter((row) => songMatchesQuery(row, q, ['title'])) : baseRows;
     const total = rows.length;
     const pageRows = rows.slice(offset, offset + perPage);
 
@@ -497,8 +491,11 @@ function createApi(app, options = {}) {
 
     app.post("/api/control-login", (_req, res) => res.json({ ok: true }));
 
-    app.post("/api/queue/:id/play", (req, res) => {
-      const ok = setRequestStatus(Number(req.params.id), "playing");
+    app.post("/api/queue/:id/play", async (req, res) => {
+      const id = Number(req.params.id);
+      const request = getRequestById(id);
+      const ok = setRequestStatus(id, "playing");
+      if (ok) await announceRequestAction("playing", request);
       res.json({ ok, nowPlaying: getNowPlaying() });
     });
 
@@ -507,13 +504,25 @@ function createApi(app, options = {}) {
       res.json({ ok });
     });
 
-    app.post("/api/queue/:id/skip", (req, res) => {
-      const ok = setRequestStatus(Number(req.params.id), "skipped");
+    app.post("/api/queue/:id/skip", async (req, res) => {
+      const id = Number(req.params.id);
+      const request = getRequestById(id);
+      const ok = setRequestStatus(id, "skipped");
+      if (ok) await announceRequestAction("skipped", request);
       res.json({ ok });
     });
 
-    app.post("/api/queue/next", (_req, res) => {
-      res.json({ ok: true, nowPlaying: nextRequest() });
+    app.post("/api/queue/next", async (_req, res) => {
+      const next = db.prepare(`
+        SELECT id FROM requests
+        WHERE status='queued'
+        ORDER BY created_at ASC LIMIT 1
+      `).get();
+      if (!next) return res.json({ ok: true, nowPlaying: null });
+      const request = getRequestById(next.id);
+      const nowPlaying = nextRequest();
+      if (request) await announceRequestAction("playing", request);
+      res.json({ ok: true, nowPlaying });
     });
 
     app.post("/api/queue/clear", (_req, res) => {
@@ -553,13 +562,15 @@ function createApi(app, options = {}) {
       res.json({ ok: true });
     });
 
-    app.post("/api/blacklist/song", (req, res) => {
+    app.post("/api/blacklist/song", async (req, res) => {
       const songId = Number(req.body.songId);
       const reason = String(req.body.reason || "Streamer blacklist").slice(0, 200);
+      const request = getRequestBySongId(songId);
       db.prepare(`
         INSERT OR IGNORE INTO blacklist(song_id, username, reason, created_at)
         VALUES (?, NULL, ?, ?)
       `).run(songId, reason, Date.now());
+      if (request) await announceRequestAction("blacklisted", request);
       res.json({ ok: true });
     });
 
@@ -844,7 +855,7 @@ async function startTmiClient(cfg) {
 
     if (command !== REQUEST_COMMAND) return;
     if (!arg) {
-      await client.say(cfg.channel, `@${display}, usage: ${PREFIX}${REQUEST_COMMAND} <song title or artist>`);
+      await client.say(cfg.channel, `@${display}, usage: ${PREFIX}${REQUEST_COMMAND} <song title>`);
       return;
     }
     if (!canRequest(tags.username)) {
@@ -854,7 +865,7 @@ async function startTmiClient(cfg) {
 
     // If the normalized query uniquely matches a single song title, auto-add it.
     const normalizedArg = normalize(arg);
-    const matches = getSongSearchRows(100, arg, 'title_artist');
+    const matches = getSongSearchRows(100, arg);
     const exactNormalized = matches.filter(m => normalize(m.title) === normalizedArg);
     if (exactNormalized.length === 1) {
       try {
@@ -872,10 +883,10 @@ async function startTmiClient(cfg) {
       return;
     }
 
-    // Otherwise, present top 3 matches with IDs so the user can request an explicit ID
+    // Otherwise, present the top 3 matches in the requested compact format.
     const top = matches.slice(0, 3);
-    const reply = top.map(s => `${s.id} - "${s.title}"${s.artist ? ` by ${s.artist}` : ''}`).join(' | ');
-    await client.say(cfg.channel, `@${display}, top matches: ${reply}. To request, type ${PREFIX}${REQUEST_ID_COMMAND} <id>.`);
+    const reply = top.map((song) => `ID:${song.id} Title:${song.title} Artist:${song.artist || ''} Pack:${song.pack || ''}`).join(' | ');
+    await client.say(cfg.channel, `@${display}, ${reply}`);
   });
   // Schedule a refresh if we have expiry information
   scheduleTwitchRefresh();
