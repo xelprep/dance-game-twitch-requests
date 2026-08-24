@@ -21,6 +21,14 @@ const MAX_REQUESTS_PER_USER = Number(process.env.MAX_REQUESTS_PER_USER || 2);
 const QUEUE_LIMIT = Number(process.env.QUEUE_LIMIT || 25);
 const ALLOW_WEB_REQUESTS = String(process.env.ALLOW_WEB_REQUESTS).toLowerCase() === "true";
 const PUBLIC_URL = (process.env.PUBLIC_URL || "").trim();
+// INSTRUCTIONS_MINUTES controls posting of usage instructions to Twitch chat.
+// If INSTRUCTIONS_MINUTES is not defined -> default to 10 minutes.
+// If INSTRUCTIONS_MINUTES is defined but blank (empty string) -> never post instructions.
+const _INSTRUCTIONS_MINUTES_RAW = Object.prototype.hasOwnProperty.call(process.env, 'INSTRUCTIONS_MINUTES') ? process.env.INSTRUCTIONS_MINUTES : undefined;
+const INSTRUCTIONS_MINUTES = (typeof _INSTRUCTIONS_MINUTES_RAW === 'undefined')
+  ? 10
+  : (_INSTRUCTIONS_MINUTES_RAW === '' ? null : (Number.isFinite(Number(_INSTRUCTIONS_MINUTES_RAW)) ? Number(_INSTRUCTIONS_MINUTES_RAW) : 10));
+
 const CONTROL_PASSWORD = process.env.CONTROL_PASSWORD || "";
 const CONTROL_TLS_DIR = path.resolve("./data/control-panel");
 const CONTROL_TLS_KEY_PATH = path.join(CONTROL_TLS_DIR, "key.pem");
@@ -799,6 +807,52 @@ function scheduleTwitchRefresh() {
   }, refreshIn);
 }
 
+let instructionsTimer = null;
+
+function clearInstructionsTimer() {
+  if (instructionsTimer) {
+    clearInterval(instructionsTimer);
+    instructionsTimer = null;
+  }
+}
+
+function getInstructionsEnabled() {
+  // INSTRUCTIONS_MINUTES === null indicates the env var was defined but blank -> disable posting
+  return INSTRUCTIONS_MINUTES !== null;
+}
+
+async function postInstructionsOnce() {
+  if (!twitchClient || !twitchConfig || !twitchConfig.channel) return;
+  if (!getInstructionsEnabled()) return;
+  const channel = String(twitchConfig.channel).replace(/^#/, "");
+  const parts = [];
+  parts.push(`Use ${PREFIX}${SEARCH_COMMAND} <song title> to search.`);
+  parts.push(`Use ${PREFIX}${REQUEST_ID_COMMAND} <songID> to request a song.`);
+  if (PUBLIC_URL) parts.push(`Visit ${PUBLIC_URL} for a more robust song browse and search experience.`);
+  const message = parts.join(' ');
+  try {
+    await twitchClient.say(channel, message);
+  } catch (e) {
+    console.error('Failed to post instructions:', e && e.message ? e.message : e);
+  }
+}
+
+function scheduleInstructions() {
+  clearInstructionsTimer();
+  if (!getInstructionsEnabled()) return;
+  const minutes = Number(INSTRUCTIONS_MINUTES);
+  // If minutes is not a positive finite number, just post once and don't schedule.
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    postInstructionsOnce().catch(() => {});
+    return;
+  }
+  // Post immediately once, then schedule repeating posts every N minutes.
+  postInstructionsOnce().catch(() => {});
+  instructionsTimer = setInterval(() => {
+    postInstructionsOnce().catch(() => {});
+  }, minutes * 60 * 1000);
+}
+
 async function startTmiClient(cfg) {
   if (!cfg || !cfg.accessToken || !cfg.channel) {
     console.warn("Twitch client not started: missing config.");
@@ -818,8 +872,14 @@ async function startTmiClient(cfg) {
   });
 
   twitchClient = client;
-  client.connect().then(() => console.log(`Twitch bot connected to #${cfg.channel}`))
-    .catch(err => console.error("Twitch connection failed:", err.message));
+  try {
+    await client.connect();
+    console.log(`Twitch bot connected to #${cfg.channel}`);
+    // Post instructions once at startup and schedule recurring posts if configured
+    try { scheduleInstructions(); } catch (e) { console.error('Failed to schedule instructions:', e && e.message ? e.message : e); }
+  } catch (err) {
+    console.error('Twitch connection failed:', err && err.message ? err.message : err);
+  }
 
   client.on("message", async (_channel, tags, message, self) => {
     if (self || !message.startsWith(PREFIX)) return;
@@ -871,12 +931,7 @@ async function startTmiClient(cfg) {
     const top = matches.slice(0, 5);
     const reply = top.map((song) => `ID:${song.id} Title:${song.title} Artist:${song.artist || ''} Pack:${song.pack || ''}`).join(' | ');
 
-    let instruction = ` Use ${PREFIX}${REQUEST_ID_COMMAND} <songID> to request a song.`;
-    if (PUBLIC_URL) {
-      instruction += ` Or visit ${PUBLIC_URL} for more robust searches.`;
-    }
-
-    await client.say(cfg.channel, `@${display}, ${reply}${instruction}`);
+    await client.say(cfg.channel, `@${display}, ${reply}`);
   });
   // Schedule a refresh if we have expiry information
   scheduleTwitchRefresh();
@@ -887,6 +942,7 @@ async function stopTmiClient() {
     try { await twitchClient.disconnect(); } catch (e) { /* ignore */ }
     twitchClient = null;
   }
+  clearInstructionsTimer();
   clearTwitchRefreshTimer();
 }
 
