@@ -121,11 +121,12 @@ Viewers use:
 
 The viewer text search on the public page searches song titles only (use the dropdowns to filter by pack, genre, difficulty, or meter). Matches are accent-insensitive substring matches, so a query like `ubb` matches `Bubble Pop`.
 
-In chat, viewers can discover songs and then request by a unique numeric ID. Viewers use:
+In chat, viewers can discover songs and then request by a unique numeric ID. The chat bot behavior is:
 
-- `!search <query>` — the bot searches song titles for the full query string and returns matching results in ID/title/artist/pack format.
+- `!search <query>` — the bot searches song titles for the full query string and returns up to 5 matching results in ID/Title/Artist/Pack format. The bot no longer automatically adds a song to the queue when a query uniquely matches a single title.
 - `!requestid <id>` — request a song explicitly by its numeric ID; this will add it to the queue if allowed.
 
+If the streamer sets `PUBLIC_URL` in their `.env` file, the bot may suggest visiting that URL for more robust web-based searches.
 ## Queue rules
 
 - `MAX_REQUESTS_PER_USER` limits how many queued requests a viewer can have.
@@ -161,9 +162,9 @@ If you want viewers to browse the library, expose port 3000 through a secure tun
 The intended workflow is:
 
 1. Run this app on the same PC as StepMania.
-2. Viewers type `!search <songTitle>` in Twitch chat or locate the desired song ID in the public song database.
-3. Viewers type `!requestid <songID>` in chat.
-4. The bot adds the song to SQLite request queue.
+2. Viewers type `!search <songTitle>` in Twitch chat (the bot will return up to 5 matching results in ID/Title/Artist/Pack format) or locate the desired song ID in the public song database.
+3. Viewers type `!requestid <songID>` in chat to add a song to the queue.
+4. The bot adds the song to SQLite request queue (if the viewer is allowed to request).
 5. The queue page at `http://localhost:3000` shows the order.
 6. The streamer selects/plays the next song in StepMania.
 7. Marking queue items complete/skip can be accomplished on streamer-only control panel.
