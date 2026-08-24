@@ -4,3 +4,5 @@ data/*.db
 data/*.db-*
 data/twitch.json
 data/control-panel/*.pem
+.DS_Store
+*/.DS_Store
