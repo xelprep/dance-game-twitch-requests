@@ -7,7 +7,7 @@ A small local application that:
 1. Recursively scans a local StepMania `Songs` directory.
 2. Stores `.sm` and `.ssc` metadata in SQLite.
 3. Provides a searchable web page and live request queue.
-4. Connects a Twitch chat bot that accepts `!request <song>`.
+4. Connects a Twitch chat bot that accepts `!search <song>`.
 5. Keeps the request queue in SQLite so it survives restarts.
 
 ## StepMania Twitch Requests — V2
@@ -116,25 +116,15 @@ http://localhost:3000
 Viewers use:
 
 ```text
-!request song title
+!search song title
 ```
 
 The viewer text search on the public page searches song titles only (use the dropdowns to filter by pack, genre, difficulty, or meter). Matches are accent-insensitive substring matches, so a query like `ubb` matches `Bubble Pop`.
 
 In chat, viewers can discover songs and then request by a unique numeric ID. Viewers use:
 
-- `!request <query>` — the bot searches song titles for the full query string and returns matching results in ID/title/artist/pack format. If exactly one song matches, it can be auto-added.
+- `!search <query>` — the bot searches song titles for the full query string and returns matching results in ID/title/artist/pack format.
 - `!requestid <id>` — request a song explicitly by its numeric ID; this will add it to the queue if allowed.
-
-Examples:
-
-```text
-!request Paranoia
-!request Daft Punk
-!request my favorite pack
-```
-
-If multiple songs match, the bot asks the viewer to be more specific.
 
 ## Queue rules
 
@@ -171,11 +161,12 @@ If you want viewers to browse the library, expose port 3000 through a secure tun
 The intended workflow is:
 
 1. Run this app on the same PC as StepMania.
-2. Viewers type `!request <song>` in Twitch chat.
-3. The bot adds the song to SQLite.
-4. The queue page at `http://localhost:3000` shows the order.
-5. The streamer selects/plays the next song in StepMania.
-6. Marking queue items complete/skip can be accomplished on streamer-only control panel.
+2. Viewers type `!search <songTitle>` in Twitch chat or locate the desired song ID in the public song database.
+3. Viewers type `!requestid <songID>` in chat.
+4. The bot adds the song to SQLite request queue.
+5. The queue page at `http://localhost:3000` shows the order.
+6. The streamer selects/plays the next song in StepMania.
+7. Marking queue items complete/skip can be accomplished on streamer-only control panel.
 
 ## Important
 
