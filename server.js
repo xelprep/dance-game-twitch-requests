@@ -36,7 +36,7 @@ const CONTROL_TLS_CERT_PATH = path.join(CONTROL_TLS_DIR, "cert.pem");
 
 fs.mkdirSync(path.resolve("./data"), { recursive: true });
 
-function getControlTlsOptions() {
+async function getControlTlsOptions() {
   fs.mkdirSync(CONTROL_TLS_DIR, { recursive: true });
   if (fs.existsSync(CONTROL_TLS_KEY_PATH) && fs.existsSync(CONTROL_TLS_CERT_PATH)) {
     return {
@@ -61,7 +61,9 @@ function getControlTlsOptions() {
     altNames.push(ipLike ? { type: 7, ip: HOST } : { type: 2, value: HOST });
   }
 
-  const cert = selfsigned.generate(
+  // selfsigned.generate may return the certificate synchronously or as a Promise (in newer versions).
+  // Call it and await if it returns a Promise.
+  const generated = selfsigned.generate(
     [{ name: "commonName", value: "localhost" }],
     {
       algorithm: "sha256",
@@ -71,10 +73,20 @@ function getControlTlsOptions() {
     }
   );
 
-  fs.writeFileSync(CONTROL_TLS_KEY_PATH, cert.private);
-  fs.writeFileSync(CONTROL_TLS_CERT_PATH, cert.cert);
+  const cert = (generated && typeof generated.then === "function") ? await generated : generated;
 
-  return { key: cert.private, cert: cert.cert };
+  // Support different shapes that various versions of the library may return.
+  const privateKey = cert && (cert.private || cert.privateKey || cert.key || cert.private_key || cert.pem);
+  const certificate = cert && (cert.cert || cert.public || cert.certificate || cert.cert_pem || cert.pem);
+
+  if (!privateKey || !certificate) {
+    throw new Error("Failed to generate TLS certificate: unexpected selfsigned output");
+  }
+
+  fs.writeFileSync(CONTROL_TLS_KEY_PATH, privateKey);
+  fs.writeFileSync(CONTROL_TLS_CERT_PATH, certificate);
+
+  return { key: privateKey, cert: certificate };
 }
 const db = new Database(path.resolve("./data/stepmania.db"));
 db.pragma("journal_mode = WAL");
@@ -718,11 +730,20 @@ publicApp.listen(PORT, HOST, () => {
 const controlApp = express();
 controlApp.use(express.static(path.join(__dirname, "control")));
 createApi(controlApp, { control: true });
-const controlTlsOptions = getControlTlsOptions();
-https.createServer(controlTlsOptions, controlApp).listen(CONTROL_PORT, CONTROL_HOST, () => {
-  const hostLabel = CONTROL_HOST === "0.0.0.0" ? "localhost" : CONTROL_HOST;
-  console.log(`Streamer control panel: https://${hostLabel}:${CONTROL_PORT}`);
-});
+
+// Create HTTPS server for the control panel. Await TLS options in case selfsigned.generate is async in this environment.
+(async () => {
+  try {
+    const controlTlsOptions = await getControlTlsOptions();
+    https.createServer(controlTlsOptions, controlApp).listen(CONTROL_PORT, CONTROL_HOST, () => {
+      const hostLabel = CONTROL_HOST === "0.0.0.0" ? "localhost" : CONTROL_HOST;
+      console.log(`Streamer control panel: https://${hostLabel}:${CONTROL_PORT}`);
+    });
+  } catch (e) {
+    console.error("Failed to start control panel HTTPS server:", e);
+    process.exitCode = 1;
+  }
+})();
 
 // Twitch connection and OAuth helper support.
 const TWITCH_DATA_FILE = path.resolve("./data/twitch.json");
