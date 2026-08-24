@@ -16,9 +16,9 @@ function songCard(song) {
   div.className = "song";
   div.innerHTML = `
     <div>
-      <strong>${escapeHTML(song.title)}</strong>
+      <strong>ID: ${escapeHTML(String(song.id))} - ${escapeHTML(song.title)}</strong>
       ${song.subtitle ? `<span>${escapeHTML(song.subtitle)}</span>` : ""}
-      <small>ID: ${escapeHTML(String(song.id))} • ${escapeHTML(song.artist)} ${song.pack ? "• " + escapeHTML(song.pack) : ""}</small>
+      <small>${escapeHTML(song.artist)} ${song.pack ? "• " + escapeHTML(song.pack) : ""}</small>
       <small>${escapeHTML(charts)}</small>
     </div>
   `;
