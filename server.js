@@ -329,6 +329,13 @@ function formatSongRequestLabel(song) {
   return `ID:${id} Title:${title} Artist:${artist} Pack:${pack}`;
 }
 
+async function sendChatMessage(targetClient, channel, message, options = {}) {
+  const { skipPrefix = false } = options;
+  const text = String(message ?? "");
+  const payload = skipPrefix ? text : `! ${text}`;
+  await targetClient.say(channel, payload);
+}
+
 function getRequestById(id) {
   return db.prepare(`
     SELECT r.id, r.requested_by, r.requested_display, s.id AS song_id, s.title, s.artist, s.pack
@@ -365,7 +372,7 @@ async function announceRequestAction(action, request) {
   if (!message) return;
 
   try {
-    await twitchClient.say(channel, message);
+    await sendChatMessage(twitchClient, channel, message);
   } catch (error) {
     console.error("Failed to announce request action:", error);
   }
@@ -831,7 +838,7 @@ async function postInstructionsOnce() {
   if (PUBLIC_URL) parts.push(`Visit ${PUBLIC_URL} for a more robust song browse and search experience.`);
   const message = parts.join(' ');
   try {
-    await twitchClient.say(channel, message);
+    await sendChatMessage(twitchClient, channel, message);
   } catch (e) {
     console.error('Failed to post instructions:', e && e.message ? e.message : e);
   }
@@ -893,37 +900,37 @@ async function startTmiClient(cfg) {
     // Support requesting by numeric ID: !requestid <id>
     if (command === REQUEST_ID_COMMAND) {
       if (!arg) {
-        await client.say(cfg.channel, `@${display}, usage: ${PREFIX}${REQUEST_ID_COMMAND} <song id>`);
+        await sendChatMessage(client, cfg.channel, `@${display}, usage: ${PREFIX}${REQUEST_ID_COMMAND} <song id>`);
         return;
       }
       const id = Number(arg);
       if (!Number.isInteger(id)) {
-        await client.say(cfg.channel, `@${display}, "${arg}" is not a valid song id.`);
+        await sendChatMessage(client, cfg.channel, `@${display}, "${arg}" is not a valid song id.`);
         return;
       }
       if (!canRequest(tags.username)) {
-        await client.say(cfg.channel, `@${display}, you already have the maximum number of active requests.`);
+        await sendChatMessage(client, cfg.channel, `@${display}, you already have the maximum number of active requests.`);
         return;
       }
       try {
         const r = addRequest(id, tags.username, display);
-        await client.say(cfg.channel, `@${display}, added "${r.song.title}" (ID ${id}) to the request queue!`);
+        await sendChatMessage(client, cfg.channel, `@${display}, added "${r.song.title}" (ID ${id}) to the request queue!`, { skipPrefix: true });
       } catch (e) {
-        await client.say(cfg.channel, `@${display}, ${e.message}`);
+        await sendChatMessage(client, cfg.channel, `@${display}, ${e.message}`);
       }
       return;
     }
 
     if (command !== SEARCH_COMMAND) return;
     if (!arg) {
-      await client.say(cfg.channel, `@${display}, usage: ${PREFIX}${SEARCH_COMMAND} <song title>`);
+      await sendChatMessage(client, cfg.channel, `@${display}, usage: ${PREFIX}${SEARCH_COMMAND} <song title>`);
       return;
     }
     // Perform the search and present results (do not auto-request on unique match).
     const matches = getSongSearchRows(100, arg);
 
     if (!matches.length) {
-      await client.say(cfg.channel, `@${display}, no song matched "${arg}".`);
+      await sendChatMessage(client, cfg.channel, `@${display}, no song matched "${arg}".`);
       return;
     }
 
@@ -931,7 +938,7 @@ async function startTmiClient(cfg) {
     const top = matches.slice(0, 5);
     const reply = top.map((song) => `ID:${song.id} Title:${song.title} Artist:${song.artist || ''} Pack:${song.pack || ''}`).join(' | ');
 
-    await client.say(cfg.channel, `@${display}, ${reply}`);
+    await sendChatMessage(client, cfg.channel, `@${display}, ${reply}`);
   });
   // Schedule a refresh if we have expiry information
   scheduleTwitchRefresh();
