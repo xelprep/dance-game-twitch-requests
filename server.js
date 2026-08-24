@@ -20,6 +20,7 @@ const REQUEST_ID_COMMAND = (process.env.REQUEST_ID_COMMAND || "requestid").toLow
 const MAX_REQUESTS_PER_USER = Number(process.env.MAX_REQUESTS_PER_USER || 2);
 const QUEUE_LIMIT = Number(process.env.QUEUE_LIMIT || 25);
 const ALLOW_WEB_REQUESTS = String(process.env.ALLOW_WEB_REQUESTS).toLowerCase() === "true";
+const PUBLIC_URL = (process.env.PUBLIC_URL || "").trim();
 const CONTROL_PASSWORD = process.env.CONTROL_PASSWORD || "";
 const CONTROL_TLS_DIR = path.resolve("./data/control-panel");
 const CONTROL_TLS_KEY_PATH = path.join(CONTROL_TLS_DIR, "key.pem");
@@ -858,35 +859,24 @@ async function startTmiClient(cfg) {
       await client.say(cfg.channel, `@${display}, usage: ${PREFIX}${SEARCH_COMMAND} <song title>`);
       return;
     }
-    if (!canRequest(tags.username)) {
-      await client.say(cfg.channel, `@${display}, you already have the maximum number of active requests.`);
-      return;
-    }
-
-    // If the normalized query uniquely matches a single song title, auto-add it.
-    const normalizedArg = normalize(arg);
+    // Perform the search and present results (do not auto-request on unique match).
     const matches = getSongSearchRows(100, arg);
-    const exactNormalized = matches.filter(m => normalize(m.title) === normalizedArg);
-    if (exactNormalized.length === 1) {
-      try {
-        const song = exactNormalized[0];
-        const r = addRequest(song.id, tags.username, display);
-        await client.say(cfg.channel, `@${display}, added "${r.song.title}" (ID ${song.id}) to the request queue!`);
-      } catch (e) {
-        await client.say(cfg.channel, `@${display}, ${e.message}`);
-      }
-      return;
-    }
 
     if (!matches.length) {
       await client.say(cfg.channel, `@${display}, no song matched "${arg}".`);
       return;
     }
 
-    // Otherwise, present the top 3 matches in the requested compact format.
-    const top = matches.slice(0, 3);
+    // Present the top 5 matches in the requested compact format.
+    const top = matches.slice(0, 5);
     const reply = top.map((song) => `ID:${song.id} Title:${song.title} Artist:${song.artist || ''} Pack:${song.pack || ''}`).join(' | ');
-    await client.say(cfg.channel, `@${display}, ${reply}`);
+
+    let instruction = ` Use ${PREFIX}${REQUEST_ID_COMMAND} <songID> to request a song.`;
+    if (PUBLIC_URL) {
+      instruction += ` Or visit ${PUBLIC_URL} for more robust searches.`;
+    }
+
+    await client.say(cfg.channel, `@${display}, ${reply}${instruction}`);
   });
   // Schedule a refresh if we have expiry information
   scheduleTwitchRefresh();
