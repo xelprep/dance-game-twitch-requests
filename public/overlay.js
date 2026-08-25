@@ -22,13 +22,15 @@ function formatQueue(queue){
         const artist = escapeHtml(r.artist || '(unknown artist)');
         const pack = escapeHtml(r.pack || 'Unknown Pack');
         const requester = escapeHtml(r.requested_display || r.requested_by || 'unknown');
-        const titleLine = subtitle ? `${title} (${subtitle}) - ${artist}` : `${title} - ${artist}`;
+        // Top line: title (with subtitle). Artist is shown on the second line now.
+        const titleLine = subtitle ? `${title} (${subtitle})` : `${title}`;
         const entryClass = index === 0 ? 'queue-entry queue-entry--primary' : index === 1 ? 'queue-entry queue-entry--secondary' : 'queue-entry queue-entry--tertiary';
 
         return `
           <div class="${entryClass}">
             <div class="queue-lines">
               <div class="queue-line queue-line-title">${titleLine}</div>
+              <div class="queue-line queue-line-artist">${artist}</div>
               <div class="queue-line queue-line-pack">${pack}</div>
               <div class="queue-line queue-line-requester">Requested by: @${requester}</div>
             </div>

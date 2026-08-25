@@ -10,11 +10,11 @@ body{background:transparent;font-family:Inter,system-ui,-apple-system,Segoe UI,R
 #message .queue-entry--primary{max-width:min(86vw,1600px)}
 #message .queue-entry--secondary{max-width:min(56vw,980px)}
 #message .queue-entry--tertiary{max-width:min(42vw,700px)}
-#message .queue-lines{display:flex;flex-direction:column;justify-content:space-between;height:3em;min-width:0;max-width:100%}
+#message .queue-lines{display:flex;flex-direction:column;justify-content:space-between;height:4em;min-width:0;max-width:100%}
 #message .queue-line{line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 #message .queue-line-title,#message .queue-line-pack,#message .queue-line-requester{max-width:100%}
 #message .queue-divider{width:4px;margin:0 14px;background:rgba(255,255,255,0.9);box-shadow:0 0 6px rgba(0,0,0,0.9);border-radius:999px}
-#message .queue-empty-state{display:flex;flex-direction:column;justify-content:flex-end;height:3em}
+#message .queue-empty-state{display:flex;flex-direction:column;justify-content:flex-end;height:4em}
 #message .queue-empty-row{line-height:1;white-space:nowrap;min-height:1em}
 #message .queue-empty-row--message{padding-top:0.04em}
 /* subtle stroke for readability on dark backgrounds */
