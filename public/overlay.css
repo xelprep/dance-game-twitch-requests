@@ -1,0 +1,8 @@
+/* One-line, left-justified high-visibility overlay for OBS */
+html,body{height:100%;margin:0;padding:0}
+body{background:transparent;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+.overlay{display:flex;align-items:center;height:100%;padding:8px 12px}
+#message{color:#ffffff;font-weight:700;font-size:48px;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;-webkit-font-smoothing:antialiased}
+/* subtle stroke for readability on dark backgrounds */
+#message{text-shadow:0 0 6px rgba(0,0,0,0.9),0 1px 0 rgba(0,0,0,0.6)}
+@media (max-height:200px){#message{font-size:28px}}
