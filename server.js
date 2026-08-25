@@ -276,6 +276,122 @@ function setSetting(key, value) {
   db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)").run(key, val);
 }
 
+function getControlSettings() {
+  return {
+    prioritizeViewerRequests: !!getSetting('prioritizeViewerRequests', true),
+    chatRequestsEnabled: !!getSetting('chatRequestsEnabled', true),
+    chatRequestsRequireFollowers: !!getSetting('chatRequestsRequireFollowers', false),
+    chatRequestsRequireSubscribers: !!getSetting('chatRequestsRequireSubscribers', false),
+    chatRequestsRequireModerators: !!getSetting('chatRequestsRequireModerators', false)
+  };
+}
+
+function parseBadgeString(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value === 'object') return Object.keys(value).map(String);
+  return String(value).split(',').map(part => part.trim()).filter(Boolean);
+}
+
+function hasTwitchBadge(badges, badgeName) {
+  const badgeKey = String(badgeName || '').toLowerCase();
+  const pieces = parseBadgeString(badges);
+  return pieces.some(piece => piece.toLowerCase().startsWith(`${badgeKey}/`) || piece.toLowerCase() === badgeKey);
+}
+
+function isTwitchModerator(tags = {}) {
+  return tags.mod === '1' || hasTwitchBadge(tags.badges, 'moderator');
+}
+
+function isTwitchSubscriber(tags = {}) {
+  return tags.subscriber === '1' || hasTwitchBadge(tags.badges, 'subscriber');
+}
+
+async function userIsFollowingChannel(username, channel) {
+  const actorLogin = String(username || '').trim();
+  const channelLogin = String(channel || '').replace(/^#/, '').trim();
+  if (!actorLogin || !channelLogin) return false;
+  if (actorLogin.toLowerCase() === channelLogin.toLowerCase()) return true;
+
+  const cfg = twitchConfig || loadTwitchConfig();
+  if (!cfg || !cfg.accessToken || !cfg.clientId) return false;
+
+  try {
+    const actorResp = await fetch(`https://api.twitch.tv/helix/users?logins=${encodeURIComponent(actorLogin)}`, {
+      headers: {
+        'Client-Id': cfg.clientId,
+        Authorization: `Bearer ${cfg.accessToken}`
+      }
+    });
+    const actorJson = await actorResp.json();
+    const actorId = actorJson && actorJson.data && actorJson.data[0] && actorJson.data[0].id;
+    if (!actorId) return false;
+
+    const channelResp = await fetch(`https://api.twitch.tv/helix/users?logins=${encodeURIComponent(channelLogin)}`, {
+      headers: {
+        'Client-Id': cfg.clientId,
+        Authorization: `Bearer ${cfg.accessToken}`
+      }
+    });
+    const channelJson = await channelResp.json();
+    const channelId = channelJson && channelJson.data && channelJson.data[0] && channelJson.data[0].id;
+    if (!channelId) return false;
+
+    const followResp = await fetch(`https://api.twitch.tv/helix/users/follows?from_id=${encodeURIComponent(actorId)}&to_id=${encodeURIComponent(channelId)}`, {
+      headers: {
+        'Client-Id': cfg.clientId,
+        Authorization: `Bearer ${cfg.accessToken}`
+      }
+    });
+    const followJson = await followResp.json();
+    return !!(followJson && followJson.data && followJson.data.length);
+  } catch (e) {
+    console.warn('Failed to check follow status for chat request:', e && e.message ? e.message : e);
+    return false;
+  }
+}
+
+async function getChatRequestPermission(username, tags = {}) {
+  const settings = getControlSettings();
+  if (!settings.chatRequestsEnabled) {
+    return {
+      allowed: false,
+      reason: 'Chat requests are currently disabled by the streamer. The streamer can still add requests from the control panel.'
+    };
+  }
+
+  if (settings.chatRequestsRequireModerators && !isTwitchModerator(tags)) {
+    return { allowed: false, reason: 'Only moderators can request songs via chat right now.' };
+  }
+
+  if (settings.chatRequestsRequireSubscribers && !isTwitchSubscriber(tags)) {
+    return { allowed: false, reason: 'Only subscribers can request songs via chat right now.' };
+  }
+
+  if (settings.chatRequestsRequireFollowers) {
+    const channelName = (twitchConfig && twitchConfig.channel) || '';
+    const allowed = await userIsFollowingChannel(username, channelName);
+    if (!allowed) {
+      return { allowed: false, reason: 'Only followers can request songs via chat right now.' };
+    }
+  }
+
+  return { allowed: true, reason: '' };
+}
+
+async function announceChatRequestStatus(enabled) {
+  if (!twitchClient || !twitchConfig || !twitchConfig.channel) return;
+  const channel = String(twitchConfig.channel).replace(/^#/, '');
+  const message = enabled
+    ? 'Chat requests are now enabled.'
+    : 'Chat requests are now disabled. The streamer can still add requests from the control panel.';
+  try {
+    await sendChatMessage(twitchClient, channel, message);
+  } catch (error) {
+    console.error('Failed to announce chat request status:', error && error.message ? error.message : error);
+  }
+}
+
 // Accept an optional options object as 4th argument: { skipLimit: boolean, prioritizeViewerInsertion: boolean }
 function addRequest(songId, username, displayName, options = {}) {
   const skipLimit = !!options.skipLimit;
@@ -589,13 +705,37 @@ function createApi(app, options = {}) {
 
     // Control panel settings endpoints
     app.get('/api/control/settings', (_req, res) => {
-      res.json({ prioritizeViewerRequests: !!getSetting('prioritizeViewerRequests', true) });
+      res.json(getControlSettings());
     });
-    app.post('/api/control/settings', (req, res) => {
-      const val = !!req.body.prioritizeViewerRequests;
-      setSetting('prioritizeViewerRequests', val);
+    app.post('/api/control/settings', async (req, res) => {
+      const current = getControlSettings();
+      const next = {
+        prioritizeViewerRequests: !!req.body.prioritizeViewerRequests,
+        chatRequestsEnabled: !!req.body.chatRequestsEnabled,
+        chatRequestsRequireFollowers: !!req.body.chatRequestsRequireFollowers,
+        chatRequestsRequireSubscribers: !!req.body.chatRequestsRequireSubscribers,
+        chatRequestsRequireModerators: !!req.body.chatRequestsRequireModerators
+      };
+
+      const settings = {
+        prioritizeViewerRequests: Object.prototype.hasOwnProperty.call(req.body, 'prioritizeViewerRequests') ? next.prioritizeViewerRequests : current.prioritizeViewerRequests,
+        chatRequestsEnabled: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsEnabled') ? next.chatRequestsEnabled : current.chatRequestsEnabled,
+        chatRequestsRequireFollowers: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireFollowers') ? next.chatRequestsRequireFollowers : current.chatRequestsRequireFollowers,
+        chatRequestsRequireSubscribers: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireSubscribers') ? next.chatRequestsRequireSubscribers : current.chatRequestsRequireSubscribers,
+        chatRequestsRequireModerators: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireModerators') ? next.chatRequestsRequireModerators : current.chatRequestsRequireModerators
+      };
+
+      setSetting('prioritizeViewerRequests', settings.prioritizeViewerRequests);
+      setSetting('chatRequestsEnabled', settings.chatRequestsEnabled);
+      setSetting('chatRequestsRequireFollowers', settings.chatRequestsRequireFollowers);
+      setSetting('chatRequestsRequireSubscribers', settings.chatRequestsRequireSubscribers);
+      setSetting('chatRequestsRequireModerators', settings.chatRequestsRequireModerators);
+
+      if (current.chatRequestsEnabled !== settings.chatRequestsEnabled) {
+        await announceChatRequestStatus(settings.chatRequestsEnabled);
+      }
       try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch(e){}
-      res.json({ ok: true, prioritizeViewerRequests: val });
+      res.json({ ok: true, ...settings });
     });
 
     app.post("/api/queue/:id/play", async (req, res) => {
@@ -1036,6 +1176,13 @@ async function startTmiClient(cfg) {
         await sendChatMessage(client, cfg.channel, `@${display}, "${arg}" is not a valid song id.`);
         return;
       }
+
+      const chatPermission = await getChatRequestPermission(tags.username, tags);
+      if (!chatPermission.allowed) {
+        await sendChatMessage(client, cfg.channel, `@${display}, ${chatPermission.reason}`);
+        return;
+      }
+
       if (!canRequest(tags.username)) {
         await sendChatMessage(client, cfg.channel, `@${display}, you already have the maximum number of active requests.`);
         return;

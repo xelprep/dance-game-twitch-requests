@@ -115,6 +115,25 @@
       Prioritize viewer requests above streamer requests (chat requests > streamer requests)
     </label>
     <p class="small muted">When enabled (default), requests made via Twitch chat will be placed ahead of any requests added from the control panel (streamer), but behind other viewer requests.</p>
+
+    <label>
+      <input type="checkbox" id="chatRequestsEnabled" checked>
+      Allow requests via chat
+    </label>
+    <p class="small muted">When disabled, chat users cannot add songs to the queue. The streamer can still add requests from the control panel.</p>
+
+    <label>
+      <input type="checkbox" id="chatRequestsRequireFollowers">
+      Only allow requests via chat from followers
+    </label>
+    <label>
+      <input type="checkbox" id="chatRequestsRequireSubscribers">
+      Only allow requests via chat from subscribers
+    </label>
+    <label>
+      <input type="checkbox" id="chatRequestsRequireModerators">
+      Only allow requests via chat from moderators
+    </label>
   </div>
 </section>
 

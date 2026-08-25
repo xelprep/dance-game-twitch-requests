@@ -237,10 +237,23 @@ async function render() {
 
     // Apply settings (if present) to UI
     try {
-      const prioritizeElLocal = $('prioritizeViewerRequests');
-      if (prioritizeElLocal && typeof settings !== 'undefined') {
-        prioritizeElLocal.checked = !!(settings && settings.prioritizeViewerRequests);
+      const chatRequestsEnabled = $('chatRequestsEnabled');
+      const chatRequestsRequireFollowers = $('chatRequestsRequireFollowers');
+      const chatRequestsRequireSubscribers = $('chatRequestsRequireSubscribers');
+      const chatRequestsRequireModerators = $('chatRequestsRequireModerators');
+      if (typeof settings !== 'undefined') {
+        const prioritizeElLocal = $('prioritizeViewerRequests');
+        if (prioritizeElLocal) prioritizeElLocal.checked = !!(settings && settings.prioritizeViewerRequests);
+        if (chatRequestsEnabled) chatRequestsEnabled.checked = !!(settings && settings.chatRequestsEnabled);
+        if (chatRequestsRequireFollowers) chatRequestsRequireFollowers.checked = !!(settings && settings.chatRequestsRequireFollowers);
+        if (chatRequestsRequireSubscribers) chatRequestsRequireSubscribers.checked = !!(settings && settings.chatRequestsRequireSubscribers);
+        if (chatRequestsRequireModerators) chatRequestsRequireModerators.checked = !!(settings && settings.chatRequestsRequireModerators);
       }
+
+      const allowChat = !!(chatRequestsEnabled && chatRequestsEnabled.checked);
+      if (chatRequestsRequireFollowers) chatRequestsRequireFollowers.disabled = !allowChat;
+      if (chatRequestsRequireSubscribers) chatRequestsRequireSubscribers.disabled = !allowChat;
+      if (chatRequestsRequireModerators) chatRequestsRequireModerators.disabled = !allowChat;
     } catch (e) { /* ignore */ }
 
   } catch (e) {
@@ -248,18 +261,42 @@ async function render() {
   }
 }
 
+async function saveControlSettings(patch) {
+  try {
+    const current = await api('/api/control/settings');
+    const next = { ...current, ...patch };
+    await api('/api/control/settings', { method: 'POST', body: JSON.stringify(next) });
+    toast('Settings saved');
+    render();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
 // Wire up settings UI: toggle to prioritize viewer requests above streamer requests
 const prioritizeEl = $('prioritizeViewerRequests');
 if (prioritizeEl) {
-  prioritizeEl.addEventListener('change', async () => {
-    try {
-      await api('/api/control/settings', { method: 'POST', body: JSON.stringify({ prioritizeViewerRequests: prioritizeEl.checked }) });
-      toast('Settings saved');
-      render();
-    } catch (err) {
-      toast(err.message);
-    }
-  });
+  prioritizeEl.addEventListener('change', () => saveControlSettings({ prioritizeViewerRequests: prioritizeEl.checked }));
+}
+
+const chatRequestsEnabledEl = $('chatRequestsEnabled');
+if (chatRequestsEnabledEl) {
+  chatRequestsEnabledEl.addEventListener('change', () => saveControlSettings({ chatRequestsEnabled: chatRequestsEnabledEl.checked }));
+}
+
+const chatRequestsRequireFollowersEl = $('chatRequestsRequireFollowers');
+if (chatRequestsRequireFollowersEl) {
+  chatRequestsRequireFollowersEl.addEventListener('change', () => saveControlSettings({ chatRequestsRequireFollowers: chatRequestsRequireFollowersEl.checked }));
+}
+
+const chatRequestsRequireSubscribersEl = $('chatRequestsRequireSubscribers');
+if (chatRequestsRequireSubscribersEl) {
+  chatRequestsRequireSubscribersEl.addEventListener('change', () => saveControlSettings({ chatRequestsRequireSubscribers: chatRequestsRequireSubscribersEl.checked }));
+}
+
+const chatRequestsRequireModeratorsEl = $('chatRequestsRequireModerators');
+if (chatRequestsRequireModeratorsEl) {
+  chatRequestsRequireModeratorsEl.addEventListener('change', () => saveControlSettings({ chatRequestsRequireModerators: chatRequestsRequireModeratorsEl.checked }));
 }
 
 window.play = async id => { try { await api(`/api/queue/${id}/play`, {method:"POST"}); toast("Playing request."); render(); } catch(e){toast(e.message)} };
