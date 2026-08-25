@@ -32,6 +32,10 @@ Viewer site:
 http://localhost:3000
 ```
 
+Browser source:
+
+Also hosted on port 3000 is the request queue browser source. Using the above viewer site URL as an example, you can add the following to OBS as a browser source: `http://localhost:3000/overlay.html` and have a live-updating request queue visible on stream.
+
 Streamer control panel:
 
 ```text
@@ -54,7 +58,7 @@ Do not expose port 3001 to the public Internet. It is intended for your LAN.
 
 The control panel provides:
 
-- Live Now Playing display
+- Now Playing display
 - Play a specific queued request
 - Play Next
 - Complete current song
@@ -66,6 +70,8 @@ The control panel provides:
 - Remove blacklist entries
 - Rescan the StepMania Songs folder
 - Live queue/stat updates
+- Search songs and make unlimited requests as the streamer
+- Enable/disable prioritizing viewer requests above streamer requests
 
 ## Install
 
@@ -123,6 +129,14 @@ INSTRUCTIONS_MINUTES=10
 ```
 
 If this variable is set, the chat bot will post usage instructions in chat at the defined number of minutes. If left blank, it will never post instructions.
+
+Optionally Set: 
+
+```text
+STREAMER_VANITY_NAME=Manblingo
+```
+
+If this variable is set, this will be the display name posted in the request overlay browser source. It defaults to Streamer.
 
 Then:
 
