@@ -186,9 +186,11 @@ window.addToQueue = async songId => {
 
 async function render() {
   try {
-    const [stats, now, queue, blacklist] = await Promise.all([
+    const [stats, now, queue, blacklist, settings] = await Promise.all([
       api("/api/stats"), api("/api/now-playing"),
-      api("/api/queue"), api("/api/blacklist")
+      api("/api/queue"), api("/api/blacklist"),
+      // Control settings endpoint
+      (async () => { try { return await api('/api/control/settings'); } catch (e) { return { prioritizeViewerRequests: true }; } })()
     ]);
 
     $("stats").textContent =
@@ -232,9 +234,32 @@ async function render() {
         <button onclick="removeBlacklist(${b.id})">Remove</button>
       </div>
     `).join("") : `<p class="muted">Nothing blacklisted.</p>`;
+
+    // Apply settings (if present) to UI
+    try {
+      const prioritizeElLocal = $('prioritizeViewerRequests');
+      if (prioritizeElLocal && typeof settings !== 'undefined') {
+        prioritizeElLocal.checked = !!(settings && settings.prioritizeViewerRequests);
+      }
+    } catch (e) { /* ignore */ }
+
   } catch (e) {
     toast(e.message);
   }
+}
+
+// Wire up settings UI: toggle to prioritize viewer requests above streamer requests
+const prioritizeEl = $('prioritizeViewerRequests');
+if (prioritizeEl) {
+  prioritizeEl.addEventListener('change', async () => {
+    try {
+      await api('/api/control/settings', { method: 'POST', body: JSON.stringify({ prioritizeViewerRequests: prioritizeEl.checked }) });
+      toast('Settings saved');
+      render();
+    } catch (err) {
+      toast(err.message);
+    }
+  });
 }
 
 window.play = async id => { try { await api(`/api/queue/${id}/play`, {method:"POST"}); toast("Playing request."); render(); } catch(e){toast(e.message)} };
