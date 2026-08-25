@@ -598,7 +598,7 @@ function createApi(app, options = {}) {
       res.json({ ok: true, prioritizeViewerRequests: val });
     });
 
-    app.post("/api/queue/:id/play", async (req, res) => {"}```}```
+    app.post("/api/queue/:id/play", async (req, res) => {
       const id = Number(req.params.id);
       const request = getRequestById(id);
       const ok = setRequestStatus(id, "playing");
