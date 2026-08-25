@@ -21,6 +21,8 @@ const MAX_REQUESTS_PER_USER = Number(process.env.MAX_REQUESTS_PER_USER || 2);
 const QUEUE_LIMIT = Number(process.env.QUEUE_LIMIT || 25);
 const ALLOW_WEB_REQUESTS = String(process.env.ALLOW_WEB_REQUESTS).toLowerCase() === "true";
 const PUBLIC_URL = (process.env.PUBLIC_URL || "").trim();
+// Streamer vanity name shown when adding requests from the control panel. Defaults to "Streamer".
+const STREAMER_VANITY_NAME = String(process.env.STREAMER_VANITY_NAME || "Streamer").slice(0, 50);
 // INSTRUCTIONS_MINUTES controls posting of usage instructions to Twitch chat.
 // If INSTRUCTIONS_MINUTES is not defined -> default to 10 minutes.
 // If INSTRUCTIONS_MINUTES is defined but blank (empty string) -> never post instructions.
@@ -254,7 +256,10 @@ function canRequest(username) {
   return active < MAX_REQUESTS_PER_USER;
 }
 
-function addRequest(songId, username, displayName) {
+// Accept an optional options object as 4th argument: { skipLimit: boolean }
+function addRequest(songId, username, displayName, options = {}) {
+  const skipLimit = !!options.skipLimit;
+
   const song = db.prepare("SELECT * FROM songs WHERE id=?").get(songId);
   if (!song) throw new Error("Song not found.");
 
@@ -267,7 +272,7 @@ function addRequest(songId, username, displayName) {
   ).get().n;
   if (totalQueued >= QUEUE_LIMIT) throw new Error("The request queue is full.");
 
-  if (!canRequest(username)) {
+  if (!skipLimit && !canRequest(username)) {
     throw new Error(`You already have the maximum of ${MAX_REQUESTS_PER_USER} active request(s).`);
   }
 
@@ -500,10 +505,23 @@ function createApi(app, options = {}) {
       return res.status(403).json({ error: "Web requests are disabled. Use Twitch chat." });
     }
     try {
+      const rawUsername = String(req.body.username || "web-user").slice(0, 50);
+      const username = rawUsername;
+
+      // Default display name provided by client; may be overridden for control-panel streamer requests.
+      let displayName = String(req.body.displayName || req.body.username || "web-user").slice(0, 50);
+
+      // If this API is mounted as the control panel (options.control === true) and the
+      // control client is submitting a request as the special 'streamer' sentinel username,
+      // treat it as the streamer and bypass MAX_REQUESTS_PER_USER. Also use the configured
+      // STREAMER_VANITY_NAME for the displayed name so overlays show the streamer's chosen name.
+      const isControlStreamer = !!(options.control && String(username || "").toLowerCase() === "streamer");
+
       const r = addRequest(
         Number(req.body.songId),
-        String(req.body.username || "web-user").slice(0, 50),
-        String(req.body.displayName || req.body.username || "web-user").slice(0, 50)
+        username,
+        isControlStreamer ? STREAMER_VANITY_NAME : displayName,
+        { skipLimit: isControlStreamer }
       );
       res.json({ ok: true, request: r });
     } catch (e) {
