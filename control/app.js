@@ -21,6 +21,169 @@ function toast(msg) {
   setTimeout(() => $("toast").classList.remove("show"), 2200);
 }
 
+function getSongSearchPerPage() {
+  return Number($("per-page").value) || 25;
+}
+
+function songCard(song) {
+  const charts = song.charts && song.charts.length
+    ? song.charts.map(c => `${c.difficulty || "?"} ${c.meter || ""}`).join(" • ")
+    : "No chart metadata";
+
+  const article = document.createElement("article");
+  article.className = "song";
+  article.innerHTML = `
+    <div class="song-main">
+      <div class="song-meta">
+        <strong>ID: ${esc(song.id)} - ${esc(song.title)}</strong>
+        ${song.subtitle ? `<span class="song-subtitle">${esc(song.subtitle)}</span>` : ""}
+        <small>${esc(song.artist)}${song.pack ? " • " + esc(song.pack) : ""}</small>
+        <small>${esc(charts)}</small>
+      </div>
+      <div class="song-actions">
+        <button type="button" class="song-action" onclick="window.addToQueue(${song.id})">Add to queue</button>
+      </div>
+    </div>
+  `;
+  return article;
+}
+
+async function getFilters() {
+  try {
+    const f = await api('/api/song-filters');
+    const packSel = $('filter-pack');
+    const genreSel = $('filter-genre');
+    const diffSel = $('filter-difficulty');
+    const meterMinSel = $('filter-meter-min');
+    const meterMaxSel = $('filter-meter-max');
+
+    packSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
+    genreSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
+    diffSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
+    meterMinSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
+    meterMaxSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
+
+    const sortAlpha = (a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+
+    [...(f.packs || [])].sort((a, b) => sortAlpha(a.pack, b.pack)).forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.pack;
+      opt.textContent = `${p.pack} (${p.count})`;
+      packSel.appendChild(opt);
+    });
+
+    [...(f.genres || [])].sort((a, b) => sortAlpha(a.genre, b.genre)).forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = g.genre;
+      opt.textContent = `${g.genre} (${g.count})`;
+      genreSel.appendChild(opt);
+    });
+
+    [...(f.difficulties || [])].sort((a, b) => sortAlpha(a.difficulty, b.difficulty)).forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.difficulty;
+      opt.textContent = `${d.difficulty} (${d.count})`;
+      diffSel.appendChild(opt);
+    });
+
+    const meters = (f.meters || []).map(m => ({ meter: Number(m.meter), count: m.count }))
+      .filter(m => !Number.isNaN(m.meter))
+      .sort((a, b) => a.meter - b.meter);
+
+    meters.forEach(m => {
+      const optMin = document.createElement('option');
+      optMin.value = String(m.meter);
+      optMin.textContent = String(m.meter);
+      meterMinSel.appendChild(optMin);
+
+      const optMax = document.createElement('option');
+      optMax.value = String(m.meter);
+      optMax.textContent = String(m.meter);
+      meterMaxSel.appendChild(optMax);
+    });
+  } catch (e) {
+    console.error('Failed to load filters', e);
+  }
+}
+
+let searchTimer = null;
+let searchPage = 1;
+let searchTotalPages = 1;
+
+function updateSearchPager() {
+  const prev = $('search-prev');
+  const next = $('search-next');
+  const info = $('pageInfo');
+  prev.disabled = searchPage <= 1;
+  next.disabled = searchPage >= searchTotalPages;
+  info.textContent = `Page ${searchPage} of ${searchTotalPages}`;
+}
+
+async function loadSongs(page = 1) {
+  const results = $('results');
+  results.replaceChildren();
+
+  const pack = $('filter-pack').value;
+  const genre = $('filter-genre').value;
+  const difficulty = $('filter-difficulty').value;
+  const meterMin = $('filter-meter-min').value;
+  const meterMax = $('filter-meter-max').value;
+  const sort = $('sort-field').value;
+  const order = $('sort-order').value;
+  const q = $('search').value.trim();
+  const perPage = getSongSearchPerPage();
+
+  const params = new URLSearchParams();
+  params.set('page', page);
+  params.set('perPage', perPage);
+  if (pack) params.set('pack', pack);
+  if (genre) params.set('genre', genre);
+  if (difficulty) params.set('difficulty', difficulty);
+  if (meterMin) params.set('meterMin', meterMin);
+  if (meterMax) params.set('meterMax', meterMax);
+  if (sort) params.set('sort', sort);
+  if (order) params.set('order', order);
+  if (q) params.set('q', q);
+
+  try {
+    const res = await api(`/api/songs?${params.toString()}`);
+    const songs = res.songs || [];
+    const total = res.total || 0;
+    searchPage = res.page || page;
+    searchTotalPages = Math.max(1, Math.ceil(total / (res.perPage || perPage)));
+
+    if (!songs.length) {
+      results.textContent = 'No songs.';
+      updateSearchPager();
+      return;
+    }
+
+    songs.forEach(song => results.appendChild(songCard(song)));
+    updateSearchPager();
+  } catch (e) {
+    results.textContent = e.message;
+    updateSearchPager();
+  }
+}
+
+window.addToQueue = async songId => {
+  try {
+    const result = await api('/api/request', {
+      method: 'POST',
+      body: JSON.stringify({
+        songId,
+        username: 'streamer',
+        displayName: 'Streamer'
+      })
+    });
+    toast(`Added ${result.request.song.title} to the queue.`);
+    render();
+    loadSongs(searchPage);
+  } catch (e) {
+    toast(e.message);
+  }
+};
+
 async function render() {
   try {
     const [stats, now, queue, blacklist] = await Promise.all([
@@ -35,6 +198,7 @@ async function render() {
       <div class="now-card">
         <div>
           <strong>${esc(now.title)}</strong>
+          ${now.subtitle ? `<span class="subtitle">${esc(now.subtitle)}</span>` : ""}
           <span>${esc(now.artist)}${now.pack ? " • " + esc(now.pack) : ""}</span>
           <small>requested by ${esc(now.requested_display)}</small>
         </div>
@@ -46,6 +210,7 @@ async function render() {
         <div class="rank">${i + 1}</div>
         <div class="info">
           <strong>${esc(r.title)}</strong>
+          ${r.subtitle ? `<span class="subtitle">${esc(r.subtitle)}</span>` : ""}
           <span>${esc(r.artist)}${r.pack ? " • " + esc(r.pack) : ""}</span>
           <small>requested by ${esc(r.requested_display)}</small>
         </div>
@@ -102,6 +267,19 @@ $("rescan").onclick = async () => {
 $("addUser").onclick = () => blackUser($("blackUser").value.trim());
 $("refresh").onclick = render;
 
+$("search").addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => loadSongs(1), 180);
+});
+
+['filter-pack','filter-genre','filter-difficulty','filter-meter-min','filter-meter-max','sort-field','sort-order','per-page'].forEach(id => {
+  const el = $(id);
+  if (el) el.addEventListener('change', () => loadSongs(1));
+});
+
+$('search-prev').addEventListener('click', () => { if (searchPage > 1) loadSongs(searchPage - 1); });
+$('search-next').addEventListener('click', () => { if (searchPage < searchTotalPages) loadSongs(searchPage + 1); });
+
 async function renderTwitch() {
   try {
     const status = await api('/api/twitch/status');
@@ -139,6 +317,8 @@ $("disconnectTwitch").onclick = async () => {
   catch(e){toast(e.message)}
 };
 
+getFilters();
+loadSongs(1);
 render();
 renderTwitch();
 setInterval(render, 2500);
