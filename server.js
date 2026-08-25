@@ -140,6 +140,11 @@ CREATE TABLE IF NOT EXISTS blacklist (
 CREATE INDEX IF NOT EXISTS idx_songs_title ON songs(title);
 CREATE INDEX IF NOT EXISTS idx_songs_artist ON songs(artist);
 CREATE INDEX IF NOT EXISTS idx_requests_status_created ON requests(status, created_at);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
 `);
 
 function refreshDatabase() {
@@ -256,9 +261,25 @@ function canRequest(username) {
   return active < MAX_REQUESTS_PER_USER;
 }
 
-// Accept an optional options object as 4th argument: { skipLimit: boolean }
+// Settings helpers
+function getSetting(key, defaultValue) {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key);
+    if (!row) return defaultValue;
+    try { return JSON.parse(row.value); } catch (e) { return row.value; }
+  } catch (e) {
+    return defaultValue;
+  }
+}
+function setSetting(key, value) {
+  const val = typeof value === 'string' ? value : JSON.stringify(value);
+  db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)").run(key, val);
+}
+
+// Accept an optional options object as 4th argument: { skipLimit: boolean, prioritizeViewerInsertion: boolean }
 function addRequest(songId, username, displayName, options = {}) {
   const skipLimit = !!options.skipLimit;
+  const prioritizeViewerInsertion = !!options.prioritizeViewerInsertion;
 
   const song = db.prepare("SELECT * FROM songs WHERE id=?").get(songId);
   if (!song) throw new Error("Song not found.");
@@ -283,11 +304,36 @@ function addRequest(songId, username, displayName, options = {}) {
   `).get(songId);
   if (duplicate) throw new Error("That song is already queued or playing.");
 
+  // Determine created_at timestamp. Default to now. If this is a chat-made viewer request
+  // and the streamer has enabled prioritization, insert it above streamer-made requests
+  // but below other viewer requests.
+  let createdAt = Date.now();
+  try {
+    const prioritize = getSetting('prioritizeViewerRequests', true);
+    if (prioritize && prioritizeViewerInsertion && String(username).toLowerCase() !== 'streamer') {
+      // Find the max created_at among existing viewer requests (non-streamer)
+      const viewerMax = db.prepare("SELECT MAX(created_at) n FROM requests WHERE status='queued' AND requested_by != 'streamer'").get().n;
+      if (viewerMax) {
+        createdAt = Number(viewerMax) + 1;
+      } else {
+        // No other viewer requests; place before earliest streamer request if any
+        const streamerMin = db.prepare("SELECT MIN(created_at) n FROM requests WHERE status='queued' AND requested_by = 'streamer'").get().n;
+        if (streamerMin) {
+          createdAt = Number(streamerMin) - 1;
+        } else {
+          createdAt = Date.now();
+        }
+      }
+    }
+  } catch (e) {
+    createdAt = Date.now();
+  }
+
   const info = db.prepare(`
     INSERT INTO requests
       (song_id, requested_by, requested_display, status, created_at)
     VALUES (?, ?, ?, 'queued', ?)
-  `).run(songId, username, displayName, Date.now());
+  `).run(songId, username, displayName, createdAt);
 
   const result = { id: Number(info.lastInsertRowid), song };
   try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch (e) { /* ignore */ }
@@ -541,7 +587,18 @@ function createApi(app, options = {}) {
 
     app.post("/api/control-login", (_req, res) => res.json({ ok: true }));
 
-    app.post("/api/queue/:id/play", async (req, res) => {
+    // Control panel settings endpoints
+    app.get('/api/control/settings', (_req, res) => {
+      res.json({ prioritizeViewerRequests: !!getSetting('prioritizeViewerRequests', true) });
+    });
+    app.post('/api/control/settings', (req, res) => {
+      const val = !!req.body.prioritizeViewerRequests;
+      setSetting('prioritizeViewerRequests', val);
+      try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch(e){}
+      res.json({ ok: true, prioritizeViewerRequests: val });
+    });
+
+    app.post("/api/queue/:id/play", async (req, res) => {"}```}```
       const id = Number(req.params.id);
       const request = getRequestById(id);
       const ok = setRequestStatus(id, "playing");
@@ -984,7 +1041,8 @@ async function startTmiClient(cfg) {
         return;
       }
       try {
-        const r = addRequest(id, tags.username, display);
+        // Mark this as a chat-made viewer request so prioritization logic can apply.
+        const r = addRequest(id, tags.username, display, { prioritizeViewerInsertion: true });
         await sendChatMessage(client, cfg.channel, `@${display}, added "${r.song.title}" (ID ${id}) to the request queue!`, { skipPrefix: true });
       } catch (e) {
         await sendChatMessage(client, cfg.channel, `@${display}, ${e.message}`);

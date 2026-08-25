@@ -14,15 +14,18 @@ function formatQueue(queue){
     `;
   }
 
+  // Show at most top 3 entries and optionally a "+ N more" column.
+  const visible = queue.slice(0, 3);
+  const remaining = queue.length > 3 ? queue.length - 3 : 0;
+
   return `
     <div class="queue-stack">
-      ${queue.map((r, index) => {
+      ${visible.map((r, index) => {
         const title = escapeHtml(r.title || '(unknown)');
         const subtitle = escapeHtml((r.subtitle || '').replace(/^\(+|\)+$/g, ''));
         const artist = escapeHtml(r.artist || '(unknown artist)');
         const pack = escapeHtml(r.pack || 'Unknown Pack');
         const requester = escapeHtml(r.requested_display || r.requested_by || 'unknown');
-        // Top line: title (with subtitle). Artist is shown on the second line now.
         const titleLine = subtitle ? `${title} (${subtitle})` : `${title}`;
         const entryClass = index === 0 ? 'queue-entry queue-entry--primary' : index === 1 ? 'queue-entry queue-entry--secondary' : 'queue-entry queue-entry--tertiary';
 
@@ -34,10 +37,21 @@ function formatQueue(queue){
               <div class="queue-line queue-line-pack">${pack}</div>
               <div class="queue-line queue-line-requester">Requested by: @${requester}</div>
             </div>
-            ${index < queue.length - 1 ? '<div class="queue-divider" aria-hidden="true"></div>' : ''}
+            ${index < visible.length - 1 ? '<div class="queue-divider" aria-hidden="true"></div>' : ''}
           </div>
         `;
       }).join('')}
+
+      ${remaining > 0 ? `
+        <div class="queue-entry queue-entry--more">
+          <div class="queue-lines">
+            <div class="queue-line">&nbsp;</div>
+            <div class="queue-line queue-line-more">+ ${remaining} more</div>
+            <div class="queue-line">&nbsp;</div>
+            <div class="queue-line">&nbsp;</div>
+          </div>
+        </div>
+      ` : ''}
     </div>
   `;
 }
