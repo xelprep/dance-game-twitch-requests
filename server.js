@@ -284,7 +284,9 @@ function addRequest(songId, username, displayName) {
     VALUES (?, ?, ?, 'queued', ?)
   `).run(songId, username, displayName, Date.now());
 
-  return { id: Number(info.lastInsertRowid), song };
+  const result = { id: Number(info.lastInsertRowid), song };
+  try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch (e) { /* ignore */ }
+  return result;
 }
 
 function setRequestStatus(id, status) {
@@ -300,14 +302,18 @@ function setRequestStatus(id, status) {
       UPDATE requests SET status='playing', started_at=?
       WHERE id=? AND status='queued'
     `).run(now, id);
-    return result.changes > 0;
+    const ok = result.changes > 0;
+    try { if (ok && typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch (e) { /* ignore */ }
+    return ok;
   }
 
   const result = db.prepare(`
     UPDATE requests SET status=?, completed_at=?
     WHERE id=? AND status IN ('queued','playing')
   `).run(status, now, id);
-  return result.changes > 0;
+  const ok = result.changes > 0;
+  try { if (ok && typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch (e) { /* ignore */ }
+  return ok;
 }
 
 function nextRequest() {
@@ -556,6 +562,7 @@ function createApi(app, options = {}) {
         UPDATE requests SET status='skipped', completed_at=?
         WHERE status='queued'
       `).run(Date.now());
+      try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch(e){}
       res.json({ ok: true, changed: info.changes });
     });
 
@@ -585,6 +592,7 @@ function createApi(app, options = {}) {
         db.prepare("UPDATE requests SET created_at=? WHERE id=?").run(current.created_at, neighbor.id);
       });
       tx();
+      try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch(e){}
       res.json({ ok: true });
     });
 
@@ -723,6 +731,31 @@ function createApi(app, options = {}) {
 const publicApp = express();
 publicApp.use(express.static(path.join(__dirname, "public")));
 createApi(publicApp);
+
+// Server-Sent Events (SSE) endpoint for OBS overlay to receive real-time queue updates.
+// Clients should connect to /overlay/queue/stream and will receive JSON array payloads in `message` events.
+const sseQueueClients = new Set();
+function broadcastQueueUpdate(){
+  try{
+    const payload = `data: ${JSON.stringify(getQueue())}\n\n`;
+    for(const res of Array.from(sseQueueClients)){
+      try{ res.write(payload); }catch(e){ sseQueueClients.delete(res); }
+    }
+  }catch(e){ /* ignore */ }
+}
+
+publicApp.get('/overlay/queue/stream', (req, res) => {
+  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+  res.flushHeaders && res.flushHeaders();
+  sseQueueClients.add(res);
+  req.on('close', () => sseQueueClients.delete(res));
+  // Send initial state
+  res.write(`data: ${JSON.stringify(getQueue())}\n\n`);
+});
+
+// Expose a small helper name used by patched functions above.
+const broadcastQueueUpdateRef = broadcastQueueUpdate; // no-op to keep reference semantics
+
 publicApp.listen(PORT, HOST, () => {
   console.log(`Public request site: http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`);
 });
