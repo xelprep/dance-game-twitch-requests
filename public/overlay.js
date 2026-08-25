@@ -43,6 +43,7 @@ function formatQueue(queue){
       }).join('')}
 
       ${remaining > 0 ? `
+        <div class="queue-divider" aria-hidden="true"></div>
         <div class="queue-entry queue-entry--more">
           <div class="queue-lines">
             <div class="queue-line">&nbsp;</div>
