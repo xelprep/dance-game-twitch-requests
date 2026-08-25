@@ -18,11 +18,11 @@ function formatQueue(queue){
     <div class="queue-stack">
       ${queue.map((r, index) => {
         const title = escapeHtml(r.title || '(unknown)');
-        const subtitle = escapeHtml(r.subtitle || '');
+        const subtitle = escapeHtml(r.subtitle.replace(/^\(+|\)+$/g, '') || '');
         const artist = escapeHtml(r.artist || '(unknown artist)');
         const pack = escapeHtml(r.pack || 'Unknown Pack');
         const requester = escapeHtml(r.requested_display || r.requested_by || 'unknown');
-        const titleLine = subtitle ? `${title} (${subtitle}) - <${artist}>` : `${title} - <${artist}>`;
+        const titleLine = subtitle ? `${title} (${subtitle}) - ${artist}` : `${title} - ${artist}`;
 
         return `
           <div class="queue-entry">
