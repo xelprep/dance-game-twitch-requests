@@ -213,6 +213,12 @@ function getSongSearchRows(limit = 25, query = "") {
   return filtered.slice(0, Math.max(1, limit));
 }
 
+function getQueueOrderSql(alias = "r") {
+  return getSetting('prioritizeViewerRequests', true)
+    ? `CASE WHEN LOWER(${alias}.requested_by) = 'streamer' THEN 1 ELSE 0 END, ${alias}.created_at ASC, ${alias}.id ASC`
+    : `${alias}.created_at ASC, ${alias}.id ASC`;
+}
+
 function getQueue(limit = QUEUE_LIMIT) {
   return db.prepare(`
     SELECT r.id, r.requested_by, r.requested_display, r.status, r.created_at,
@@ -220,7 +226,7 @@ function getQueue(limit = QUEUE_LIMIT) {
            s.id AS song_id, s.title, s.subtitle, s.artist, s.pack, s.music
     FROM requests r JOIN songs s ON s.id = r.song_id
     WHERE r.status = 'queued'
-    ORDER BY r.created_at ASC
+    ORDER BY ${getQueueOrderSql()}
     LIMIT ?
   `).all(limit);
 }
@@ -485,9 +491,10 @@ function setRequestStatus(id, status) {
 
 function nextRequest() {
   const next = db.prepare(`
-    SELECT id FROM requests
-    WHERE status='queued'
-    ORDER BY created_at ASC LIMIT 1
+    SELECT r.id FROM requests r
+    WHERE r.status='queued'
+    ORDER BY ${getQueueOrderSql()}
+    LIMIT 1
   `).get();
   if (!next) return null;
   setRequestStatus(next.id, "playing");
@@ -761,9 +768,10 @@ function createApi(app, options = {}) {
 
     app.post("/api/queue/next", async (_req, res) => {
       const next = db.prepare(`
-        SELECT id FROM requests
-        WHERE status='queued'
-        ORDER BY created_at ASC LIMIT 1
+        SELECT r.id FROM requests r
+        WHERE r.status='queued'
+        ORDER BY ${getQueueOrderSql()}
+        LIMIT 1
       `).get();
       if (!next) return res.json({ ok: true, nowPlaying: null });
       const request = getRequestById(next.id);
