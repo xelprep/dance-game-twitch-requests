@@ -790,31 +790,27 @@ function createApi(app, options = {}) {
     });
 
     app.post("/api/queue/:id/move", (req, res) => {
-      // Move within the queue by swapping created_at timestamps.
       const id = Number(req.params.id);
       const direction = req.body.direction === "up" ? -1 : 1;
-      const current = db.prepare("SELECT id, created_at FROM requests WHERE id=? AND status='queued'").get(id);
-      if (!current) return res.status(404).json({ error: "Queued request not found." });
-
-      const neighbor = direction < 0
-        ? db.prepare(`
-            SELECT id, created_at FROM requests
-            WHERE status='queued' AND created_at < ?
-            ORDER BY created_at DESC LIMIT 1
-          `).get(current.created_at)
-        : db.prepare(`
-            SELECT id, created_at FROM requests
-            WHERE status='queued' AND created_at > ?
-            ORDER BY created_at ASC LIMIT 1
-          `).get(current.created_at);
-
-      if (!neighbor) return res.json({ ok: true });
-
       const tx = db.transaction(() => {
-        db.prepare("UPDATE requests SET created_at=? WHERE id=?").run(neighbor.created_at, current.id);
-        db.prepare("UPDATE requests SET created_at=? WHERE id=?").run(current.created_at, neighbor.id);
+        const queued = db.prepare(`
+          SELECT r.id, r.created_at
+          FROM requests r
+          WHERE r.status='queued'
+          ORDER BY ${getQueueOrderSql()}
+        `).all();
+        const index = queued.findIndex((request) => request.id === id);
+        const neighborIndex = index + direction;
+        if (index < 0) return false;
+        if (neighborIndex < 0 || neighborIndex >= queued.length) return true;
+
+        [queued[index], queued[neighborIndex]] = [queued[neighborIndex], queued[index]];
+        const baseTimestamp = Math.min(...queued.map((request) => request.created_at));
+        const update = db.prepare("UPDATE requests SET created_at=? WHERE id=?");
+        queued.forEach((request, queueIndex) => update.run(baseTimestamp + queueIndex, request.id));
+        return true;
       });
-      tx();
+      if (!tx()) return res.status(404).json({ error: "Queued request not found." });
       try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch(e){}
       res.json({ ok: true });
     });
