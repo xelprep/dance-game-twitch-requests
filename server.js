@@ -90,7 +90,7 @@ async function getControlTlsOptions() {
 
   return { key: privateKey, cert: certificate };
 }
-const db = new Database(path.resolve("./data/stepmania.db"));
+const db = new Database(path.resolve("./data/songs.db"));
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS settings (
 `);
 
 function refreshDatabase() {
-  console.log(`Scanning StepMania songs: ${SONGS_DIR}`);
+  console.log(`Scanning songs: ${SONGS_DIR}`);
   const result = scanSongs(SONGS_DIR, db);
   console.log(`Scan complete: ${result.songs} songs, ${result.charts} charts.`);
   return result;
@@ -697,7 +697,7 @@ function createApi(app, options = {}) {
       if (req.path === "/api/control-login") return next();
       const auth = String(req.headers.authorization || "");
       const expected = "Basic " + Buffer.from("streamer:" + CONTROL_PASSWORD).toString("base64");
-      if (auth !== expected) return res.status(401).set("WWW-Authenticate", 'Basic realm="StepMania Streamer Control"').json({ error: "Authentication required." });
+      if (auth !== expected) return res.status(401).set("WWW-Authenticate", 'Basic realm="Streamer Control Panel"').json({ error: "Authentication required." });
       next();
     });
 
