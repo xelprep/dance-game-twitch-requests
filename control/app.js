@@ -214,7 +214,7 @@ async function render() {
           <strong>${esc(r.title)}</strong>
           ${r.subtitle ? `<span class="subtitle">${esc(r.subtitle)}</span>` : ""}
           <span>${esc(r.artist)}${r.pack ? " • " + esc(r.pack) : ""}</span>
-          <small>requested by ${esc(r.requested_display)}</small>
+          <small>Requested by ${esc(r.requested_display)}${(String(r.requested_by.toLowerCase() || "") === "streamer") ? " (Control Panel)" : ""}</small>
         </div>
         <div class="row-actions">
           <button onclick="move(${r.id},'up')">↑</button>
