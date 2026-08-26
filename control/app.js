@@ -302,7 +302,16 @@ if (chatRequestsRequireModeratorsEl) {
 window.play = async id => { try { await api(`/api/queue/${id}/play`, {method:"POST"}); toast("Playing request."); render(); } catch(e){toast(e.message)} };
 window.complete = async id => { try { await api(`/api/queue/${id}/complete`, {method:"POST"}); toast("Marked complete."); render(); } catch(e){toast(e.message)} };
 window.skip = async id => { try { await api(`/api/queue/${id}/skip`, {method:"POST"}); toast("Skipped."); render(); } catch(e){toast(e.message)} };
-window.move = async (id,direction) => { try { await api(`/api/queue/${id}/move`, {method:"POST",body:JSON.stringify({direction})}); render(); } catch(e){toast(e.message)} };
+const movingRequests = new Set();
+window.move = async (id,direction) => {
+  if (movingRequests.has(id)) return;
+  movingRequests.add(id);
+  try {
+    await api(`/api/queue/${id}/move`, {method:"POST",body:JSON.stringify({direction})});
+    await render();
+  } catch(e){toast(e.message)}
+  finally { movingRequests.delete(id); }
+};
 window.blackSong = async songId => { try { await api("/api/blacklist/song",{method:"POST",body:JSON.stringify({songId})}); toast("Song blacklisted."); render(); } catch(e){toast(e.message)} };
 window.blackUser = async username => {
   try { await api("/api/blacklist/user",{method:"POST",body:JSON.stringify({username})}); toast("User blacklisted."); render(); }
