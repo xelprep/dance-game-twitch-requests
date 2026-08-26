@@ -213,12 +213,6 @@ function getSongSearchRows(limit = 25, query = "") {
   return filtered.slice(0, Math.max(1, limit));
 }
 
-function getQueueOrderSql(alias = "r") {
-  return getSetting('prioritizeViewerRequests', true)
-    ? `CASE WHEN LOWER(${alias}.requested_by) = 'streamer' THEN 1 ELSE 0 END, ${alias}.created_at ASC, ${alias}.id ASC`
-    : `${alias}.created_at ASC, ${alias}.id ASC`;
-}
-
 function getQueue(limit = QUEUE_LIMIT) {
   return db.prepare(`
     SELECT r.id, r.requested_by, r.requested_display, r.status, r.created_at,
@@ -226,7 +220,7 @@ function getQueue(limit = QUEUE_LIMIT) {
            s.id AS song_id, s.title, s.subtitle, s.artist, s.pack, s.music
     FROM requests r JOIN songs s ON s.id = r.song_id
     WHERE r.status = 'queued'
-    ORDER BY ${getQueueOrderSql()}
+    ORDER BY r.created_at ASC, r.id ASC
     LIMIT ?
   `).all(limit);
 }
@@ -426,36 +420,38 @@ function addRequest(songId, username, displayName, options = {}) {
   `).get(songId);
   if (duplicate) throw new Error("That song is already queued or playing.");
 
-  // Determine created_at timestamp. Default to now. If this is a chat-made viewer request
-  // and the streamer has enabled prioritization, insert it above streamer-made requests
-  // but below other viewer requests.
-  let createdAt = Date.now();
-  try {
-    const prioritize = getSetting('prioritizeViewerRequests', true);
-    if (prioritize && prioritizeViewerInsertion && String(username).toLowerCase() !== 'streamer') {
-      // Find the max created_at among existing viewer requests (non-streamer)
-      const viewerMax = db.prepare("SELECT MAX(created_at) n FROM requests WHERE status='queued' AND requested_by != 'streamer'").get().n;
-      if (viewerMax) {
-        createdAt = Number(viewerMax) + 1;
-      } else {
-        // No other viewer requests; place before earliest streamer request if any
-        const streamerMin = db.prepare("SELECT MIN(created_at) n FROM requests WHERE status='queued' AND requested_by = 'streamer'").get().n;
-        if (streamerMin) {
-          createdAt = Number(streamerMin) - 1;
-        } else {
-          createdAt = Date.now();
-        }
-      }
+  const isViewerRequest = String(username).toLowerCase() !== 'streamer';
+  const prioritize = getSetting('prioritizeViewerRequests', true);
+  const insertRequest = db.transaction(() => {
+    const queued = db.prepare(`
+      SELECT id, created_at, requested_by
+      FROM requests
+      WHERE status='queued'
+      ORDER BY created_at ASC, id ASC
+    `).all();
+    let insertIndex = queued.length;
+    if (prioritize && prioritizeViewerInsertion && isViewerRequest) {
+      const lastViewerIndex = queued.reduce(
+        (lastIndex, request, index) => request.requested_by.toLowerCase() === 'streamer' ? lastIndex : index,
+        -1
+      );
+      insertIndex = lastViewerIndex + 1;
     }
-  } catch (e) {
-    createdAt = Date.now();
-  }
 
-  const info = db.prepare(`
-    INSERT INTO requests
-      (song_id, requested_by, requested_display, status, created_at)
-    VALUES (?, ?, ?, 'queued', ?)
-  `).run(songId, username, displayName, createdAt);
+    const baseTimestamp = queued.length
+      ? Math.min(...queued.map((request) => Number(request.created_at)))
+      : Date.now();
+    const update = db.prepare("UPDATE requests SET created_at=? WHERE id=?");
+    queued.forEach((request, index) => {
+      update.run(baseTimestamp + index + (index >= insertIndex ? 1 : 0), request.id);
+    });
+    return db.prepare(`
+      INSERT INTO requests
+        (song_id, requested_by, requested_display, status, created_at)
+      VALUES (?, ?, ?, 'queued', ?)
+    `).run(songId, username, displayName, baseTimestamp + insertIndex);
+  });
+  const info = insertRequest();
 
   const result = { id: Number(info.lastInsertRowid), song };
   try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch (e) { /* ignore */ }
@@ -493,7 +489,7 @@ function nextRequest() {
   const next = db.prepare(`
     SELECT r.id FROM requests r
     WHERE r.status='queued'
-    ORDER BY ${getQueueOrderSql()}
+    ORDER BY r.created_at ASC, r.id ASC
     LIMIT 1
   `).get();
   if (!next) return null;
@@ -770,7 +766,7 @@ function createApi(app, options = {}) {
       const next = db.prepare(`
         SELECT r.id FROM requests r
         WHERE r.status='queued'
-        ORDER BY ${getQueueOrderSql()}
+        ORDER BY r.created_at ASC, r.id ASC
         LIMIT 1
       `).get();
       if (!next) return res.json({ ok: true, nowPlaying: null });
@@ -797,7 +793,7 @@ function createApi(app, options = {}) {
           SELECT r.id, r.created_at
           FROM requests r
           WHERE r.status='queued'
-          ORDER BY ${getQueueOrderSql()}
+          ORDER BY r.created_at ASC, r.id ASC
         `).all();
         const index = queued.findIndex((request) => request.id === id);
         const neighborIndex = index + direction;
