@@ -1,8 +1,8 @@
 {
-  "name": "stepmania-twitch-requests",
+  "name": "dance-game-twitch-requests",
   "version": "1.0.0",
   "private": true,
-  "description": "Local StepMania song database with a Twitch chat request bot and web queue.",
+  "description": "Dance Game song database with a Twitch chat request bot and web queue.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
