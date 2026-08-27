@@ -19,6 +19,7 @@ const SEARCH_COMMAND = (process.env.SEARCH_COMMAND || "search").toLowerCase();
 const REQUEST_ID_COMMAND = (process.env.REQUEST_ID_COMMAND || "requestid").toLowerCase();
 const MAX_REQUESTS_PER_USER = Number(process.env.MAX_REQUESTS_PER_USER || 2);
 const QUEUE_LIMIT = Number(process.env.QUEUE_LIMIT || 25);
+const TWITCH_MAX_MESSAGE_LENGTH = 500;
 const ALLOW_WEB_REQUESTS = String(process.env.ALLOW_WEB_REQUESTS).toLowerCase() === "true";
 const PUBLIC_URL = (process.env.PUBLIC_URL || "").trim();
 // Streamer vanity name shown when adding requests from the control panel. Defaults to "Streamer".
@@ -523,11 +524,22 @@ function formatSongRequestLabel(song) {
   return `ID:${id} Title:${title} Artist:${artist} Pack:${pack}`;
 }
 
+function truncateMessage(message, maxLength) {
+  const characters = Array.from(String(message ?? ""));
+  if (characters.length <= maxLength) return characters.join("");
+
+  const suffix = "...";
+  return characters.slice(0, Math.max(0, maxLength - suffix.length)).join("") + suffix;
+}
+
 async function sendChatMessage(targetClient, channel, message, options = {}) {
-  const { skipPrefix = false } = options;
+  const { skipPrefix = false, maxLength } = options;
   const text = String(message ?? "");
   const payload = skipPrefix ? text : `! ${text}`;
-  await targetClient.say(channel, payload);
+  const boundedPayload = Number.isInteger(maxLength) && maxLength > 0
+    ? truncateMessage(payload, maxLength)
+    : payload;
+  await targetClient.say(channel, boundedPayload);
 }
 
 function getRequestById(id) {
@@ -1251,7 +1263,9 @@ async function startTmiClient(cfg) {
     const top = matches.slice(0, 5);
     const reply = top.map((song) => `ID:${song.id} Title:${song.title} Artist:${song.artist || ''} Pack:${song.pack || ''}`).join(' | ');
 
-    await sendChatMessage(client, cfg.channel, `@${display}, ${reply}`);
+    await sendChatMessage(client, cfg.channel, `@${display}, ${reply}`, {
+      maxLength: TWITCH_MAX_MESSAGE_LENGTH
+    });
   });
   // Schedule a refresh if we have expiry information
   scheduleTwitchRefresh();
