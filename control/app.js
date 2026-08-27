@@ -269,6 +269,10 @@ async function render() {
         if (chatRequestsRequireFollowers) chatRequestsRequireFollowers.checked = !!(settings && settings.chatRequestsRequireFollowers);
         if (chatRequestsRequireSubscribers) chatRequestsRequireSubscribers.checked = !!(settings && settings.chatRequestsRequireSubscribers);
         if (chatRequestsRequireModerators) chatRequestsRequireModerators.checked = !!(settings && settings.chatRequestsRequireModerators);
+        const moderatorEnabled = $('moderatorEnabled');
+        const moderatorUsername = $('moderatorUsername');
+        if (moderatorEnabled) moderatorEnabled.checked = !!(settings && settings.moderatorEnabled);
+        if (moderatorUsername && document.activeElement !== moderatorUsername) moderatorUsername.value = settings && settings.moderatorUsername || '';
       }
 
       const allowChat = !!(chatRequestsEnabled && chatRequestsEnabled.checked);
@@ -318,6 +322,26 @@ if (chatRequestsRequireSubscribersEl) {
 const chatRequestsRequireModeratorsEl = $('chatRequestsRequireModerators');
 if (chatRequestsRequireModeratorsEl) {
   chatRequestsRequireModeratorsEl.addEventListener('change', () => saveControlSettings({ chatRequestsRequireModerators: chatRequestsRequireModeratorsEl.checked }));
+}
+
+const moderatorEnabledEl = $('moderatorEnabled');
+const moderatorUsernameEl = $('moderatorUsername');
+const moderatorPasswordEl = $('moderatorPassword');
+if (moderatorEnabledEl) {
+  moderatorEnabledEl.addEventListener('change', () => saveControlSettings({
+    moderatorEnabled: moderatorEnabledEl.checked,
+    moderatorUsername: moderatorUsernameEl.value.trim(),
+    moderatorPassword: moderatorPasswordEl.value
+  }).then(() => { moderatorPasswordEl.value = ''; }));
+}
+if (moderatorUsernameEl) {
+  moderatorUsernameEl.addEventListener('change', () => saveControlSettings({ moderatorUsername: moderatorUsernameEl.value.trim() }));
+}
+if (moderatorPasswordEl) {
+  moderatorPasswordEl.addEventListener('change', () => {
+    if (!moderatorPasswordEl.value) return;
+    saveControlSettings({ moderatorPassword: moderatorPasswordEl.value }).then(() => { moderatorPasswordEl.value = ''; });
+  });
 }
 
 window.play = async id => { try { await api(`/api/queue/${id}/play`, {method:"POST"}); toast("Playing request."); render(); } catch(e){toast(e.message)} };
