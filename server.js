@@ -1208,7 +1208,7 @@ async function startTmiClient(cfg) {
       try {
         // Mark this as a chat-made viewer request so prioritization logic can apply.
         const r = addRequest(id, tags.username, display, { prioritizeViewerInsertion: true });
-        await sendChatMessage(client, cfg.channel, `@${display}, added "${r.song.title}" (ID ${id}) to the request queue!`, { skipPrefix: true });
+        await sendChatMessage(client, cfg.channel, `@${display}, added "${r.song.title}" to the request queue!`, { skipPrefix: true });
       } catch (e) {
         await sendChatMessage(client, cfg.channel, `@${display}, ${e.message}`);
       }
