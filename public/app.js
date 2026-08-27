@@ -53,18 +53,24 @@ async function copyRequestCommand(songId) {
   }
 }
 
+function formatCharts(charts) {
+  const groups = [...new Set((charts || []).map(c => c.chartType))]
+    .sort((a, b) => b.localeCompare(a))
+    .map(style => {
+      const entries = charts
+        .filter(c => c.chartType === style)
+        .sort((a, b) => Number(a.meter) - Number(b.meter))
+        .map(c => `${c.difficulty || "?"} ${c.meter || ""}`.trim())
+        .join(", ");
+      const label = style === "dance-single" ? "Single" : style === "dance-double" ? "Double" : style;
+      return entries ? `${label}: ${entries}` : "";
+    })
+    .filter(Boolean);
+  return groups.length ? groups.join(" ") : "No chart metadata";
+}
+
 function songCard(song) {
-  const chartGroups = [
-    ["dance-single", "Single"],
-    ["dance-double", "Double"]
-  ].map(([style, label]) => {
-    const charts = song.charts
-      .filter(c => c.chartType === style)
-      .map(c => `${c.difficulty || "?"} ${c.meter || ""}`.trim())
-      .join(", ");
-    return charts ? `${label}: ${charts}` : "";
-  }).filter(Boolean);
-  const charts = chartGroups.length ? chartGroups.join(" ") : "No chart metadata";
+  const charts = formatCharts(song.charts);
 
   const div = document.createElement("article");
   div.className = "song";
@@ -116,6 +122,7 @@ async function queue() {
           <strong>${escapeHTML(item.title)}</strong>
           <span>${escapeHTML(item.artist)}${item.pack ? " • " + escapeHTML(item.pack) : ""}</span>
         </div>
+        <small>${escapeHTML(formatCharts(item.charts))}</small>
         <small>requested by ${escapeHTML(item.requested_display)}</small>
       `;
       list.appendChild(li);
