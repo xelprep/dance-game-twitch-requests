@@ -83,3 +83,4 @@ async function getFilters() {
   });
 }
 getFilters().then(() => { loadSongs(); render(); }).catch(error => toast(error.message));
+setInterval(render, 5000);
