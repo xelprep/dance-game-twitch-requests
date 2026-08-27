@@ -25,18 +25,24 @@ function getSongSearchPerPage() {
   return Number($("per-page").value) || 25;
 }
 
+function formatCharts(charts) {
+  const groups = [...new Set((charts || []).map(c => c.chartType))]
+    .sort((a, b) => b.localeCompare(a))
+    .map(style => {
+      const entries = charts
+        .filter(c => c.chartType === style)
+        .sort((a, b) => Number(a.meter) - Number(b.meter))
+        .map(c => `${c.difficulty || "?"} ${c.meter || ""}`.trim())
+        .join(", ");
+      const label = style === "dance-single" ? "Single" : style === "dance-double" ? "Double" : style;
+      return entries ? `${label}: ${entries}` : "";
+    })
+    .filter(Boolean);
+  return groups.length ? groups.join(" ") : "No chart metadata";
+}
+
 function songCard(song) {
-  const chartGroups = [
-    ["dance-single", "Single"],
-    ["dance-double", "Double"]
-  ].map(([style, label]) => {
-    const charts = (song.charts || [])
-      .filter(c => c.chartType === style)
-      .map(c => `${c.difficulty || "?"} ${c.meter || ""}`.trim())
-      .join(", ");
-    return charts ? `${label}: ${charts}` : "";
-  }).filter(Boolean);
-  const charts = chartGroups.length ? chartGroups.join(" ") : "No chart metadata";
+  const charts = formatCharts(song.charts);
 
   const article = document.createElement("article");
   article.className = "song";
@@ -215,6 +221,7 @@ async function render() {
           <strong>${esc(now.title)}</strong>
           ${now.subtitle ? `<span class="subtitle">${esc(now.subtitle)}</span>` : ""}
           <span>${esc(now.artist)}${now.pack ? " • " + esc(now.pack) : ""}</span>
+          <small>${esc(formatCharts(now.charts))}</small>
           <small>requested by ${esc(now.requested_display)}</small>
         </div>
         <button onclick="complete(${now.id})">Complete</button>
@@ -227,6 +234,7 @@ async function render() {
           <strong>${esc(r.title)}</strong>
           ${r.subtitle ? `<span class="subtitle">${esc(r.subtitle)}</span>` : ""}
           <span>${esc(r.artist)}${r.pack ? " • " + esc(r.pack) : ""}</span>
+          <small>${esc(formatCharts(r.charts))}</small>
           <small>Requested by ${esc(r.requested_display)}${(String(r.requested_by.toLowerCase() || "") === "streamer") ? " (Control Panel)" : ""}</small>
         </div>
         <div class="row-actions">

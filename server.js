@@ -214,7 +214,7 @@ function getSongSearchRows(limit = 25, query = "") {
 }
 
 function getQueue(limit = QUEUE_LIMIT) {
-  return db.prepare(`
+  const rows = db.prepare(`
     SELECT r.id, r.requested_by, r.requested_display, r.status, r.created_at,
            r.started_at, r.completed_at,
            s.id AS song_id, s.title, s.subtitle, s.artist, s.pack, s.music
@@ -223,16 +223,18 @@ function getQueue(limit = QUEUE_LIMIT) {
     ORDER BY r.created_at ASC, r.id ASC
     LIMIT ?
   `).all(limit);
+  return rows.map((row) => ({ ...row, charts: getSongCharts(row.song_id) }));
 }
 
 function getNowPlaying() {
-  return db.prepare(`
-    SELECT r.id, r.requested_by, r.requested_display, r.status,
+  const row = db.prepare(`
+   SELECT r.id, r.requested_by, r.requested_display, r.status,
            r.started_at, s.id AS song_id, s.title, s.subtitle, s.artist, s.pack, s.music
     FROM requests r JOIN songs s ON s.id = r.song_id
     WHERE r.status = 'playing'
     ORDER BY r.started_at DESC LIMIT 1
-  `).get() || null;
+  `).get();
+  return row ? { ...row, charts: getSongCharts(row.song_id) } : null;
 }
 
 function getStats() {
@@ -502,11 +504,15 @@ function songRow(row) {
     id: row.id, title: row.title, subtitle: row.subtitle,
     artist: row.artist, genre: row.genre, pack: row.pack,
     music: row.music, filePath: row.file_path,
-    charts: db.prepare(`
-      SELECT id, chart_type chartType, difficulty, meter
-      FROM charts WHERE song_id=? ORDER BY id
-    `).all(row.id)
+    charts: getSongCharts(row.id)
   };
+}
+
+function getSongCharts(songId) {
+  return db.prepare(`
+    SELECT id, chart_type chartType, difficulty, meter
+    FROM charts WHERE song_id=? ORDER BY id
+  `).all(songId);
 }
 
 function formatSongRequestLabel(song) {
