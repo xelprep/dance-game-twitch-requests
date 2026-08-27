@@ -126,6 +126,13 @@
   <div class="section-head"><h2>Settings</h2></div>
   <div class="settings-form">
     <label>
+      <input type="checkbox" id="moderatorEnabled">
+      Enable public moderator control at <code>/requestModerator.html</code>
+    </label>
+    <label>Moderator username: <input id="moderatorUsername" autocomplete="off" placeholder="Trusted user's username"></label>
+    <label>Moderator password: <input id="moderatorPassword" type="password" autocomplete="new-password" placeholder="Set or replace password"></label>
+    <p class="small muted">Disabling access revokes existing moderator sessions immediately. The password is stored as a one-way hash.</p>
+    <label>
       <input type="checkbox" id="prioritizeViewerRequests" checked>
       Prioritize viewer requests above streamer requests (chat requests > streamer requests)
     </label>
