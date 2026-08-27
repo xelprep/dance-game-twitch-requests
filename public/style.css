@@ -25,6 +25,9 @@ p { color: #aeb4c0; }
   margin-top: 20px;
 }
 label { display: block; margin-bottom: 8px; font-weight: 700; }
+input[type="checkbox"] { width: auto; margin: 0 8px 0 0; vertical-align: middle; }
+.settings-form label { display: flex; align-items: center; }
+.setting-description { margin: -2px 0 12px 24px; font-size: 0.9rem; }
 input {
   width: 100%;
   padding: 13px 14px;
