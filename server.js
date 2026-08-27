@@ -20,6 +20,7 @@ const REQUEST_ID_COMMAND = (process.env.REQUEST_ID_COMMAND || "requestid").toLow
 const MAX_REQUESTS_PER_USER = Number(process.env.MAX_REQUESTS_PER_USER || 2);
 const QUEUE_LIMIT = Number(process.env.QUEUE_LIMIT || 25);
 const TWITCH_MAX_MESSAGE_LENGTH = 500;
+const HELP_COOLDOWN_MS = 30 * 1000;
 const ALLOW_WEB_REQUESTS = String(process.env.ALLOW_WEB_REQUESTS).toLowerCase() === "true";
 const PUBLIC_URL = (process.env.PUBLIC_URL || "").trim();
 // Streamer vanity name shown when adding requests from the control panel. Defaults to "Streamer".
@@ -1112,6 +1113,7 @@ function scheduleTwitchRefresh() {
 }
 
 let instructionsTimer = null;
+let helpLastSentAt = 0;
 
 function clearInstructionsTimer() {
   if (instructionsTimer) {
@@ -1125,21 +1127,32 @@ function getInstructionsEnabled() {
   return INSTRUCTIONS_MINUTES !== null;
 }
 
-async function postInstructionsOnce() {
-  if (!twitchClient || !twitchConfig || !twitchConfig.channel) return;
-  if (!getInstructionsEnabled()) return;
-  const channel = String(twitchConfig.channel).replace(/^#/, "");
+function getInstructionsMessage() {
   const parts = [];
   parts.push(`Use "${PREFIX}${SEARCH_COMMAND} <title>" to search available song titles.`);
   parts.push(`Use "${PREFIX}${REQUEST_ID_COMMAND} <songID>" to request a song.`);
   parts.push(`Use "${PREFIX}queue" to view the next 5 songs in the request queue.`);
+  parts.push(`Use "${PREFIX}help" to display these usage instructions.`);
   if (PUBLIC_URL) parts.push(`Visit ${PUBLIC_URL} for a more robust song browse and search experience.`);
-  const message = parts.join(' ');
+  return parts.join(' ');
+}
+
+async function postInstructionsOnce() {
+  if (!twitchClient || !twitchConfig || !twitchConfig.channel) return;
+  if (!getInstructionsEnabled()) return;
+  const channel = String(twitchConfig.channel).replace(/^#/, "");
   try {
-    await sendChatMessage(twitchClient, channel, message);
+    await sendChatMessage(twitchClient, channel, getInstructionsMessage());
   } catch (e) {
     console.error('Failed to post instructions:', e && e.message ? e.message : e);
   }
+}
+
+async function postHelpMessage(client, channel) {
+  const now = Date.now();
+  if (now - helpLastSentAt < HELP_COOLDOWN_MS) return;
+  helpLastSentAt = now;
+  await sendChatMessage(client, String(channel).replace(/^#/, ""), getInstructionsMessage());
 }
 
 function scheduleInstructions() {
@@ -1200,6 +1213,11 @@ async function startTmiClient(cfg) {
     const command = (space === -1 ? body : body.slice(0, space)).toLowerCase();
     const arg = space === -1 ? "" : body.slice(space + 1).trim();
     const display = tags["display-name"] || tags.username;
+
+    if (command === "help") {
+      await postHelpMessage(client, cfg.channel);
+      return;
+    }
 
     // Support requesting by numeric ID: !requestid <id>
     if (command === REQUEST_ID_COMMAND) {

@@ -128,7 +128,7 @@ Optionally Set:
 INSTRUCTIONS_MINUTES=10
 ```
 
-If this variable is set, the chat bot will post usage instructions in chat at the defined number of minutes. If left blank, it will never post instructions.
+If this variable is set, the chat bot will post usage instructions in chat at the defined number of minutes. If left blank, it will never post instructions automatically; viewers can still use `!help` to request them (with a 30-second global cooldown).
 
 Optionally Set: 
 
@@ -151,6 +151,7 @@ Viewers use:
 - `!search <query>` — the bot searches song titles for the full query string and returns up to 5 matching results in ID/Title/Artist/Pack format.
 - `!requestid <id>` — request a song explicitly by its numeric ID; this will add it to the queue if allowed.
 - `!queue` — view up to a maximum of 5 of the queued requested songs.
+- `!help` — display the usage instructions (limited to one response every 30 seconds globally).
 
 The viewer text search on the public web page searches song titles only (use the dropdowns to filter by pack, genre, difficulty, or meter). Matches are accent-insensitive substring matches, so a query like `ubb` matches `Bubble Pop`.
 
