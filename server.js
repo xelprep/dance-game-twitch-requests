@@ -1162,7 +1162,7 @@ async function startTmiClient(cfg) {
   const expectedChannel = `#${String(cfg.channel).replace(/^#/, "").toLowerCase()}`;
   client.once("roomstate", channel => {
     if (String(channel).toLowerCase() === expectedChannel) {
-      console.log(`Twitch channel join confirmed for ${channel}; any preceding "No response from Twitch." message can be safely ignored.`);
+      console.log(`Twitch channel join confirmed for ${channel}; any nearby "No response from Twitch." message can probably be safely ignored.`);
     }
   });
   try {
