@@ -1159,6 +1159,12 @@ async function startTmiClient(cfg) {
   });
 
   twitchClient = client;
+  const expectedChannel = `#${String(cfg.channel).replace(/^#/, "").toLowerCase()}`;
+  client.once("roomstate", channel => {
+    if (String(channel).toLowerCase() === expectedChannel) {
+      console.log(`Twitch channel join confirmed for ${channel}; any preceding "No response from Twitch." message can be safely ignored.`);
+    }
+  });
   try {
     await client.connect();
     console.log(`Twitch bot connected to #${cfg.channel}`);
