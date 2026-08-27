@@ -13,7 +13,9 @@ async function loadSongs(nextPage = 1) {
   const params = new URLSearchParams({ page: nextPage, perPage: $("per-page").value });
   ["pack", "genre", "style", "difficulty"].forEach(key => { const value = $(`filter-${key}`).value; if (value) params.set(key, value); });
   const meterMin = $("filter-meter-min").value;
+  const meterMax = $("filter-meter-max").value;
   if (meterMin) params.set("meterMin", meterMin);
+  if (meterMax) params.set("meterMax", meterMax);
   params.set("sort", $("sort-field").value);
   params.set("order", $("sort-order").value);
   if ($("search").value.trim()) params.set("q", $("search").value.trim());
@@ -25,13 +27,37 @@ async function loadSongs(nextPage = 1) {
   } catch (error) { $("results").textContent = error.message; }
 }
 async function render() {
-  try {
-    const [stats, now, queue, settings] = await Promise.all([api("/api/stats"), api("/api/now-playing"), api("/api/queue"), api("/api/moderator/settings")]);
+  const results = await Promise.allSettled([
+    api("/api/stats"),
+    api("/api/now-playing"),
+    api("/api/queue"),
+    api("/api/moderator/settings")
+  ]);
+  const [statsResult, nowResult, queueResult, settingsResult] = results;
+  if (statsResult.status === "fulfilled") {
+    const stats = statsResult.value;
     $("stats").textContent = `${stats.songs.toLocaleString()} songs • ${stats.queued} queued • ${stats.playing} playing`;
+  } else {
+    toast(statsResult.reason.message);
+  }
+  if (nowResult.status === "fulfilled") {
+    const now = nowResult.value;
     $("now").innerHTML = now ? `<div class="now-card"><div><strong>${esc(now.title)}</strong><span>${esc(now.artist)}</span><small>requested by ${esc(now.requested_display)}</small></div></div>` : "Nothing playing.";
+  } else {
+    $("now").textContent = nowResult.reason.message;
+  }
+  if (queueResult.status === "fulfilled") {
+    const queue = queueResult.value;
     $("queue").innerHTML = queue.length ? queue.map((item, index) => `<article class="request"><div class="rank">${index + 1}</div><div class="info"><strong>${esc(item.title)}</strong><span>${esc(item.artist)}</span><small>Requested by ${esc(item.requested_display)}</small></div><div class="row-actions"><button onclick="move(${item.id},'up')">↑</button><button onclick="move(${item.id},'down')">↓</button><button onclick="play(${item.id})">Play</button><button onclick="skip(${item.id})">Skip</button></div></article>`).join("") : '<p class="muted">Queue is empty.</p>';
+  } else {
+    $("queue").textContent = queueResult.reason.message;
+  }
+  if (settingsResult.status === "fulfilled") {
+    const settings = settingsResult.value;
     ["prioritizeViewerRequests","chatRequestsEnabled","chatRequestsRequireFollowers","chatRequestsRequireSubscribers","chatRequestsRequireModerators"].forEach(key => $(key).checked = !!settings[key]);
-  } catch (error) { toast(error.message); }
+  } else {
+    toast(settingsResult.reason.message);
+  }
 }
 window.addToQueue = async songId => { try { const result = await api("/api/moderator/request", { method:"POST", body: JSON.stringify({ songId }) }); toast(`Added ${result.request.song.title}.`); render(); } catch (error) { toast(error.message); } };
 window.play = async id => { try { await api(`/api/moderator/queue/${id}/play`, {method:"POST"}); render(); } catch (error) { toast(error.message); } };
@@ -42,15 +68,18 @@ $("clear").onclick = async () => { if (confirm("Skip every queued request?")) { 
 $("refresh").onclick = render; $("prev").onclick = () => loadSongs(page - 1); $("next-page").onclick = () => loadSongs(page + 1);
 $("search").oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => loadSongs(1), 180); };
 $("reset-search").onclick = () => { $("search").value = ""; loadSongs(1); };
-["pack","genre","style","difficulty","meter-min","sort-field","sort-order","per-page"].forEach(key => $(key === "sort-field" || key === "sort-order" ? key : `filter-${key}`).onchange = () => loadSongs(1));
+["pack","genre","style","difficulty","meter-min","meter-max","sort-field","sort-order","per-page"].forEach(key => $(key === "sort-field" || key === "sort-order" ? key : `filter-${key}`).onchange = () => loadSongs(1));
 ["prioritizeViewerRequests","chatRequestsEnabled","chatRequestsRequireFollowers","chatRequestsRequireSubscribers","chatRequestsRequireModerators"].forEach(key => $(key).onchange = async () => { try { await api("/api/moderator/settings", {method:"POST", body:JSON.stringify({[key]: $(key).checked})}); } catch (error) { toast(error.message); } });
 async function getFilters() {
   const filters = await api("/api/song-filters");
-  [["pack","pack"],["genre","genre"],["difficulty","difficulty"]].forEach(([id, field]) => (filters[`${field}s`] || []).forEach(item => {
+  [["pack","packs"],["genre","genres"],["difficulty","difficulties"]].forEach(([id, key]) => (filters[key] || []).forEach(item => {
+    const field = id === "pack" ? "pack" : id === "genre" ? "genre" : "difficulty";
     const option = document.createElement("option"); option.value = item[field]; option.textContent = `${item[field]} (${item.count})`; $(`filter-${id}`).appendChild(option);
   }));
   (filters.meters || []).forEach(item => {
-    const option = document.createElement("option"); option.value = item.meter; option.textContent = item.meter; $("filter-meter-min").appendChild(option);
+    ["filter-meter-min", "filter-meter-max"].forEach(id => {
+      const option = document.createElement("option"); option.value = item.meter; option.textContent = item.meter; $(id).appendChild(option);
+    });
   });
 }
 getFilters().then(() => { loadSongs(); render(); }).catch(error => toast(error.message));
