@@ -54,9 +54,17 @@ async function copyRequestCommand(songId) {
 }
 
 function songCard(song) {
-  const charts = song.charts.length
-    ? song.charts.map(c => `${c.difficulty || "?"} ${c.meter || ""}`).join(" • ")
-    : "No chart metadata";
+  const chartGroups = [
+    ["dance-single", "Single"],
+    ["dance-double", "Double"]
+  ].map(([style, label]) => {
+    const charts = song.charts
+      .filter(c => c.chartType === style)
+      .map(c => `${c.difficulty || "?"} ${c.meter || ""}`.trim())
+      .join(", ");
+    return charts ? `${label}: ${charts}` : "";
+  }).filter(Boolean);
+  const charts = chartGroups.length ? chartGroups.join(" ") : "No chart metadata";
 
   const div = document.createElement("article");
   div.className = "song";
@@ -148,7 +156,7 @@ $("search").addEventListener("input", () => {
   }, 180);
 });
 
-['filter-pack','filter-genre','filter-difficulty','filter-meter-min','filter-meter-max','sort-field','sort-order','per-page'].forEach(id => {
+['filter-pack','filter-genre','filter-style','filter-difficulty','filter-meter-min','filter-meter-max','sort-field','sort-order','per-page'].forEach(id => {
   const el = document.getElementById(id);
   if (el) el.addEventListener('change', () => loadSongs(1));
 });
@@ -224,6 +232,7 @@ async function loadSongs(page = 1) {
 
   const pack = $('filter-pack').value;
   const genre = $('filter-genre').value;
+  const style = $('filter-style').value;
   const difficulty = $('filter-difficulty').value;
   const meterMin = $('filter-meter-min').value;
   const meterMax = $('filter-meter-max').value;
@@ -237,6 +246,7 @@ async function loadSongs(page = 1) {
   params.set('perPage', perPage);
   if (pack) params.set('pack', pack);
   if (genre) params.set('genre', genre);
+  if (style) params.set('style', style);
   if (difficulty) params.set('difficulty', difficulty);
   if (meterMin) params.set('meterMin', meterMin);
   if (meterMax) params.set('meterMax', meterMax);

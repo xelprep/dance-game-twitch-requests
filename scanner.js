@@ -27,27 +27,33 @@ function parseNotesBlocks(text) {
   while ((m = smRe.exec(text))) {
     const fields = m[1].split(":").map(x => x.trim());
     if (fields.length >= 6) {
-      charts.push({
+      const chart = {
         chartType: fields[0],
         difficulty: fields[2],
         meter: fields[3],
         radar: fields[4]
-      });
+      };
+      if (chart.chartType === "dance-single" || chart.chartType === "dance-double") {
+        charts.push(chart);
+      }
     }
   }
 
   // .ssc #NOTEDATA blocks.
-  const sscRe = /#NOTEDATA\s*;([\s\S]*?)(?=#NOTEDATA\s*;|$)/gi;
+  const sscRe = /#NOTEDATA\s*:?\s*;([\s\S]*?)(?=#NOTEDATA\s*:?\s*;|$)/gi;
   while ((m = sscRe.exec(text))) {
     const block = m[1];
     const tags = parseTags(block);
     if (tags.STEPSTYPE || tags.DIFFICULTY || tags.METER) {
-      charts.push({
+      const chart = {
         chartType: tags.STEPSTYPE || "",
         difficulty: tags.DIFFICULTY || "",
         meter: tags.METER || "",
         radar: tags.RADARVALUES || ""
-      });
+      };
+      if (chart.chartType === "dance-single" || chart.chartType === "dance-double") {
+        charts.push(chart);
+      }
     }
   }
 

@@ -26,9 +26,17 @@ function getSongSearchPerPage() {
 }
 
 function songCard(song) {
-  const charts = song.charts && song.charts.length
-    ? song.charts.map(c => `${c.difficulty || "?"} ${c.meter || ""}`).join(" • ")
-    : "No chart metadata";
+  const chartGroups = [
+    ["dance-single", "Single"],
+    ["dance-double", "Double"]
+  ].map(([style, label]) => {
+    const charts = (song.charts || [])
+      .filter(c => c.chartType === style)
+      .map(c => `${c.difficulty || "?"} ${c.meter || ""}`.trim())
+      .join(", ");
+    return charts ? `${label}: ${charts}` : "";
+  }).filter(Boolean);
+  const charts = chartGroups.length ? chartGroups.join(" ") : "No chart metadata";
 
   const article = document.createElement("article");
   article.className = "song";
