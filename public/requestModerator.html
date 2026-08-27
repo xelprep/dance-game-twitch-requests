@@ -19,7 +19,10 @@
         <label>Genre<select id="filter-genre"><option value="">All genres</option></select></label>
         <label>Style<select id="filter-style"><option value="">Any</option><option value="dance-single">Single</option><option value="dance-double">Doubles</option></select></label>
         <label>Difficulty<select id="filter-difficulty"><option value="">All difficulties</option></select></label>
-        <label>Meter<select id="filter-meter-min"><option value="">Min</option></select></label>
+        <label>Meter
+          <select id="filter-meter-min"><option value="">Min</option></select>
+          <select id="filter-meter-max"><option value="">Max</option></select>
+        </label>
         <label>Sort<select id="sort-field"><option value="title">Title</option><option value="artist">Artist</option><option value="pack">Pack</option><option value="last_modified">Last modified</option></select></label>
         <label>Order<select id="sort-order"><option value="asc">Asc</option><option value="desc">Desc</option></select></label>
         <label>Per page<select id="per-page"><option>10</option><option selected>25</option><option>50</option></select></label>
@@ -27,11 +30,18 @@
       <div id="results" class="results"></div><div class="pager"><button id="prev" disabled>Prev</button><span id="pageInfo">Page 1</span><button id="next-page" disabled>Next</button></div>
     </section>
     <section class="panel"><h2>Request Settings</h2>
-      <label><input type="checkbox" id="prioritizeViewerRequests"> Prioritize viewer requests</label>
-      <label><input type="checkbox" id="chatRequestsEnabled"> Allow chat requests</label>
-      <label><input type="checkbox" id="chatRequestsRequireFollowers"> Require followers</label>
-      <label><input type="checkbox" id="chatRequestsRequireSubscribers"> Require subscribers</label>
-      <label><input type="checkbox" id="chatRequestsRequireModerators"> Require moderators</label>
+      <div class="settings-form">
+        <label><input type="checkbox" id="prioritizeViewerRequests"> Prioritize viewer requests</label>
+        <p class="setting-description">Place requests made through Twitch chat ahead of requests added from the control panel.</p>
+        <label><input type="checkbox" id="chatRequestsEnabled"> Allow chat requests</label>
+        <p class="setting-description">Allow viewers to add songs to the queue through Twitch chat.</p>
+        <label><input type="checkbox" id="chatRequestsRequireFollowers"> Require followers</label>
+        <p class="setting-description">Only allow viewers who follow the channel to request songs through chat.</p>
+        <label><input type="checkbox" id="chatRequestsRequireSubscribers"> Require subscribers</label>
+        <p class="setting-description">Only allow subscribers to request songs through chat.</p>
+        <label><input type="checkbox" id="chatRequestsRequireModerators"> Require moderators</label>
+        <p class="setting-description">Only allow channel moderators to request songs through chat.</p>
+      </div>
     </section>
     <div id="toast" class="copy-status" role="status"></div>
   </main>
