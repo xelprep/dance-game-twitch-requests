@@ -163,6 +163,14 @@ $("search").addEventListener("input", () => {
   }, 180);
 });
 
+$("reset-search").addEventListener("click", () => {
+  clearTimeout(timer);
+  $("search").value = "";
+  ['filter-pack','filter-genre','filter-style','filter-difficulty','filter-meter-min','filter-meter-max','sort-field','sort-order']
+    .forEach(id => { $(id).selectedIndex = 0; });
+  loadSongs(1);
+});
+
 ['filter-pack','filter-genre','filter-style','filter-difficulty','filter-meter-min','filter-meter-max','sort-field','sort-order','per-page'].forEach(id => {
   const el = document.getElementById(id);
   if (el) el.addEventListener('change', () => loadSongs(1));
