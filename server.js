@@ -596,8 +596,15 @@ function createApi(app, options = {}) {
       params.genre = String(req.query.genre);
     }
 
-    // Chart-based filters: difficulty, meter range
+    // Chart-based filters: style, difficulty, meter range
     const chartWhere = [];
+    if (req.query.style) {
+      const style = String(req.query.style);
+      if (style === "dance-single" || style === "dance-double") {
+        chartWhere.push("chart_type = @style");
+        params.style = style;
+      }
+    }
     if (req.query.difficulty) {
       chartWhere.push("difficulty = @difficulty");
       params.difficulty = String(req.query.difficulty);
@@ -652,6 +659,11 @@ function createApi(app, options = {}) {
       WHERE difficulty IS NOT NULL AND difficulty != ''
       GROUP BY difficulty ORDER BY difficulty COLLATE NOCASE ASC
     `).all();
+    const styles = db.prepare(`
+      SELECT chart_type style, COUNT(DISTINCT song_id) count FROM charts
+      WHERE chart_type IN ('dance-single', 'dance-double')
+      GROUP BY chart_type ORDER BY chart_type
+    `).all();
 
     const meters = db.prepare(`
       SELECT CAST(meter AS INTEGER) meter, COUNT(DISTINCT song_id) count FROM charts
@@ -659,7 +671,7 @@ function createApi(app, options = {}) {
       GROUP BY meter ORDER BY meter ASC
     `).all();
 
-    res.json({ packs, genres, difficulties, meters });
+    res.json({ packs, genres, difficulties, meters, styles });
   });
 
   app.get("/api/queue", (_req, res) => res.json(getQueue()));
