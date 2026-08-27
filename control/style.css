@@ -15,6 +15,7 @@ button:hover{filter:brightness(1.15)}
 .row-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
 .muted,.black-item small{color:#8e97a5}
 .blacklist-form{display:flex;gap:8px;margin:14px 0;flex-wrap:wrap}
+.search-row{display:flex;gap:8px}.search-row input{flex:1}
 input{background:#0d1015;color:#fff;border:1px solid #3b4350;border-radius:8px;padding:9px 11px;min-width:200px}
 #toast{position:fixed;right:20px;bottom:20px;background:#252b35;border:1px solid #495260;border-radius:9px;padding:11px 14px;opacity:0;transform:translateY(8px);transition:.15s}
 #toast.show{opacity:1;transform:none}
