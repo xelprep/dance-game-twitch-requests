@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Moderator Request Control</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <header><div><h1>Moderator Request Control</h1><p id="stats">Loading…</p></div><div class="actions"><button id="next">Play Next</button><button id="clear">Clear Queue</button></div></header>
+    <section class="panel"><div class="section-title"><h2>Now Playing</h2></div><div id="now">Nothing playing.</div></section>
+    <section class="panel"><div class="section-title"><h2>Request Queue</h2><button id="refresh">Refresh</button></div><div id="queue"></div></section>
+    <section class="panel">
+      <h2>Song Search</h2>
+      <div class="search-row"><input id="search" autocomplete="off" placeholder="Search title"><button id="reset-search" type="button">Reset</button></div>
+      <div class="filters">
+        <label>Pack<select id="filter-pack"><option value="">All packs</option></select></label>
+        <label>Genre<select id="filter-genre"><option value="">All genres</option></select></label>
+        <label>Style<select id="filter-style"><option value="">Any</option><option value="dance-single">Single</option><option value="dance-double">Doubles</option></select></label>
+        <label>Difficulty<select id="filter-difficulty"><option value="">All difficulties</option></select></label>
+        <label>Meter<select id="filter-meter-min"><option value="">Min</option></select></label>
+        <label>Sort<select id="sort-field"><option value="title">Title</option><option value="artist">Artist</option><option value="pack">Pack</option><option value="last_modified">Last modified</option></select></label>
+        <label>Order<select id="sort-order"><option value="asc">Asc</option><option value="desc">Desc</option></select></label>
+        <label>Per page<select id="per-page"><option>10</option><option selected>25</option><option>50</option></select></label>
+      </div>
+      <div id="results" class="results"></div><div class="pager"><button id="prev" disabled>Prev</button><span id="pageInfo">Page 1</span><button id="next-page" disabled>Next</button></div>
+    </section>
+    <section class="panel"><h2>Request Settings</h2>
+      <label><input type="checkbox" id="prioritizeViewerRequests"> Prioritize viewer requests</label>
+      <label><input type="checkbox" id="chatRequestsEnabled"> Allow chat requests</label>
+      <label><input type="checkbox" id="chatRequestsRequireFollowers"> Require followers</label>
+      <label><input type="checkbox" id="chatRequestsRequireSubscribers"> Require subscribers</label>
+      <label><input type="checkbox" id="chatRequestsRequireModerators"> Require moderators</label>
+    </section>
+    <div id="toast" class="copy-status" role="status"></div>
+  </main>
+  <script src="/requestModerator.js"></script>
+</body>
+</html>

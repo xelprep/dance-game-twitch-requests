@@ -73,6 +73,20 @@ The control panel provides:
 - Search songs and make unlimited requests as the streamer
 - Enable/disable prioritizing viewer requests above streamer requests
 
+## Public moderator control
+
+The streamer can enable a separate, restricted moderator interface from the control panel. Set a username and password in the **Moderator access** settings, enable it, and provide the public-port URL:
+
+```text
+http://localhost:3000/requestModerator.html
+```
+
+When enabled, the page uses its own HTTP Basic Authentication credentials and provides queue management, song search, unlimited requests, and the request/chat restriction settings. It cannot configure Twitch, rescan songs, or manage blacklists. Disabling the page immediately invalidates the credentials on every subsequent request.
+
+The moderator username is used as the `Requested By` display name for requests made through this interface. The password is stored as a one-way hash in the local settings database.
+
+Because the public server is HTTP by default, expose it through an HTTPS tunnel or reverse proxy when sharing it outside the local network; do not send these credentials over the open Internet.
+
 ## Install
 
 ```bash

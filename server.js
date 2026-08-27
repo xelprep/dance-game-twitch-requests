@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 const https = require("https");
 const Database = require("better-sqlite3");
 const selfsigned = require("selfsigned");
@@ -286,8 +287,65 @@ function getControlSettings() {
     chatRequestsEnabled: !!getSetting('chatRequestsEnabled', true),
     chatRequestsRequireFollowers: !!getSetting('chatRequestsRequireFollowers', false),
     chatRequestsRequireSubscribers: !!getSetting('chatRequestsRequireSubscribers', false),
-    chatRequestsRequireModerators: !!getSetting('chatRequestsRequireModerators', false)
+    chatRequestsRequireModerators: !!getSetting('chatRequestsRequireModerators', false),
+    moderatorEnabled: !!getSetting('moderatorEnabled', false),
+    moderatorUsername: String(getSetting('moderatorUsername', '')),
+    moderatorPasswordConfigured: !!getSetting('moderatorPasswordHash', '')
   };
+}
+
+function hashModeratorPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(password, salt, 64);
+  return `${salt.toString('hex')}:${hash.toString('hex')}`;
+}
+
+function verifyModeratorPassword(password, encoded) {
+  const [saltHex, hashHex] = String(encoded || '').split(':');
+  if (!saltHex || !hashHex) return false;
+  try {
+    const expected = Buffer.from(hashHex, 'hex');
+    const actual = crypto.scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length);
+    return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+  } catch (_error) {
+    return false;
+  }
+}
+
+function getModeratorCredentials() {
+  const settings = getControlSettings();
+  return {
+    enabled: settings.moderatorEnabled,
+    username: settings.moderatorUsername,
+    passwordHash: String(getSetting('moderatorPasswordHash', ''))
+  };
+}
+
+function authenticateModerator(req, res, next) {
+  const credentials = getModeratorCredentials();
+  const auth = String(req.headers.authorization || '');
+  const match = auth.match(/^Basic\s+(.+)$/i);
+  let username = '';
+  let password = '';
+  if (match) {
+    try {
+      const decoded = Buffer.from(match[1], 'base64').toString('utf8');
+      const separator = decoded.indexOf(':');
+      if (separator >= 0) {
+        username = decoded.slice(0, separator);
+        password = decoded.slice(separator + 1);
+      }
+    } catch (_error) {
+      // Treat malformed credentials as unauthenticated.
+    }
+  }
+  if (!credentials.enabled || username !== credentials.username || !verifyModeratorPassword(password, credentials.passwordHash)) {
+    return res.status(401)
+      .set('WWW-Authenticate', 'Basic realm="Moderator Access"')
+      .json({ error: credentials.enabled ? 'Authentication required.' : 'Moderator access is disabled.' });
+  }
+  req.moderatorUsername = credentials.username;
+  next();
 }
 
 function parseBadgeString(value) {
@@ -587,6 +645,76 @@ async function announceRequestAction(action, request) {
 
 function createApi(app, options = {}) {
   app.use(express.json({ limit: "32kb" }));
+  if (options.moderator) {
+    app.use('/api/moderator', authenticateModerator);
+    app.get('/api/moderator/settings', (_req, res) => res.json(getControlSettings()));
+    app.post('/api/moderator/settings', (req, res) => {
+      const current = getControlSettings();
+      const settings = {
+        prioritizeViewerRequests: Object.prototype.hasOwnProperty.call(req.body, 'prioritizeViewerRequests') ? !!req.body.prioritizeViewerRequests : current.prioritizeViewerRequests,
+        chatRequestsEnabled: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsEnabled') ? !!req.body.chatRequestsEnabled : current.chatRequestsEnabled,
+        chatRequestsRequireFollowers: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireFollowers') ? !!req.body.chatRequestsRequireFollowers : current.chatRequestsRequireFollowers,
+        chatRequestsRequireSubscribers: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireSubscribers') ? !!req.body.chatRequestsRequireSubscribers : current.chatRequestsRequireSubscribers,
+        chatRequestsRequireModerators: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireModerators') ? !!req.body.chatRequestsRequireModerators : current.chatRequestsRequireModerators
+      };
+      Object.entries(settings).forEach(([key, value]) => setSetting(key, value));
+      res.json({ ok: true, ...settings });
+    });
+    app.post('/api/moderator/request', (req, res) => {
+      try {
+        const r = addRequest(Number(req.body.songId), req.moderatorUsername, req.moderatorUsername, { skipLimit: true });
+        res.json({ ok: true, request: r });
+      } catch (e) {
+        res.status(400).json({ error: e.message });
+      }
+    });
+    app.post('/api/moderator/queue/:id/play', async (req, res) => {
+      const id = Number(req.params.id);
+      const request = getRequestById(id);
+      const ok = setRequestStatus(id, "playing");
+      if (ok) await announceRequestAction("playing", request);
+      res.json({ ok, nowPlaying: getNowPlaying() });
+    });
+    app.post('/api/moderator/queue/:id/skip', async (req, res) => {
+      const id = Number(req.params.id);
+      const request = getRequestById(id);
+      const ok = setRequestStatus(id, "skipped");
+      if (ok) await announceRequestAction("skipped", request);
+      res.json({ ok });
+    });
+    app.post('/api/moderator/queue/next', async (_req, res) => {
+      const next = db.prepare("SELECT id FROM requests WHERE status='queued' ORDER BY created_at ASC, id ASC LIMIT 1").get();
+      if (!next) return res.json({ ok: true, nowPlaying: null });
+      const request = getRequestById(next.id);
+      const nowPlaying = nextRequest();
+      if (request) await announceRequestAction("playing", request);
+      res.json({ ok: true, nowPlaying });
+    });
+    app.post('/api/moderator/queue/clear', (_req, res) => {
+      const info = db.prepare("UPDATE requests SET status='skipped', completed_at=? WHERE status='queued'").run(Date.now());
+      try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch (_error) {}
+      res.json({ ok: true, changed: info.changes });
+    });
+    app.post('/api/moderator/queue/:id/move', (req, res) => {
+      const id = Number(req.params.id);
+      const direction = req.body.direction === "up" ? -1 : 1;
+      const tx = db.transaction(() => {
+        const queued = db.prepare("SELECT id, created_at FROM requests WHERE status='queued' ORDER BY created_at ASC, id ASC").all();
+        const index = queued.findIndex((request) => request.id === id);
+        const neighborIndex = index + direction;
+        if (index < 0) return false;
+        if (neighborIndex < 0 || neighborIndex >= queued.length) return true;
+        [queued[index], queued[neighborIndex]] = [queued[neighborIndex], queued[index]];
+        const baseTimestamp = Math.min(...queued.map((request) => request.created_at));
+        const update = db.prepare("UPDATE requests SET created_at=? WHERE id=?");
+        queued.forEach((request, queueIndex) => update.run(baseTimestamp + queueIndex, request.id));
+        return true;
+      });
+      if (!tx()) return res.status(404).json({ error: "Queued request not found." });
+      try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch (_error) {}
+      res.json({ ok: true });
+    });
+  }
   app.get("/api/stats", (_req, res) => res.json(getStats()));
 
   app.get("/api/search", (req, res) => {
@@ -748,7 +876,9 @@ function createApi(app, options = {}) {
         chatRequestsEnabled: !!req.body.chatRequestsEnabled,
         chatRequestsRequireFollowers: !!req.body.chatRequestsRequireFollowers,
         chatRequestsRequireSubscribers: !!req.body.chatRequestsRequireSubscribers,
-        chatRequestsRequireModerators: !!req.body.chatRequestsRequireModerators
+        chatRequestsRequireModerators: !!req.body.chatRequestsRequireModerators,
+        moderatorEnabled: !!req.body.moderatorEnabled,
+        moderatorUsername: String(req.body.moderatorUsername || '').trim().slice(0, 50)
       };
 
       const settings = {
@@ -756,14 +886,33 @@ function createApi(app, options = {}) {
         chatRequestsEnabled: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsEnabled') ? next.chatRequestsEnabled : current.chatRequestsEnabled,
         chatRequestsRequireFollowers: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireFollowers') ? next.chatRequestsRequireFollowers : current.chatRequestsRequireFollowers,
         chatRequestsRequireSubscribers: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireSubscribers') ? next.chatRequestsRequireSubscribers : current.chatRequestsRequireSubscribers,
-        chatRequestsRequireModerators: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireModerators') ? next.chatRequestsRequireModerators : current.chatRequestsRequireModerators
+        chatRequestsRequireModerators: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireModerators') ? next.chatRequestsRequireModerators : current.chatRequestsRequireModerators,
+        moderatorEnabled: Object.prototype.hasOwnProperty.call(req.body, 'moderatorEnabled') ? next.moderatorEnabled : current.moderatorEnabled,
+        moderatorUsername: Object.prototype.hasOwnProperty.call(req.body, 'moderatorUsername') ? next.moderatorUsername : current.moderatorUsername,
+        moderatorPasswordConfigured: current.moderatorPasswordConfigured
       };
+
+      const password = Object.prototype.hasOwnProperty.call(req.body, 'moderatorPassword')
+        ? String(req.body.moderatorPassword || '')
+        : '';
+      if (settings.moderatorEnabled && !settings.moderatorUsername) {
+        return res.status(400).json({ error: 'Moderator username is required when access is enabled.' });
+      }
+      if (settings.moderatorEnabled && !settings.moderatorPasswordConfigured && !password) {
+        return res.status(400).json({ error: 'Moderator password is required when access is enabled.' });
+      }
 
       setSetting('prioritizeViewerRequests', settings.prioritizeViewerRequests);
       setSetting('chatRequestsEnabled', settings.chatRequestsEnabled);
       setSetting('chatRequestsRequireFollowers', settings.chatRequestsRequireFollowers);
       setSetting('chatRequestsRequireSubscribers', settings.chatRequestsRequireSubscribers);
       setSetting('chatRequestsRequireModerators', settings.chatRequestsRequireModerators);
+      setSetting('moderatorEnabled', settings.moderatorEnabled);
+      setSetting('moderatorUsername', settings.moderatorUsername);
+      if (password) {
+        setSetting('moderatorPasswordHash', hashModeratorPassword(password));
+        settings.moderatorPasswordConfigured = true;
+      }
 
       if (current.chatRequestsEnabled !== settings.chatRequestsEnabled) {
         await announceChatRequestStatus(settings.chatRequestsEnabled);
@@ -975,8 +1124,11 @@ function createApi(app, options = {}) {
 }
 
 const publicApp = express();
+publicApp.get('/requestModerator.html', authenticateModerator, (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "requestModerator.html"));
+});
 publicApp.use(express.static(path.join(__dirname, "public")));
-createApi(publicApp);
+createApi(publicApp, { moderator: true });
 
 // Server-Sent Events (SSE) endpoint for OBS overlay to receive real-time queue updates.
 // Clients should connect to /overlay/queue/stream and will receive JSON array payloads in `message` events.
