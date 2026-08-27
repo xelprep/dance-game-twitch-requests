@@ -161,8 +161,12 @@ $("search").addEventListener("input", () => {
   if (el) el.addEventListener('change', () => loadSongs(1));
 });
 
-$('prev').addEventListener('click', () => { if (currentPage > 1) loadSongs(currentPage - 1); });
-$('next').addEventListener('click', () => { if (currentPage < totalPages) loadSongs(currentPage + 1); });
+['prev', 'prev-bottom'].forEach(id => {
+  $(id).addEventListener('click', () => { if (currentPage > 1) loadSongs(currentPage - 1); });
+});
+['next', 'next-bottom'].forEach(id => {
+  $(id).addEventListener('click', () => { if (currentPage < totalPages) loadSongs(currentPage + 1); });
+});
 
 $("refresh").addEventListener("click", queue);
 
@@ -276,12 +280,15 @@ async function loadSongs(page = 1) {
 }
 
 function updatePager() {
-  const prev = $('prev');
-  const next = $('next');
-  const info = $('pageInfo');
-  prev.disabled = currentPage <= 1;
-  next.disabled = currentPage >= totalPages;
-  info.textContent = `Page ${currentPage} of ${totalPages}`;
+  ['prev', 'prev-bottom'].forEach(id => {
+    $(id).disabled = currentPage <= 1;
+  });
+  ['next', 'next-bottom'].forEach(id => {
+    $(id).disabled = currentPage >= totalPages;
+  });
+  ['pageInfo', 'pageInfo-bottom'].forEach(id => {
+    $(id).textContent = `Page ${currentPage} of ${totalPages}`;
+  });
 }
 
 stats();

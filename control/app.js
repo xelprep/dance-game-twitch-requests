@@ -119,12 +119,15 @@ let searchPage = 1;
 let searchTotalPages = 1;
 
 function updateSearchPager() {
-  const prev = $('search-prev');
-  const next = $('search-next');
-  const info = $('pageInfo');
-  prev.disabled = searchPage <= 1;
-  next.disabled = searchPage >= searchTotalPages;
-  info.textContent = `Page ${searchPage} of ${searchTotalPages}`;
+  ['search-prev', 'search-prev-bottom'].forEach(id => {
+    $(id).disabled = searchPage <= 1;
+  });
+  ['search-next', 'search-next-bottom'].forEach(id => {
+    $(id).disabled = searchPage >= searchTotalPages;
+  });
+  ['pageInfo', 'pageInfo-bottom'].forEach(id => {
+    $(id).textContent = `Page ${searchPage} of ${searchTotalPages}`;
+  });
 }
 
 async function loadSongs(page = 1) {
@@ -358,8 +361,12 @@ $("search").addEventListener("input", () => {
   if (el) el.addEventListener('change', () => loadSongs(1));
 });
 
-$('search-prev').addEventListener('click', () => { if (searchPage > 1) loadSongs(searchPage - 1); });
-$('search-next').addEventListener('click', () => { if (searchPage < searchTotalPages) loadSongs(searchPage + 1); });
+['search-prev', 'search-prev-bottom'].forEach(id => {
+  $(id).addEventListener('click', () => { if (searchPage > 1) loadSongs(searchPage - 1); });
+});
+['search-next', 'search-next-bottom'].forEach(id => {
+  $(id).addEventListener('click', () => { if (searchPage < searchTotalPages) loadSongs(searchPage + 1); });
+});
 
 async function renderTwitch() {
   try {
