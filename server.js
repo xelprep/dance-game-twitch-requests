@@ -762,7 +762,7 @@ function createApi(app, options = {}) {
   if (options.moderator) {
     app.use('/api/moderator', authenticateModerator);
     app.get('/api/moderator/settings', (_req, res) => res.json(getControlSettings()));
-    app.post('/api/moderator/settings', (req, res) => {
+    app.post('/api/moderator/settings', async (req, res) => {
       const current = getControlSettings();
       const settings = {
         prioritizeViewerRequests: Object.prototype.hasOwnProperty.call(req.body, 'prioritizeViewerRequests') ? !!req.body.prioritizeViewerRequests : current.prioritizeViewerRequests,
@@ -772,6 +772,10 @@ function createApi(app, options = {}) {
         chatRequestsRequireModerators: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireModerators') ? !!req.body.chatRequestsRequireModerators : current.chatRequestsRequireModerators
       };
       Object.entries(settings).forEach(([key, value]) => setSetting(key, value));
+
+      if (current.chatRequestsEnabled !== settings.chatRequestsEnabled) {
+        await announceChatRequestStatus(settings.chatRequestsEnabled);
+      }
       res.json({ ok: true, ...settings });
     });
     app.post('/api/moderator/request', (req, res) => {
