@@ -373,6 +373,47 @@ function authenticateModerator(req, res, next) {
   next();
 }
 
+function createRateLimiter({ windowMs = 60 * 1000, max = 120 } = {}) {
+  const hits = new Map();
+
+  const cleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [ip, data] of hits.entries()) {
+      if (now - data.startTime > windowMs) {
+        hits.delete(ip);
+      }
+    }
+  }, windowMs);
+  if (cleanupTimer.unref) cleanupTimer.unref();
+
+  return (req, res, next) => {
+    const ip = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+    const now = Date.now();
+    let record = hits.get(ip);
+
+    if (!record || (now - record.startTime > windowMs)) {
+      record = { count: 0, startTime: now };
+    }
+
+    record.count++;
+    hits.set(ip, record);
+
+    const remaining = Math.max(0, max - record.count);
+    const resetTime = Math.ceil((record.startTime + windowMs) / 1000);
+
+    res.setHeader('X-RateLimit-Limit', max);
+    res.setHeader('X-RateLimit-Remaining', remaining);
+    res.setHeader('X-RateLimit-Reset', resetTime);
+
+    if (record.count > max) {
+      res.setHeader('Retry-After', Math.ceil((record.startTime + windowMs - now) / 1000));
+      return res.status(429).json({ error: 'Too many requests. Please slow down.' });
+    }
+
+    next();
+  };
+}
+
 function parseBadgeString(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value.map(String);
@@ -1149,6 +1190,7 @@ function createApi(app, options = {}) {
 }
 
 const publicApp = express();
+publicApp.use('/api/', createRateLimiter({ windowMs: 60 * 1000, max: 120 }));
 publicApp.get('/requestModerator.html', authenticateModerator, (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "requestModerator.html"));
 });
