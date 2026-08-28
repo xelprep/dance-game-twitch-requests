@@ -196,6 +196,13 @@ async function render() {
       const el = $(key);
       if (el) el.checked = !!settings[key];
     });
+    const allowChat = !!settings.chatRequestsEnabled;
+    const followersEl = $("chatRequestsRequireFollowers");
+    const subscribersEl = $("chatRequestsRequireSubscribers");
+    const moderatorsEl = $("chatRequestsRequireModerators");
+    if (followersEl) followersEl.disabled = !allowChat;
+    if (subscribersEl) subscribersEl.disabled = !allowChat;
+    if (moderatorsEl) moderatorsEl.disabled = !allowChat;
   }
 }
 
@@ -310,6 +317,15 @@ $("reset-search").onclick = () => {
   const el = $(key);
   if (el) {
     el.onchange = async () => {
+      if (key === "chatRequestsEnabled") {
+        const allowChat = el.checked;
+        const followersEl = $("chatRequestsRequireFollowers");
+        const subscribersEl = $("chatRequestsRequireSubscribers");
+        const moderatorsEl = $("chatRequestsRequireModerators");
+        if (followersEl) followersEl.disabled = !allowChat;
+        if (subscribersEl) subscribersEl.disabled = !allowChat;
+        if (moderatorsEl) moderatorsEl.disabled = !allowChat;
+      }
       try {
         await api("/api/moderator/settings", {
           method: "POST",
