@@ -310,7 +310,7 @@ function getControlSettings() {
     chatRequestsRequireFollowers: !!getSetting('chatRequestsRequireFollowers', false),
     chatRequestsRequireSubscribers: !!getSetting('chatRequestsRequireSubscribers', false),
     chatRequestsRequireModerators: !!getSetting('chatRequestsRequireModerators', false),
-    moderatorEnabled: !!getSetting('moderatorEnabled', false),
+    moderatorEnabled: false,
     moderatorUsername: String(getSetting('moderatorUsername', '')),
     moderatorPasswordConfigured: !!getSetting('moderatorPasswordHash', '')
   };
@@ -1006,7 +1006,6 @@ function createApi(app, options = {}) {
       setSetting('chatRequestsRequireFollowers', settings.chatRequestsRequireFollowers);
       setSetting('chatRequestsRequireSubscribers', settings.chatRequestsRequireSubscribers);
       setSetting('chatRequestsRequireModerators', settings.chatRequestsRequireModerators);
-      setSetting('moderatorEnabled', settings.moderatorEnabled);
       setSetting('moderatorUsername', settings.moderatorUsername);
       if (password) {
         setSetting('moderatorPasswordHash', hashModeratorPassword(password));
