@@ -34,7 +34,19 @@ const INSTRUCTIONS_MINUTES = (typeof _INSTRUCTIONS_MINUTES_RAW === 'undefined')
   ? 10
   : (_INSTRUCTIONS_MINUTES_RAW === '' ? null : (Number.isFinite(Number(_INSTRUCTIONS_MINUTES_RAW)) ? Number(_INSTRUCTIONS_MINUTES_RAW) : 10));
 
-const CONTROL_PASSWORD = process.env.CONTROL_PASSWORD || "";
+const CONTROL_PASSWORD = String(process.env.CONTROL_PASSWORD || "").trim();
+
+if (!CONTROL_PASSWORD || CONTROL_PASSWORD === "a-long-random-password") {
+  console.error("\n==================================================================");
+  console.error("ERROR: CONTROL_PASSWORD is not properly configured in your .env file.");
+  console.error("The streamer control panel requires a secure, non-default password.");
+  console.error("Please set CONTROL_PASSWORD to a secure random password in .env and restart.");
+  console.error("Example in .env:");
+  console.error("  CONTROL_PASSWORD=your-secure-custom-password-here");
+  console.error("==================================================================\n");
+  process.exit(1);
+}
+
 const CONTROL_TLS_DIR = path.resolve("./data/control-panel");
 const CONTROL_TLS_KEY_PATH = path.join(CONTROL_TLS_DIR, "key.pem");
 const CONTROL_TLS_CERT_PATH = path.join(CONTROL_TLS_DIR, "cert.pem");
@@ -122,7 +134,7 @@ CREATE TABLE IF NOT EXISTS charts (
 
 CREATE TABLE IF NOT EXISTS requests (
   id INTEGER PRIMARY KEY,
-  song_id INTEGER NOT NULL REFERENCES songs(id),
+  song_id INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
   requested_by TEXT NOT NULL,
   requested_display TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'queued',
@@ -192,6 +204,13 @@ function normalize(s) {
     .trim();
 }
 
+db.function("match_query", { deterministic: true }, (text, query) => {
+  if (!query) return 1;
+  const q = normalize(query);
+  if (!q) return 1;
+  return normalize(text).includes(q) ? 1 : 0;
+});
+
 function songMatchesQuery(song, query, allowedFields = ['title']) {
   const q = normalize(query);
   if (!q) return true;
@@ -211,9 +230,12 @@ function songMatchesQuery(song, query, allowedFields = ['title']) {
 }
 
 function getSongSearchRows(limit = 25, query = "") {
-  const rows = db.prepare(`SELECT * FROM songs ORDER BY title COLLATE NOCASE`).all();
-  const filtered = query ? rows.filter((row) => songMatchesQuery(row, query, ['title'])) : rows;
-  return filtered.slice(0, Math.max(1, limit));
+  const q = String(query || "").trim();
+  const maxLimit = Math.max(1, limit);
+  if (q) {
+    return db.prepare(`SELECT * FROM songs WHERE match_query(title, @q) = 1 ORDER BY title COLLATE NOCASE LIMIT @limit`).all({ q, limit: maxLimit });
+  }
+  return db.prepare(`SELECT * FROM songs ORDER BY title COLLATE NOCASE LIMIT @limit`).all({ limit: maxLimit });
 }
 
 function getQueue(limit = QUEUE_LIMIT) {
@@ -312,6 +334,31 @@ function verifyModeratorPassword(password, encoded) {
   }
 }
 
+function verifyStreamerAuth(authHeader, expectedPassword) {
+  if (!expectedPassword) return true;
+  const match = String(authHeader || '').match(/^Basic\s+(.+)$/i);
+  if (!match) return false;
+  try {
+    const decoded = Buffer.from(match[1], 'base64').toString('utf8');
+    const separator = decoded.indexOf(':');
+    if (separator < 0) return false;
+    const username = decoded.slice(0, separator);
+    const password = decoded.slice(separator + 1);
+
+    const expectedUserHash = crypto.createHash('sha256').update('streamer').digest();
+    const actualUserHash = crypto.createHash('sha256').update(username).digest();
+    const userMatch = crypto.timingSafeEqual(expectedUserHash, actualUserHash);
+
+    const expectedPassHash = crypto.createHash('sha256').update(expectedPassword).digest();
+    const actualPassHash = crypto.createHash('sha256').update(password).digest();
+    const passMatch = crypto.timingSafeEqual(expectedPassHash, actualPassHash);
+
+    return userMatch && passMatch;
+  } catch (_error) {
+    return false;
+  }
+}
+
 function getModeratorCredentials() {
   const settings = getControlSettings();
   return {
@@ -346,6 +393,47 @@ function authenticateModerator(req, res, next) {
   }
   req.moderatorUsername = credentials.username;
   next();
+}
+
+function createRateLimiter({ windowMs = 60 * 1000, max = 120 } = {}) {
+  const hits = new Map();
+
+  const cleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [ip, data] of hits.entries()) {
+      if (now - data.startTime > windowMs) {
+        hits.delete(ip);
+      }
+    }
+  }, windowMs);
+  if (cleanupTimer.unref) cleanupTimer.unref();
+
+  return (req, res, next) => {
+    const ip = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+    const now = Date.now();
+    let record = hits.get(ip);
+
+    if (!record || (now - record.startTime > windowMs)) {
+      record = { count: 0, startTime: now };
+    }
+
+    record.count++;
+    hits.set(ip, record);
+
+    const remaining = Math.max(0, max - record.count);
+    const resetTime = Math.ceil((record.startTime + windowMs) / 1000);
+
+    res.setHeader('X-RateLimit-Limit', max);
+    res.setHeader('X-RateLimit-Remaining', remaining);
+    res.setHeader('X-RateLimit-Reset', resetTime);
+
+    if (record.count > max) {
+      res.setHeader('Retry-After', Math.ceil((record.startTime + windowMs - now) / 1000));
+      return res.status(429).json({ error: 'Too many requests. Please slow down.' });
+    }
+
+    next();
+  };
 }
 
 function parseBadgeString(value) {
@@ -592,7 +680,7 @@ function truncateMessage(message, maxLength) {
 }
 
 async function sendChatMessage(targetClient, channel, message, options = {}) {
-  const { skipPrefix = false, maxLength } = options;
+  const { skipPrefix = false, maxLength = TWITCH_MAX_MESSAGE_LENGTH } = options;
   const text = String(message ?? "");
   const payload = skipPrefix ? text : `! ${text}`;
   const boundedPayload = Number.isInteger(maxLength) && maxLength > 0
@@ -774,17 +862,24 @@ function createApi(app, options = {}) {
       where.push(`id IN (SELECT song_id FROM charts WHERE ${chartWhere.join(" AND ")})`);
     }
 
+    const q = String(req.query.q || "").trim();
+    if (q) {
+      where.push("match_query(title, @q) = 1");
+      params.q = q;
+    }
+
     const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
 
     const sort = (new Set(["title","artist","pack","last_modified"]).has(req.query.sort)) ? req.query.sort : "title";
     const order = (String(req.query.order || "asc").toLowerCase() === "desc") ? "DESC" : "ASC";
     const orderSql = (sort === "last_modified") ? `ORDER BY ${sort} ${order}` : `ORDER BY ${sort} COLLATE NOCASE ${order}`;
 
-    const baseRows = db.prepare(`SELECT * FROM songs ${whereSql} ${orderSql}`).all(params);
-    const q = String(req.query.q || "").trim();
-    const rows = q ? baseRows.filter((row) => songMatchesQuery(row, q, ['title'])) : baseRows;
-    const total = rows.length;
-    const pageRows = rows.slice(offset, offset + perPage);
+    const total = db.prepare(`SELECT COUNT(*) AS count FROM songs ${whereSql}`).get(params).count;
+    const pageRows = db.prepare(`SELECT * FROM songs ${whereSql} ${orderSql} LIMIT @perPage OFFSET @offset`).all({
+      ...params,
+      perPage,
+      offset
+    });
 
     res.json({ songs: pageRows.map(songRow), total, page, perPage });
   });
@@ -857,9 +952,9 @@ function createApi(app, options = {}) {
     app.use((req, res, next) => {
       if (!CONTROL_PASSWORD) return next();
       if (req.path === "/api/control-login") return next();
-      const auth = String(req.headers.authorization || "");
-      const expected = "Basic " + Buffer.from("streamer:" + CONTROL_PASSWORD).toString("base64");
-      if (auth !== expected) return res.status(401).set("WWW-Authenticate", 'Basic realm="Streamer Control Panel"').json({ error: "Authentication required." });
+      if (!verifyStreamerAuth(req.headers.authorization, CONTROL_PASSWORD)) {
+        return res.status(401).set("WWW-Authenticate", 'Basic realm="Streamer Control Panel"').json({ error: "Authentication required." });
+      }
       next();
     });
 
@@ -896,10 +991,10 @@ function createApi(app, options = {}) {
         ? String(req.body.moderatorPassword || '')
         : '';
       if (settings.moderatorEnabled && !settings.moderatorUsername) {
-        return res.status(400).json({ error: 'Moderator username is required when access is enabled.' });
+        return res.status(400).json({ error: 'Moderator username is required before enabling access.' });
       }
       if (settings.moderatorEnabled && !settings.moderatorPasswordConfigured && !password) {
-        return res.status(400).json({ error: 'Moderator password is required when access is enabled.' });
+        return res.status(400).json({ error: 'Moderator password must be set before enabling access for the first time.' });
       }
 
       setSetting('prioritizeViewerRequests', settings.prioritizeViewerRequests);
@@ -1124,6 +1219,7 @@ function createApi(app, options = {}) {
 }
 
 const publicApp = express();
+publicApp.use('/api/', createRateLimiter({ windowMs: 60 * 1000, max: 120 }));
 publicApp.get('/requestModerator.html', authenticateModerator, (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "requestModerator.html"));
 });
@@ -1154,24 +1250,24 @@ publicApp.get('/overlay/queue/stream', (req, res) => {
 // Expose a small helper name used by patched functions above.
 const broadcastQueueUpdateRef = broadcastQueueUpdate; // no-op to keep reference semantics
 
-publicApp.listen(PORT, HOST, () => {
-  console.log(`Public request site: http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`);
-});
-
 const controlApp = express();
 controlApp.use(express.static(path.join(__dirname, "control")));
 createApi(controlApp, { control: true });
 
-// Create HTTPS server for the control panel. Await TLS options in case selfsigned.generate is async in this environment.
+// Create HTTPS servers for both public viewer site and streamer control panel.
 (async () => {
   try {
-    const controlTlsOptions = await getControlTlsOptions();
-    https.createServer(controlTlsOptions, controlApp).listen(CONTROL_PORT, CONTROL_HOST, () => {
+    const tlsOptions = await getControlTlsOptions();
+    https.createServer(tlsOptions, publicApp).listen(PORT, HOST, () => {
+      const hostLabel = HOST === "0.0.0.0" ? "localhost" : HOST;
+      console.log(`Public request site: https://${hostLabel}:${PORT}`);
+    });
+    https.createServer(tlsOptions, controlApp).listen(CONTROL_PORT, CONTROL_HOST, () => {
       const hostLabel = CONTROL_HOST === "0.0.0.0" ? "localhost" : CONTROL_HOST;
       console.log(`Streamer control panel: https://${hostLabel}:${CONTROL_PORT}`);
     });
   } catch (e) {
-    console.error("Failed to start control panel HTTPS server:", e);
+    console.error("Failed to start HTTPS servers:", e);
     process.exitCode = 1;
   }
 })();
