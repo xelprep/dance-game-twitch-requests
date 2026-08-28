@@ -192,6 +192,13 @@ function normalize(s) {
     .trim();
 }
 
+db.function("match_query", { deterministic: true }, (text, query) => {
+  if (!query) return 1;
+  const q = normalize(query);
+  if (!q) return 1;
+  return normalize(text).includes(q) ? 1 : 0;
+});
+
 function songMatchesQuery(song, query, allowedFields = ['title']) {
   const q = normalize(query);
   if (!q) return true;
@@ -211,9 +218,12 @@ function songMatchesQuery(song, query, allowedFields = ['title']) {
 }
 
 function getSongSearchRows(limit = 25, query = "") {
-  const rows = db.prepare(`SELECT * FROM songs ORDER BY title COLLATE NOCASE`).all();
-  const filtered = query ? rows.filter((row) => songMatchesQuery(row, query, ['title'])) : rows;
-  return filtered.slice(0, Math.max(1, limit));
+  const q = String(query || "").trim();
+  const maxLimit = Math.max(1, limit);
+  if (q) {
+    return db.prepare(`SELECT * FROM songs WHERE match_query(title, @q) = 1 ORDER BY title COLLATE NOCASE LIMIT @limit`).all({ q, limit: maxLimit });
+  }
+  return db.prepare(`SELECT * FROM songs ORDER BY title COLLATE NOCASE LIMIT @limit`).all({ limit: maxLimit });
 }
 
 function getQueue(limit = QUEUE_LIMIT) {
@@ -840,17 +850,24 @@ function createApi(app, options = {}) {
       where.push(`id IN (SELECT song_id FROM charts WHERE ${chartWhere.join(" AND ")})`);
     }
 
+    const q = String(req.query.q || "").trim();
+    if (q) {
+      where.push("match_query(title, @q) = 1");
+      params.q = q;
+    }
+
     const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
 
     const sort = (new Set(["title","artist","pack","last_modified"]).has(req.query.sort)) ? req.query.sort : "title";
     const order = (String(req.query.order || "asc").toLowerCase() === "desc") ? "DESC" : "ASC";
     const orderSql = (sort === "last_modified") ? `ORDER BY ${sort} ${order}` : `ORDER BY ${sort} COLLATE NOCASE ${order}`;
 
-    const baseRows = db.prepare(`SELECT * FROM songs ${whereSql} ${orderSql}`).all(params);
-    const q = String(req.query.q || "").trim();
-    const rows = q ? baseRows.filter((row) => songMatchesQuery(row, q, ['title'])) : baseRows;
-    const total = rows.length;
-    const pageRows = rows.slice(offset, offset + perPage);
+    const total = db.prepare(`SELECT COUNT(*) AS count FROM songs ${whereSql}`).get(params).count;
+    const pageRows = db.prepare(`SELECT * FROM songs ${whereSql} ${orderSql} LIMIT @perPage OFFSET @offset`).all({
+      ...params,
+      perPage,
+      offset
+    });
 
     res.json({ songs: pageRows.map(songRow), total, page, perPage });
   });
