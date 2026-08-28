@@ -15,12 +15,13 @@
       </div>
     </header>
 
-    <div class="panel info">
-      <p><strong>Requesting songs:</strong> Use this page to find a song's numeric ID, then request it in Twitch chat with <code>!requestid &lt;songID&gt;</code>.<br><br>If you click or tap on a song in the below list, the appropriate command to request it will be copied to your clipboard for easy pasting in chat.</p>
+    <div class="panel">
+      <p style="margin:0"><strong>Requesting songs:</strong> Use this page to find a song's numeric ID, then request it in Twitch chat with <code>!requestid &lt;songID&gt;</code>.<br><br>If you click or tap on a song in the below list, the appropriate command to request it will be copied to your clipboard for easy pasting in chat.</p>
     </div>
     <div id="copy-status" class="copy-status" role="status" aria-live="polite"></div>
 
     <section class="panel">
+      <div class="section-head"><h2>Song Search</h2></div>
       <label for="search">Search by title or browse songs</label>
       <div class="search-row">
         <input id="search" autocomplete="off" placeholder="Title">
@@ -70,25 +71,25 @@
           </select>
         </label>
         <div class="pager">
-          <button id="prev" disabled>Prev</button>
+          <button id="search-prev" type="button" disabled>Prev</button>
           <span id="pageInfo">Page 1</span>
-          <button id="next" disabled>Next</button>
+          <button id="search-next" type="button" disabled>Next</button>
         </div>
       </div>
       <div id="results" class="results"></div>
       <div class="pager">
-        <button id="prev-bottom" type="button" disabled>Prev</button>
+        <button id="search-prev-bottom" type="button" disabled>Prev</button>
         <span id="pageInfo-bottom">Page 1</span>
-        <button id="next-bottom" type="button" disabled>Next</button>
+        <button id="search-next-bottom" type="button" disabled>Next</button>
       </div>
     </section>
 
     <section class="panel">
-      <div class="section-title">
+      <div class="section-head">
         <h2>Request Queue</h2>
         <button id="refresh">Refresh</button>
       </div>
-      <ol id="queue"></ol>
+      <div id="queue"></div>
     </section>
   </main>
 

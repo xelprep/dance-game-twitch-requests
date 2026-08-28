@@ -295,6 +295,7 @@ async function saveControlSettings(patch) {
     render();
   } catch (err) {
     toast(err.message);
+    render();
   }
 }
 
@@ -328,11 +329,32 @@ const moderatorEnabledEl = $('moderatorEnabled');
 const moderatorUsernameEl = $('moderatorUsername');
 const moderatorPasswordEl = $('moderatorPassword');
 if (moderatorEnabledEl) {
-  moderatorEnabledEl.addEventListener('change', () => saveControlSettings({
-    moderatorEnabled: moderatorEnabledEl.checked,
-    moderatorUsername: moderatorUsernameEl.value.trim(),
-    moderatorPassword: moderatorPasswordEl.value
-  }).then(() => { moderatorPasswordEl.value = ''; }));
+  moderatorEnabledEl.addEventListener('change', async () => {
+    if (moderatorEnabledEl.checked) {
+      const username = moderatorUsernameEl.value.trim();
+      const password = moderatorPasswordEl.value;
+      try {
+        const current = await api('/api/control/settings');
+        if (!username) {
+          moderatorEnabledEl.checked = false;
+          toast('Please enter a moderator username before enabling access.');
+          moderatorUsernameEl.focus();
+          return;
+        }
+        if (!current.moderatorPasswordConfigured && !password) {
+          moderatorEnabledEl.checked = false;
+          toast('Please set a moderator password before enabling access for the first time.');
+          moderatorPasswordEl.focus();
+          return;
+        }
+      } catch (_e) {}
+    }
+    saveControlSettings({
+      moderatorEnabled: moderatorEnabledEl.checked,
+      moderatorUsername: moderatorUsernameEl.value.trim(),
+      moderatorPassword: moderatorPasswordEl.value
+    }).then(() => { moderatorPasswordEl.value = ''; });
+  });
 }
 if (moderatorUsernameEl) {
   moderatorUsernameEl.addEventListener('change', () => saveControlSettings({ moderatorUsername: moderatorUsernameEl.value.trim() }));
