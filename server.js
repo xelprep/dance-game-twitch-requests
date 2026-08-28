@@ -34,7 +34,19 @@ const INSTRUCTIONS_MINUTES = (typeof _INSTRUCTIONS_MINUTES_RAW === 'undefined')
   ? 10
   : (_INSTRUCTIONS_MINUTES_RAW === '' ? null : (Number.isFinite(Number(_INSTRUCTIONS_MINUTES_RAW)) ? Number(_INSTRUCTIONS_MINUTES_RAW) : 10));
 
-const CONTROL_PASSWORD = process.env.CONTROL_PASSWORD || "";
+const CONTROL_PASSWORD = String(process.env.CONTROL_PASSWORD || "").trim();
+
+if (!CONTROL_PASSWORD || CONTROL_PASSWORD === "a-long-random-password") {
+  console.error("\n==================================================================");
+  console.error("ERROR: CONTROL_PASSWORD is not properly configured in your .env file.");
+  console.error("The streamer control panel requires a secure, non-default password.");
+  console.error("Please set CONTROL_PASSWORD to a secure random password in .env and restart.");
+  console.error("Example in .env:");
+  console.error("  CONTROL_PASSWORD=your-secure-custom-password-here");
+  console.error("==================================================================\n");
+  process.exit(1);
+}
+
 const CONTROL_TLS_DIR = path.resolve("./data/control-panel");
 const CONTROL_TLS_KEY_PATH = path.join(CONTROL_TLS_DIR, "key.pem");
 const CONTROL_TLS_CERT_PATH = path.join(CONTROL_TLS_DIR, "cert.pem");
