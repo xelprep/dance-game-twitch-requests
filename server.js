@@ -168,7 +168,33 @@ function refreshDatabase() {
   console.log(`Scan complete: ${result.songs} songs, ${result.charts} charts.`);
   return result;
 }
-refreshDatabase();
+
+const result = refreshDatabase();
+
+if (result.songs === 0) {
+  console.error(`
+====================================================================
+ERROR: No songs found in ${SONGS_DIR}
+====================================================================
+
+The application cannot start without a song library. Please check:
+
+  1. SONGS_DIR is set correctly in your .env file.
+     Current value: ${SONGS_DIR}
+     Does this directory exist on your system?
+
+  2. The directory contains subdirectories with .sm or .ssc files.
+     The scanner looks for dance game SimFiles (.sm / .ssc) inside
+     nested folders (pack > song).
+
+  3. If you are using a Docker container, make sure your Songs
+     directory is mounted as a volume.
+
+Fix the path or add songs, then restart the application.
+====================================================================
+`);
+  process.exit(1);
+}
 
 function transliterateLatin(s) {
   return String(s || "")
