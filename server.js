@@ -658,7 +658,7 @@ function truncateMessage(message, maxLength) {
 }
 
 async function sendChatMessage(targetClient, channel, message, options = {}) {
-  const { skipPrefix = false, maxLength } = options;
+  const { skipPrefix = false, maxLength = TWITCH_MAX_MESSAGE_LENGTH } = options;
   const text = String(message ?? "");
   const payload = skipPrefix ? text : `! ${text}`;
   const boundedPayload = Number.isInteger(maxLength) && maxLength > 0
