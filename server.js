@@ -312,6 +312,31 @@ function verifyModeratorPassword(password, encoded) {
   }
 }
 
+function verifyStreamerAuth(authHeader, expectedPassword) {
+  if (!expectedPassword) return true;
+  const match = String(authHeader || '').match(/^Basic\s+(.+)$/i);
+  if (!match) return false;
+  try {
+    const decoded = Buffer.from(match[1], 'base64').toString('utf8');
+    const separator = decoded.indexOf(':');
+    if (separator < 0) return false;
+    const username = decoded.slice(0, separator);
+    const password = decoded.slice(separator + 1);
+
+    const expectedUserHash = crypto.createHash('sha256').update('streamer').digest();
+    const actualUserHash = crypto.createHash('sha256').update(username).digest();
+    const userMatch = crypto.timingSafeEqual(expectedUserHash, actualUserHash);
+
+    const expectedPassHash = crypto.createHash('sha256').update(expectedPassword).digest();
+    const actualPassHash = crypto.createHash('sha256').update(password).digest();
+    const passMatch = crypto.timingSafeEqual(expectedPassHash, actualPassHash);
+
+    return userMatch && passMatch;
+  } catch (_error) {
+    return false;
+  }
+}
+
 function getModeratorCredentials() {
   const settings = getControlSettings();
   return {
@@ -857,9 +882,9 @@ function createApi(app, options = {}) {
     app.use((req, res, next) => {
       if (!CONTROL_PASSWORD) return next();
       if (req.path === "/api/control-login") return next();
-      const auth = String(req.headers.authorization || "");
-      const expected = "Basic " + Buffer.from("streamer:" + CONTROL_PASSWORD).toString("base64");
-      if (auth !== expected) return res.status(401).set("WWW-Authenticate", 'Basic realm="Streamer Control Panel"').json({ error: "Authentication required." });
+      if (!verifyStreamerAuth(req.headers.authorization, CONTROL_PASSWORD)) {
+        return res.status(401).set("WWW-Authenticate", 'Basic realm="Streamer Control Panel"').json({ error: "Authentication required." });
+      }
       next();
     });
 
