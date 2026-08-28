@@ -1221,24 +1221,24 @@ publicApp.get('/overlay/queue/stream', (req, res) => {
 // Expose a small helper name used by patched functions above.
 const broadcastQueueUpdateRef = broadcastQueueUpdate; // no-op to keep reference semantics
 
-publicApp.listen(PORT, HOST, () => {
-  console.log(`Public request site: http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`);
-});
-
 const controlApp = express();
 controlApp.use(express.static(path.join(__dirname, "control")));
 createApi(controlApp, { control: true });
 
-// Create HTTPS server for the control panel. Await TLS options in case selfsigned.generate is async in this environment.
+// Create HTTPS servers for both public viewer site and streamer control panel.
 (async () => {
   try {
-    const controlTlsOptions = await getControlTlsOptions();
-    https.createServer(controlTlsOptions, controlApp).listen(CONTROL_PORT, CONTROL_HOST, () => {
+    const tlsOptions = await getControlTlsOptions();
+    https.createServer(tlsOptions, publicApp).listen(PORT, HOST, () => {
+      const hostLabel = HOST === "0.0.0.0" ? "localhost" : HOST;
+      console.log(`Public request site: https://${hostLabel}:${PORT}`);
+    });
+    https.createServer(tlsOptions, controlApp).listen(CONTROL_PORT, CONTROL_HOST, () => {
       const hostLabel = CONTROL_HOST === "0.0.0.0" ? "localhost" : CONTROL_HOST;
       console.log(`Streamer control panel: https://${hostLabel}:${CONTROL_PORT}`);
     });
   } catch (e) {
-    console.error("Failed to start control panel HTTPS server:", e);
+    console.error("Failed to start HTTPS servers:", e);
     process.exitCode = 1;
   }
 })();

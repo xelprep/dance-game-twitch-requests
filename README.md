@@ -29,12 +29,12 @@ A small local application that:
 Viewer site:
 
 ```text
-http://localhost:3000
+https://localhost:3000
 ```
 
 Browser source:
 
-Also hosted on port 3000 is the request queue browser source. Using the above viewer site URL as an example, you can add the following to OBS as a browser source: `http://localhost:3000/overlay.html` and have a live-updating request queue visible on stream.
+Also hosted on port 3000 is the request queue browser source. Using the above viewer site URL as an example, you can add the following to OBS as a browser source: `https://localhost:3000/overlay.html` and have a live-updating request queue visible on stream.
 
 Streamer control panel:
 
@@ -42,7 +42,7 @@ Streamer control panel:
 https://localhost:3001
 ```
 
-The control panel uses a locally generated self-signed certificate, so browsers will show an HTTPS warning the first time you connect. This is expected for a private LAN-only admin page.
+Both sites use a locally generated self-signed certificate, so browsers will show an HTTPS warning the first time you connect. This is expected for private/LAN setups.
 
 Both servers listen on `0.0.0.0` by default, so another computer on your LAN can connect using the streaming PC's LAN IP.
 
@@ -78,14 +78,12 @@ The control panel provides:
 The streamer can enable a separate, restricted moderator interface from the control panel. Set a username and password in the **Moderator access** settings, enable it, and provide the public-port URL:
 
 ```text
-http://localhost:3000/requestModerator.html
+https://localhost:3000/requestModerator.html
 ```
 
 When enabled, the page uses its own HTTP Basic Authentication credentials and provides queue management, song search, unlimited requests, and the request/chat restriction settings. It cannot configure Twitch, rescan songs, or manage blacklists. Disabling the page immediately invalidates the credentials on every subsequent request.
 
 The moderator username is used as the `Requested By` display name for requests made through this interface. The password is stored as a one-way hash in the local settings database.
-
-Because the public server is HTTP by default, expose it through an HTTPS tunnel or reverse proxy when sharing it outside the local network; do not send these credentials over the open Internet.
 
 ## Install
 
