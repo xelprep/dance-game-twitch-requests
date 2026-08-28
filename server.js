@@ -802,6 +802,10 @@ function createApi(app, options = {}) {
       try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch (_error) {}
       res.json({ ok: true });
     });
+    app.post('/api/moderator/queue/:id/complete', (req, res) => {
+      const ok = setRequestStatus(Number(req.params.id), "completed");
+      res.json({ ok });
+    });
   }
   app.get("/api/stats", (_req, res) => res.json(getStats()));
 

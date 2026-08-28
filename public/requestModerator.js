@@ -144,6 +144,14 @@ async function render() {
 
   if (nowResult.status === "fulfilled") {
     const now = nowResult.value;
+    const completeBtn = $("complete-now");
+    if (now) {
+      window._nowPlayingId = now.id;
+      if (completeBtn) completeBtn.disabled = false;
+    } else {
+      window._nowPlayingId = null;
+      if (completeBtn) completeBtn.disabled = true;
+    }
     $("now").innerHTML = now ? `
       <div class="now-card">
         <div>
@@ -237,6 +245,16 @@ window.move = async (id, direction) => {
   }
 };
 
+window.complete = async id => {
+  try {
+    await api(`/api/moderator/queue/${id}/complete`, { method: "POST" });
+    toast("Marked complete.");
+    render();
+  } catch (error) {
+    toast(error.message);
+  }
+};
+
 $("next").onclick = async () => {
   try {
     await api("/api/moderator/queue/next", { method: "POST" });
@@ -244,6 +262,10 @@ $("next").onclick = async () => {
   } catch (error) {
     toast(error.message);
   }
+};
+
+$("complete-now").onclick = () => {
+  if (window._nowPlayingId != null) window.complete(window._nowPlayingId);
 };
 
 $("clear").onclick = async () => {
