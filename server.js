@@ -991,10 +991,10 @@ function createApi(app, options = {}) {
         ? String(req.body.moderatorPassword || '')
         : '';
       if (settings.moderatorEnabled && !settings.moderatorUsername) {
-        return res.status(400).json({ error: 'Moderator username is required when access is enabled.' });
+        return res.status(400).json({ error: 'Moderator username is required before enabling access.' });
       }
       if (settings.moderatorEnabled && !settings.moderatorPasswordConfigured && !password) {
-        return res.status(400).json({ error: 'Moderator password is required when access is enabled.' });
+        return res.status(400).json({ error: 'Moderator password must be set before enabling access for the first time.' });
       }
 
       setSetting('prioritizeViewerRequests', settings.prioritizeViewerRequests);
