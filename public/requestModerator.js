@@ -68,7 +68,7 @@ $("clear").onclick = async () => { if (confirm("Skip every queued request?")) { 
 $("refresh").onclick = render; $("prev").onclick = () => loadSongs(page - 1); $("next-page").onclick = () => loadSongs(page + 1);
 $("search").oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => loadSongs(1), 180); };
 $("reset-search").onclick = () => { $("search").value = ""; loadSongs(1); };
-["pack","genre","style","difficulty","meter-min","meter-max","sort-field","sort-order","per-page"].forEach(key => $(key === "sort-field" || key === "sort-order" ? key : `filter-${key}`).onchange = () => loadSongs(1));
+["filter-pack", "filter-genre", "filter-style", "filter-difficulty", "filter-meter-min", "filter-meter-max", "sort-field", "sort-order", "per-page"].forEach(id => { const el = $(id); if (el) el.onchange = () => loadSongs(1); });
 ["prioritizeViewerRequests","chatRequestsEnabled","chatRequestsRequireFollowers","chatRequestsRequireSubscribers","chatRequestsRequireModerators"].forEach(key => $(key).onchange = async () => { try { await api("/api/moderator/settings", {method:"POST", body:JSON.stringify({[key]: $(key).checked})}); } catch (error) { toast(error.message); } });
 async function getFilters() {
   const filters = await api("/api/song-filters");
