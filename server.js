@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS charts (
 
 CREATE TABLE IF NOT EXISTS requests (
   id INTEGER PRIMARY KEY,
-  song_id INTEGER NOT NULL REFERENCES songs(id),
+  song_id INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
   requested_by TEXT NOT NULL,
   requested_display TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'queued',
