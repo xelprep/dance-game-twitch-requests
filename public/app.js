@@ -72,29 +72,31 @@ function formatCharts(charts) {
 function songCard(song) {
   const charts = formatCharts(song.charts);
 
-  const div = document.createElement("article");
-  div.className = "song";
-  div.tabIndex = 0;
-  div.setAttribute('role', 'button');
-  div.setAttribute('aria-label', `Copy request command for ${song.title}`);
-  div.innerHTML = `
-    <div>
-      <strong>ID: ${escapeHTML(String(song.id))} - ${escapeHTML(song.title)}</strong>
-      ${song.subtitle ? `<span>${escapeHTML(song.subtitle)}</span>` : ""}
-      <small>${escapeHTML(song.artist)} ${song.pack ? "• " + escapeHTML(song.pack) : ""}</small>
-      <small>${escapeHTML(charts)}</small>
+  const article = document.createElement("article");
+  article.className = "song clickable";
+  article.tabIndex = 0;
+  article.setAttribute('role', 'button');
+  article.setAttribute('aria-label', `Copy request command for ${song.title}`);
+  article.innerHTML = `
+    <div class="song-main">
+      <div class="song-meta">
+        <strong>ID: ${escapeHTML(String(song.id))} - ${escapeHTML(song.title)}</strong>
+        ${song.subtitle ? `<span class="song-subtitle">${escapeHTML(song.subtitle)}</span>` : ""}
+        <small>${escapeHTML(song.artist)}${song.pack ? " • " + escapeHTML(song.pack) : ""}</small>
+        <small>${escapeHTML(charts)}</small>
+      </div>
     </div>
   `;
 
-  div.addEventListener('click', () => copyRequestCommand(song.id));
-  div.addEventListener('keydown', (event) => {
+  article.addEventListener('click', () => copyRequestCommand(song.id));
+  article.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       copyRequestCommand(song.id);
     }
   });
 
-  return div;
+  return article;
 }
 
 async function search() {
@@ -103,34 +105,30 @@ async function search() {
 }
 
 async function queue() {
-  const list = $("queue");
-  list.replaceChildren();
+  const container = $("queue");
+  container.replaceChildren();
 
   try {
     const items = await getJSON("/api/queue");
     if (!items.length) {
-      const li = document.createElement("li");
-      li.textContent = "Queue is empty.";
-      list.appendChild(li);
+      container.innerHTML = '<p class="muted">Queue is empty.</p>';
       return;
     }
 
-    items.forEach((item, i) => {
-      const li = document.createElement("li");
-      li.innerHTML = `
-        <div>
-          <strong>${escapeHTML(item.title)}</strong>
-          <span>${escapeHTML(item.artist)}${item.pack ? " • " + escapeHTML(item.pack) : ""}</span>
+    container.innerHTML = items.map((r, i) => `
+      <article class="request">
+        <div class="rank">${i + 1}</div>
+        <div class="info">
+          <strong>${escapeHTML(r.title)}</strong>
+          ${r.subtitle ? `<span class="subtitle">${escapeHTML(r.subtitle)}</span>` : ""}
+          <span>${escapeHTML(r.artist)}${r.pack ? " • " + escapeHTML(r.pack) : ""}</span>
+          <small>${escapeHTML(formatCharts(r.charts))}</small>
+          <small>Requested by ${escapeHTML(r.requested_display)}${(String(r.requested_by || "").toLowerCase() === "streamer") ? " (Control Panel)" : ""}</small>
         </div>
-        <small>${escapeHTML(formatCharts(item.charts))}</small>
-        <small>requested by ${escapeHTML(item.requested_display)}</small>
-      `;
-      list.appendChild(li);
-    });
+      </article>
+    `).join("");
   } catch (e) {
-    const li = document.createElement("li");
-    li.textContent = e.message;
-    list.appendChild(li);
+    container.innerHTML = `<p class="muted">${escapeHTML(e.message)}</p>`;
   }
 }
 
@@ -176,11 +174,13 @@ $("reset-search").addEventListener("click", () => {
   if (el) el.addEventListener('change', () => loadSongs(1));
 });
 
-['prev', 'prev-bottom'].forEach(id => {
-  $(id).addEventListener('click', () => { if (currentPage > 1) loadSongs(currentPage - 1); });
+['search-prev', 'search-prev-bottom'].forEach(id => {
+  const el = $(id);
+  if (el) el.addEventListener('click', () => { if (currentPage > 1) loadSongs(currentPage - 1); });
 });
-['next', 'next-bottom'].forEach(id => {
-  $(id).addEventListener('click', () => { if (currentPage < totalPages) loadSongs(currentPage + 1); });
+['search-next', 'search-next-bottom'].forEach(id => {
+  const el = $(id);
+  if (el) el.addEventListener('click', () => { if (currentPage < totalPages) loadSongs(currentPage + 1); });
 });
 
 $("refresh").addEventListener("click", queue);
@@ -295,14 +295,17 @@ async function loadSongs(page = 1) {
 }
 
 function updatePager() {
-  ['prev', 'prev-bottom'].forEach(id => {
-    $(id).disabled = currentPage <= 1;
+  ['search-prev', 'search-prev-bottom'].forEach(id => {
+    const el = $(id);
+    if (el) el.disabled = currentPage <= 1;
   });
-  ['next', 'next-bottom'].forEach(id => {
-    $(id).disabled = currentPage >= totalPages;
+  ['search-next', 'search-next-bottom'].forEach(id => {
+    const el = $(id);
+    if (el) el.disabled = currentPage >= totalPages;
   });
   ['pageInfo', 'pageInfo-bottom'].forEach(id => {
-    $(id).textContent = `Page ${currentPage} of ${totalPages}`;
+    const el = $(id);
+    if (el) el.textContent = `Page ${currentPage} of ${totalPages}`;
   });
 }
 
