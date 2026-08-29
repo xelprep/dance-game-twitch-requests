@@ -330,12 +330,26 @@ function setSetting(key, value) {
 }
 
 function getControlSettings() {
+  // Migrate legacy boolean settings to the new single role setting
+  const legacyFollowers = getSetting('chatRequestsRequireFollowers', false);
+  const legacySubscribers = getSetting('chatRequestsRequireSubscribers', false);
+  const legacyModerators = getSetting('chatRequestsRequireModerators', false);
+  let role = getSetting('chatRequestsRequireRole', '');
+  if (!role && (legacyFollowers || legacySubscribers || legacyModerators)) {
+    // Migrate: highest priority wins
+    if (legacyFollowers) role = 'follower';
+    else if (legacySubscribers) role = 'subscriber';
+    else if (legacyModerators) role = 'moderator';
+    // Persist the migrated value
+    setSetting('chatRequestsRequireRole', role);
+    // Clean up legacy keys
+    const db2 = db;
+    db2.prepare("DELETE FROM settings WHERE key IN ('chatRequestsRequireFollowers','chatRequestsRequireSubscribers','chatRequestsRequireModerators')").run();
+  }
   return {
     prioritizeViewerRequests: !!getSetting('prioritizeViewerRequests', true),
     chatRequestsEnabled: !!getSetting('chatRequestsEnabled', true),
-    chatRequestsRequireFollowers: !!getSetting('chatRequestsRequireFollowers', false),
-    chatRequestsRequireSubscribers: !!getSetting('chatRequestsRequireSubscribers', false),
-    chatRequestsRequireModerators: !!getSetting('chatRequestsRequireModerators', false),
+    chatRequestsRequireRole: role,
     moderatorEnabled: !!getSetting('moderatorEnabled', false),
     moderatorUsername: String(getSetting('moderatorUsername', '')),
     moderatorPasswordConfigured: !!getSetting('moderatorPasswordHash', '')
@@ -536,31 +550,41 @@ async function getChatRequestPermission(username, tags = {}) {
     };
   }
 
-  if (settings.chatRequestsRequireModerators && !isTwitchModerator(tags)) {
+  const role = settings.chatRequestsRequireRole;
+  if (role === 'moderator' && !isTwitchModerator(tags)) {
     return { allowed: false, reason: 'Only moderators can request songs via chat right now.' };
   }
 
-  if (settings.chatRequestsRequireSubscribers && !isTwitchSubscriber(tags)) {
-    return { allowed: false, reason: 'Only subscribers can request songs via chat right now.' };
+  if (role === 'subscriber' && !isTwitchSubscriber(tags)) {
+    return { allowed: false, reason: 'Only subscribers and moderators can request songs via chat right now.' };
   }
 
-  if (settings.chatRequestsRequireFollowers) {
+  if (role === 'follower') {
     const channelName = (twitchConfig && twitchConfig.channel) || '';
     const allowed = await userIsFollowingChannel(username, channelName);
     if (!allowed) {
-      return { allowed: false, reason: 'Only followers can request songs via chat right now.' };
+      return { allowed: false, reason: 'Only followers, subscribers, and moderators can request songs via chat right now.' };
     }
   }
 
   return { allowed: true, reason: '' };
 }
 
-async function announceChatRequestStatus(enabled) {
+async function announceChatRequestStatus(enabled, role) {
   if (!twitchClient || !twitchConfig || !twitchConfig.channel) return;
   const channel = String(twitchConfig.channel).replace(/^#/, '');
-  const message = enabled
-    ? 'Chat requests are now enabled.'
-    : 'Chat requests are now disabled. The streamer can still add requests from the control panel.';
+  let message;
+  if (enabled) {
+    const roleLabels = {
+      moderator: 'Moderators only',
+      subscriber: 'Subscribers & moderators only',
+      follower: 'Followers, subscribers & moderators only'
+    };
+    const restriction = roleLabels[role] || 'Anyone';
+    message = `Chat requests are now enabled (${restriction}).`;
+  } else {
+    message = 'Chat requests are now disabled. The streamer can still add requests from the control panel.';
+  }
   try {
     await sendChatMessage(twitchClient, channel, message);
   } catch (error) {
@@ -767,14 +791,12 @@ function createApi(app, options = {}) {
       const settings = {
         prioritizeViewerRequests: Object.prototype.hasOwnProperty.call(req.body, 'prioritizeViewerRequests') ? !!req.body.prioritizeViewerRequests : current.prioritizeViewerRequests,
         chatRequestsEnabled: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsEnabled') ? !!req.body.chatRequestsEnabled : current.chatRequestsEnabled,
-        chatRequestsRequireFollowers: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireFollowers') ? !!req.body.chatRequestsRequireFollowers : current.chatRequestsRequireFollowers,
-        chatRequestsRequireSubscribers: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireSubscribers') ? !!req.body.chatRequestsRequireSubscribers : current.chatRequestsRequireSubscribers,
-        chatRequestsRequireModerators: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireModerators') ? !!req.body.chatRequestsRequireModerators : current.chatRequestsRequireModerators
+        chatRequestsRequireRole: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireRole') ? String(req.body.chatRequestsRequireRole) : current.chatRequestsRequireRole
       };
       Object.entries(settings).forEach(([key, value]) => setSetting(key, value));
 
-      if (current.chatRequestsEnabled !== settings.chatRequestsEnabled) {
-        await announceChatRequestStatus(settings.chatRequestsEnabled);
+      if (current.chatRequestsEnabled !== settings.chatRequestsEnabled || current.chatRequestsRequireRole !== settings.chatRequestsRequireRole) {
+        await announceChatRequestStatus(settings.chatRequestsEnabled, settings.chatRequestsRequireRole);
       }
       res.json({ ok: true, ...settings });
     });
@@ -1003,9 +1025,7 @@ function createApi(app, options = {}) {
       const next = {
         prioritizeViewerRequests: !!req.body.prioritizeViewerRequests,
         chatRequestsEnabled: !!req.body.chatRequestsEnabled,
-        chatRequestsRequireFollowers: !!req.body.chatRequestsRequireFollowers,
-        chatRequestsRequireSubscribers: !!req.body.chatRequestsRequireSubscribers,
-        chatRequestsRequireModerators: !!req.body.chatRequestsRequireModerators,
+        chatRequestsRequireRole: String(req.body.chatRequestsRequireRole || ''),
         moderatorEnabled: !!req.body.moderatorEnabled,
         moderatorUsername: String(req.body.moderatorUsername || '').trim().slice(0, 50)
       };
@@ -1013,9 +1033,7 @@ function createApi(app, options = {}) {
       const settings = {
         prioritizeViewerRequests: Object.prototype.hasOwnProperty.call(req.body, 'prioritizeViewerRequests') ? next.prioritizeViewerRequests : current.prioritizeViewerRequests,
         chatRequestsEnabled: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsEnabled') ? next.chatRequestsEnabled : current.chatRequestsEnabled,
-        chatRequestsRequireFollowers: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireFollowers') ? next.chatRequestsRequireFollowers : current.chatRequestsRequireFollowers,
-        chatRequestsRequireSubscribers: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireSubscribers') ? next.chatRequestsRequireSubscribers : current.chatRequestsRequireSubscribers,
-        chatRequestsRequireModerators: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireModerators') ? next.chatRequestsRequireModerators : current.chatRequestsRequireModerators,
+        chatRequestsRequireRole: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireRole') ? next.chatRequestsRequireRole : current.chatRequestsRequireRole,
         moderatorEnabled: Object.prototype.hasOwnProperty.call(req.body, 'moderatorEnabled') ? next.moderatorEnabled : current.moderatorEnabled,
         moderatorUsername: Object.prototype.hasOwnProperty.call(req.body, 'moderatorUsername') ? next.moderatorUsername : current.moderatorUsername,
         moderatorPasswordConfigured: current.moderatorPasswordConfigured
@@ -1033,9 +1051,7 @@ function createApi(app, options = {}) {
 
       setSetting('prioritizeViewerRequests', settings.prioritizeViewerRequests);
       setSetting('chatRequestsEnabled', settings.chatRequestsEnabled);
-      setSetting('chatRequestsRequireFollowers', settings.chatRequestsRequireFollowers);
-      setSetting('chatRequestsRequireSubscribers', settings.chatRequestsRequireSubscribers);
-      setSetting('chatRequestsRequireModerators', settings.chatRequestsRequireModerators);
+      setSetting('chatRequestsRequireRole', settings.chatRequestsRequireRole);
       setSetting('moderatorEnabled', settings.moderatorEnabled);
       setSetting('moderatorUsername', settings.moderatorUsername);
       if (password) {
@@ -1043,8 +1059,8 @@ function createApi(app, options = {}) {
         settings.moderatorPasswordConfigured = true;
       }
 
-      if (current.chatRequestsEnabled !== settings.chatRequestsEnabled) {
-        await announceChatRequestStatus(settings.chatRequestsEnabled);
+      if (current.chatRequestsEnabled !== settings.chatRequestsEnabled || current.chatRequestsRequireRole !== settings.chatRequestsRequireRole) {
+        await announceChatRequestStatus(settings.chatRequestsEnabled, settings.chatRequestsRequireRole);
       }
       try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch(e){}
       res.json({ ok: true, ...settings });

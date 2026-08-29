@@ -101,14 +101,18 @@
       <div class="settings-form">
         <label><input type="checkbox" id="prioritizeViewerRequests"> Prioritize viewer requests</label>
         <p class="setting-description">Place requests made through Twitch chat ahead of requests added from the control panel.</p>
-        <label><input type="checkbox" id="chatRequestsEnabled"> Allow chat requests</label>
+            <label><input type="checkbox" id="chatRequestsEnabled"> Allow chat requests</label>
         <p class="setting-description">Allow viewers to add songs to the queue through Twitch chat.</p>
-        <label><input type="checkbox" id="chatRequestsRequireFollowers"> Require followers</label>
-        <p class="setting-description">Only allow viewers who follow the channel to request songs through chat.</p>
-        <label><input type="checkbox" id="chatRequestsRequireSubscribers"> Require subscribers</label>
-        <p class="setting-description">Only allow subscribers to request songs through chat.</p>
-        <label><input type="checkbox" id="chatRequestsRequireModerators"> Require moderators</label>
-        <p class="setting-description">Only allow channel moderators to request songs through chat.</p>
+        <label>
+          Chat request restrictions
+          <select id="chatRequestsRequireRole">
+            <option value="">Anyone</option>
+            <option value="moderator">Moderators only</option>
+            <option value="subscriber">Subscribers &amp; moderators only</option>
+            <option value="follower">Followers, subscribers &amp; moderators only</option>
+          </select>
+        </label>
+        <p class="setting-description">Controls who can request songs through Twitch chat. Disabled when chat requests are turned off.</p>
       </div>
     </section>
     <div id="toast" class="copy-status" role="status"></div>
