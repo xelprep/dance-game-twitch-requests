@@ -1,7 +1,18 @@
 /* Three-line, left-justified high-visibility overlay for OBS */
 html,body{height:100%;margin:0;padding:0}
 body{background:transparent;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-.overlay{display:flex;align-items:center;height:100%;padding:8px 12px;overflow:hidden}
+.overlay{display:flex;align-items:flex-start;flex-direction:column;height:100%;padding:8px 12px;overflow:hidden;gap:4px}
+
+/* Now Playing section */
+.now-playing-section{display:flex;flex-direction:column;gap:2px}
+.now-playing-label{color:rgba(255,255,255,0.6);font-weight:600;font-size:28px;line-height:1;text-transform:uppercase;letter-spacing:0.05em;text-shadow:0 0 6px rgba(0,0,0,0.9),0 1px 0 rgba(0,0,0,0.6)}
+.now-playing{color:#ffffff;font-weight:700;font-size:48px;line-height:1;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 0 6px rgba(0,0,0,0.9),0 1px 0 rgba(0,0,0,0.6)}
+
+/* Upcoming Requests section */
+.upcoming-section{display:flex;flex-direction:column;gap:2px}
+.upcoming-label{color:rgba(255,255,255,0.6);font-weight:600;font-size:28px;line-height:1;text-transform:uppercase;letter-spacing:0.05em;text-shadow:0 0 6px rgba(0,0,0,0.9),0 1px 0 rgba(0,0,0,0.6)}
+
+/* Queue display (existing styles) */
 #message{display:flex;align-items:stretch;color:#ffffff;font-weight:700;font-size:48px;line-height:1;text-align:left;-webkit-font-smoothing:antialiased;white-space:nowrap;overflow:hidden;max-width:100%}
 #message.queue-animate{animation:queue-slide-left .28s ease}
 @keyframes queue-slide-left{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:translateX(0)}}
