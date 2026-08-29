@@ -8,8 +8,17 @@ function formatNowPlaying(song){
   const title = escapeHtml(song.title || '(unknown)');
   const subtitle = escapeHtml((song.subtitle || '').replace(/^\(+|\)+$/g, ''));
   const artist = escapeHtml(song.artist || '(unknown artist)');
-  const display = subtitle ? `${title} (${subtitle})` : title;
-  return `${display} — ${artist}`;
+  const pack = escapeHtml(song.pack || 'Unknown Pack');
+  const requester = escapeHtml(song.requested_display || song.requested_by || 'unknown');
+  const titleLine = subtitle ? `${title} (${subtitle})` : title;
+  return `
+    <div class="queue-lines">
+      <div class="queue-line queue-line-title">${titleLine}</div>
+      <div class="queue-line queue-line-artist">${artist}</div>
+      <div class="queue-line queue-line-pack">${pack}</div>
+      <div class="queue-line queue-line-requester">Requested by: @${requester}</div>
+    </div>
+  `;
 }
 
 function formatQueue(queue){
@@ -73,7 +82,7 @@ function updateOverlay(nowPlaying, queue){
 
   if(nowPlaying){
     npSection.style.display = 'flex';
-    npEl.textContent = formatNowPlaying(nowPlaying);
+    npEl.innerHTML = formatNowPlaying(nowPlaying);
   } else {
     npSection.style.display = 'none';
   }
@@ -103,19 +112,27 @@ function startSSE(){
   }
 }
 
-async function poll(){
+async function pollNowPlaying(){
   try{
-    const [npResp, qResp] = await Promise.all([
-      fetch('/api/now-playing'),
-      fetch('/api/queue')
-    ]);
-    if(!npResp.ok || !qResp.ok) throw new Error('Failed');
-    const [npData, qData] = await Promise.all([npResp.json(), qResp.json()]);
-    updateOverlay(npData, qData);
-  }catch(e){ console.error('Polling failed', e); }
+    const resp = await fetch('/api/now-playing');
+    if(!resp.ok) throw new Error('Failed');
+    const data = await resp.json();
+    const npEl = $("now-playing");
+    const npSection = $("now-playing-section");
+    if(data){
+      npSection.style.display = 'flex';
+      npEl.innerHTML = formatNowPlaying(data);
+    } else {
+      npSection.style.display = 'none';
+    }
+  }catch(e){ /* ignore polling errors */ }
 }
 
 if(!startSSE()){
   poll();
   setInterval(poll, 1000);
+} else {
+  // SSE handles queue updates; poll now-playing separately since SSE only broadcasts queue.
+  pollNowPlaying();
+  setInterval(pollNowPlaying, 2000);
 }
