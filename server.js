@@ -435,7 +435,7 @@ function authenticateModerator(req, res, next) {
   next();
 }
 
-function createRateLimiter({ windowMs = 60 * 1000, max = 480 } = {}) {
+function createRateLimiter({ windowMs = 60 * 1000, max = 120 } = {}) {
   const hits = new Map();
 
   const cleanupTimer = setInterval(() => {
@@ -468,6 +468,7 @@ function createRateLimiter({ windowMs = 60 * 1000, max = 480 } = {}) {
     res.setHeader('X-RateLimit-Reset', resetTime);
 
     if (record.count > max) {
+      console.warn(`[rate-limit] IP ${ip} exceeded ${max} requests in ${windowMs/1000}s window (count: ${record.count})`);
       res.setHeader('Retry-After', Math.ceil((record.startTime + windowMs - now) / 1000));
       return res.status(429).json({ error: 'Too many requests. Please slow down.' });
     }
@@ -1269,6 +1270,7 @@ function createApi(app, options = {}) {
 }
 
 const publicApp = express();
+publicApp.set('trust proxy', true);
 publicApp.use('/api/', createRateLimiter({ windowMs: 60 * 1000, max: 120 }));
 publicApp.get('/requestModerator.html', authenticateModerator, (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "requestModerator.html"));
