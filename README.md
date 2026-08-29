@@ -85,6 +85,23 @@ When enabled, the page uses its own HTTP Basic Authentication credentials and pr
 
 The moderator username is used as the `Requested By` display name for requests made through this interface. The password is stored as a one-way hash in the local settings database.
 
+## Temporary moderator nomination
+
+When `PUBLIC_URL` is set to a publicly accessible URL (not localhost), the streamer control panel shows a **Temporary Moderator** section. This lets you nominate a viewer from your Twitch chat to moderate the request queue for a set period (1–60 minutes, default 15).
+
+**Flow:**
+
+1. The control panel shows a live list of users who have recently messaged in chat (5-minute timeout).
+2. Select a user, set the duration, and click **Nominate**.
+3. The bot sends a Twitch whisper to that user asking if they'd like to moderate. There's a 60-second cooldown between nominations.
+4. If the user replies **Y**, the bot generates temporary credentials and sends them via whisper, including the link to `/requestModerator.html`. A chat announcement is posted.
+5. If the user replies **N**, you can immediately nominate someone else.
+6. When the time expires, the user's credentials are invalidated and a chat announcement is posted.
+
+The temporary moderator has the same permissions as a permanent moderator (queue management, song search, unlimited requests, chat restriction settings). They cannot configure Twitch, rescan songs, or manage blacklists.
+
+This feature requires `PUBLIC_URL` to be set to a valid, publicly accessible URL so the nominated user can reach the moderator page.
+
 ## Install
 
 ```bash
