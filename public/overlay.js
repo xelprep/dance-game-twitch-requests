@@ -3,6 +3,15 @@ const $ = id => document.getElementById(id);
 
 function escapeHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
+function formatNowPlaying(song){
+  if(!song) return '';
+  const title = escapeHtml(song.title || '(unknown)');
+  const subtitle = escapeHtml((song.subtitle || '').replace(/^\(+|\)+$/g, ''));
+  const artist = escapeHtml(song.artist || '(unknown artist)');
+  const display = subtitle ? `${title} (${subtitle})` : title;
+  return `${display} — ${artist}`;
+}
+
 function formatQueue(queue){
   if(!queue || !queue.length){
     return `
@@ -57,13 +66,23 @@ function formatQueue(queue){
   `;
 }
 
-function updateMessage(queue){
+function updateOverlay(nowPlaying, queue){
+  const npSection = $("now-playing-section");
+  const npEl = $("now-playing");
+  const msgEl = $("message");
+
+  if(nowPlaying){
+    npSection.style.display = 'flex';
+    npEl.textContent = formatNowPlaying(nowPlaying);
+  } else {
+    npSection.style.display = 'none';
+  }
+
   const msg = formatQueue(queue);
-  const el = $("message");
-  el.innerHTML = msg;
-  el.classList.remove('queue-animate');
-  void el.offsetWidth;
-  el.classList.add('queue-animate');
+  msgEl.innerHTML = msg;
+  msgEl.classList.remove('queue-animate');
+  void msgEl.offsetWidth;
+  msgEl.classList.add('queue-animate');
 }
 
 // Try EventSource first; fall back to polling if not available.
@@ -71,7 +90,7 @@ function startSSE(){
   try{
     const s = new EventSource('/overlay/queue/stream');
     s.addEventListener('message', (ev)=>{
-      try{ const data = JSON.parse(ev.data); updateMessage(data); } catch(e){ console.error('Failed to parse SSE data', e); }
+      try{ const data = JSON.parse(ev.data); updateOverlay(null, data); } catch(e){ console.error('Failed to parse SSE data', e); }
     });
     s.addEventListener('error', (e)=>{
       // On error, EventSource will retry automatically. If closed, fallback to polling.
@@ -86,10 +105,13 @@ function startSSE(){
 
 async function poll(){
   try{
-    const resp = await fetch('/api/queue');
-    if(!resp.ok) throw new Error('Failed');
-    const data = await resp.json();
-    updateMessage(data);
+    const [npResp, qResp] = await Promise.all([
+      fetch('/api/now-playing'),
+      fetch('/api/queue')
+    ]);
+    if(!npResp.ok || !qResp.ok) throw new Error('Failed');
+    const [npData, qData] = await Promise.all([npResp.json(), qResp.json()]);
+    updateOverlay(npData, qData);
   }catch(e){ console.error('Polling failed', e); }
 }
 
