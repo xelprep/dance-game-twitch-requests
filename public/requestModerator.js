@@ -192,17 +192,14 @@ async function render() {
 
   if (settingsResult.status === "fulfilled") {
     const settings = settingsResult.value;
-    ["prioritizeViewerRequests", "chatRequestsEnabled", "chatRequestsRequireFollowers", "chatRequestsRequireSubscribers", "chatRequestsRequireModerators"].forEach(key => {
+    ["prioritizeViewerRequests", "chatRequestsEnabled"].forEach(key => {
       const el = $(key);
       if (el) el.checked = !!settings[key];
     });
+    const roleEl = $("chatRequestsRequireRole");
+    if (roleEl) roleEl.value = settings.chatRequestsRequireRole || '';
     const allowChat = !!settings.chatRequestsEnabled;
-    const followersEl = $("chatRequestsRequireFollowers");
-    const subscribersEl = $("chatRequestsRequireSubscribers");
-    const moderatorsEl = $("chatRequestsRequireModerators");
-    if (followersEl) followersEl.disabled = !allowChat;
-    if (subscribersEl) subscribersEl.disabled = !allowChat;
-    if (moderatorsEl) moderatorsEl.disabled = !allowChat;
+    if (roleEl) roleEl.disabled = !allowChat;
   }
 }
 
@@ -313,23 +310,15 @@ $("reset-search").onclick = () => {
   if (el) el.onchange = () => loadSongs(1);
 });
 
-["prioritizeViewerRequests", "chatRequestsEnabled", "chatRequestsRequireFollowers", "chatRequestsRequireSubscribers", "chatRequestsRequireModerators"].forEach(key => {
+["prioritizeViewerRequests", "chatRequestsEnabled", "chatRequestsRequireRole"].forEach(key => {
   const el = $(key);
   if (el) {
     el.onchange = async () => {
-      if (key === "chatRequestsEnabled") {
-        const allowChat = el.checked;
-        const followersEl = $("chatRequestsRequireFollowers");
-        const subscribersEl = $("chatRequestsRequireSubscribers");
-        const moderatorsEl = $("chatRequestsRequireModerators");
-        if (followersEl) followersEl.disabled = !allowChat;
-        if (subscribersEl) subscribersEl.disabled = !allowChat;
-        if (moderatorsEl) moderatorsEl.disabled = !allowChat;
-      }
       try {
+        const value = el.type === 'checkbox' ? el.checked : el.value;
         await api("/api/moderator/settings", {
           method: "POST",
-          body: JSON.stringify({ [key]: el.checked })
+          body: JSON.stringify({ [key]: value })
         });
         toast("Settings saved");
       } catch (error) {

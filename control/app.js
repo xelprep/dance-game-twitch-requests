@@ -259,16 +259,12 @@ async function render() {
     // Apply settings (if present) to UI
     try {
       const chatRequestsEnabled = $('chatRequestsEnabled');
-      const chatRequestsRequireFollowers = $('chatRequestsRequireFollowers');
-      const chatRequestsRequireSubscribers = $('chatRequestsRequireSubscribers');
-      const chatRequestsRequireModerators = $('chatRequestsRequireModerators');
+      const chatRequestsRequireRole = $('chatRequestsRequireRole');
       if (typeof settings !== 'undefined') {
         const prioritizeElLocal = $('prioritizeViewerRequests');
         if (prioritizeElLocal) prioritizeElLocal.checked = !!(settings && settings.prioritizeViewerRequests);
         if (chatRequestsEnabled) chatRequestsEnabled.checked = !!(settings && settings.chatRequestsEnabled);
-        if (chatRequestsRequireFollowers) chatRequestsRequireFollowers.checked = !!(settings && settings.chatRequestsRequireFollowers);
-        if (chatRequestsRequireSubscribers) chatRequestsRequireSubscribers.checked = !!(settings && settings.chatRequestsRequireSubscribers);
-        if (chatRequestsRequireModerators) chatRequestsRequireModerators.checked = !!(settings && settings.chatRequestsRequireModerators);
+        if (chatRequestsRequireRole) chatRequestsRequireRole.value = settings && settings.chatRequestsRequireRole || '';
         const moderatorEnabled = $('moderatorEnabled');
         const moderatorUsername = $('moderatorUsername');
         if (moderatorEnabled) moderatorEnabled.checked = !!(settings && settings.moderatorEnabled);
@@ -276,9 +272,7 @@ async function render() {
       }
 
       const allowChat = !!(chatRequestsEnabled && chatRequestsEnabled.checked);
-      if (chatRequestsRequireFollowers) chatRequestsRequireFollowers.disabled = !allowChat;
-      if (chatRequestsRequireSubscribers) chatRequestsRequireSubscribers.disabled = !allowChat;
-      if (chatRequestsRequireModerators) chatRequestsRequireModerators.disabled = !allowChat;
+      if (chatRequestsRequireRole) chatRequestsRequireRole.disabled = !allowChat;
     } catch (e) { /* ignore */ }
 
   } catch (e) {
@@ -310,19 +304,9 @@ if (chatRequestsEnabledEl) {
   chatRequestsEnabledEl.addEventListener('change', () => saveControlSettings({ chatRequestsEnabled: chatRequestsEnabledEl.checked }));
 }
 
-const chatRequestsRequireFollowersEl = $('chatRequestsRequireFollowers');
-if (chatRequestsRequireFollowersEl) {
-  chatRequestsRequireFollowersEl.addEventListener('change', () => saveControlSettings({ chatRequestsRequireFollowers: chatRequestsRequireFollowersEl.checked }));
-}
-
-const chatRequestsRequireSubscribersEl = $('chatRequestsRequireSubscribers');
-if (chatRequestsRequireSubscribersEl) {
-  chatRequestsRequireSubscribersEl.addEventListener('change', () => saveControlSettings({ chatRequestsRequireSubscribers: chatRequestsRequireSubscribersEl.checked }));
-}
-
-const chatRequestsRequireModeratorsEl = $('chatRequestsRequireModerators');
-if (chatRequestsRequireModeratorsEl) {
-  chatRequestsRequireModeratorsEl.addEventListener('change', () => saveControlSettings({ chatRequestsRequireModerators: chatRequestsRequireModeratorsEl.checked }));
+const chatRequestsRequireRoleEl = $('chatRequestsRequireRole');
+if (chatRequestsRequireRoleEl) {
+  chatRequestsRequireRoleEl.addEventListener('change', () => saveControlSettings({ chatRequestsRequireRole: chatRequestsRequireRoleEl.value }));
 }
 
 const moderatorEnabledEl = $('moderatorEnabled');
