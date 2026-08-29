@@ -157,8 +157,24 @@
   </div>
 </section>
 
+<section class="panel" id="tempModSection" style="display:none">
+  <div class="section-head"><h2>Temporary Moderator</h2></div>
+  <div class="temp-mod-form">
+    <p class="small muted">Nominate a viewer from chat to moderate the request queue temporarily. They'll receive a Twitch whisper with credentials.</p>
+    <div id="tempModStatus" style="display:none">
+      <div id="tempModActive" class="temp-mod-active"></div>
+      <div id="tempModCooldown" class="temp-mod-cooldown" style="display:none"></div>
+    </div>
+    <label>Duration (minutes): <input id="tempModTime" type="number" min="1" max="60" value="15"></label>
+    <label>Search chat users:
+      <input id="tempModSearch" autocomplete="off" placeholder="Type username...">
+    </label>
+    <div id="tempModUserList" class="temp-mod-user-list"></div>
+    <p id="tempModNoUsers" class="small muted">No chat users detected yet. Users appear as they message in chat.</p>
+  </div>
+</section>
+
 <section class="panel">
-  <div class="section-head"><h2>Blacklist</h2></div>
   <div class="blacklist-form">
     <input id="blackUser" placeholder="Twitch username">
     <input id="blackReason" placeholder="Reason (optional)">
