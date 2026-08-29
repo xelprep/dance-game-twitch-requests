@@ -426,13 +426,27 @@ function authenticateModerator(req, res, next) {
       // Treat malformed credentials as unauthenticated.
     }
   }
-  if (!credentials.enabled || username !== credentials.username || !verifyModeratorPassword(password, credentials.passwordHash)) {
-    return res.status(401)
-      .set('WWW-Authenticate', 'Basic realm="Moderator Access"')
-      .json({ error: credentials.enabled ? 'Authentication required.' : 'Moderator access is disabled.' });
+
+  // Check permanent moderator credentials
+  if (credentials.enabled && username === credentials.username && verifyModeratorPassword(password, credentials.passwordHash)) {
+    req.moderatorUsername = credentials.username;
+    return next();
   }
-  req.moderatorUsername = credentials.username;
-  next();
+
+  // Check active temp mod credentials
+  if (activeTempMod && username.toLowerCase() === activeTempMod.username && verifyModeratorPassword(password, activeTempMod.passwordHash)) {
+    // Check expiration
+    if (Date.now() >= activeTempMod.expiresAt) {
+      activeTempMod = null;
+    } else {
+      req.moderatorUsername = activeTempMod.username;
+      return next();
+    }
+  }
+
+  return res.status(401)
+    .set('WWW-Authenticate', 'Basic realm="Moderator Access"')
+    .json({ error: credentials.enabled ? 'Authentication required.' : 'Moderator access is disabled.' });
 }
 
 function createRateLimiter({ windowMs = 60 * 1000, max = 120 } = {}) {
@@ -782,6 +796,121 @@ async function announceRequestAction(action, request) {
   }
 }
 
+// --- Temp mod nomination helpers ---
+
+function cleanupChatUsers() {
+  const now = Date.now();
+  for (const [username, data] of chatUsers.entries()) {
+    if (now - data.lastSeen > CHAT_USER_TIMEOUT_MS) {
+      chatUsers.delete(username);
+    }
+  }
+}
+
+function updateChatUser(username, displayName) {
+  const key = username.toLowerCase();
+  chatUsers.set(key, { displayName: displayName || username, lastSeen: Date.now() });
+}
+
+function getOnlineUsers() {
+  cleanupChatUsers();
+  const users = [];
+  for (const [username, data] of chatUsers.entries()) {
+    users.push({ username, displayName: data.displayName });
+  }
+  users.sort((a, b) => a.displayName.localeCompare(b.displayName));
+  return users;
+}
+
+function generateRandomPassword(length = 12) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // ambiguous chars omitted
+  const bytes = crypto.randomBytes(length);
+  let password = '';
+  for (let i = 0; i < length; i++) {
+    password += chars[bytes[i] % chars.length];
+  }
+  return password;
+}
+
+async function sendWhisper(username, message) {
+  if (!twitchClient) {
+    throw new Error('Twitch client not connected');
+  }
+  await twitchClient.whisper(username, message);
+}
+
+function clearTempModExpirationTimer() {
+  if (tempModExpirationTimer) {
+    clearTimeout(tempModExpirationTimer);
+    tempModExpirationTimer = null;
+  }
+}
+
+function scheduleTempModExpiration() {
+  clearTempModExpirationTimer();
+  if (!activeTempMod) return;
+
+  const msUntilExpiry = activeTempMod.expiresAt - Date.now();
+  if (msUntilExpiry <= 0) {
+    expireTempMod();
+    return;
+  }
+
+  tempModExpirationTimer = setTimeout(() => {
+    expireTempMod();
+  }, msUntilExpiry);
+  if (tempModExpirationTimer.unref) tempModExpirationTimer.unref();
+}
+
+async function expireTempMod() {
+  clearTempModExpirationTimer();
+  if (!activeTempMod) return;
+
+  const displayname = activeTempMod.displayname;
+  activeTempMod = null;
+
+  // Restore the original moderator password to invalidate the temp mod's credentials
+  if (originalModeratorPasswordHash) {
+    setSetting('moderatorPasswordHash', originalModeratorPasswordHash);
+  }
+
+  try {
+    await sendChatMessage(twitchClient, twitchConfig.channel, `@${displayname} is no longer moderating the request queue.`);
+  } catch (e) {
+    console.error("Failed to announce temp mod expiration:", e && e.message ? e.message : e);
+  }
+  try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch(e){}
+
+  console.log(`[temp-mod] ${displayname}'s temporary moderator session has expired.`);
+}
+
+// Clear pending nomination if it's past the cooldown window
+function cleanupPendingNomination() {
+  if (!pendingNomination) return;
+  const elapsed = Date.now() - pendingNomination.nominatedAt;
+  if (elapsed > NOMINATION_COOLDOWN_MS) {
+    console.log(`[temp-mod] Pending nomination for ${pendingNomination.username} timed out.`);
+    pendingNomination = null;
+  }
+}
+
+// Start periodic cleanup of chat users
+function startChatUsersCleanup() {
+  if (chatUsersCleanupTimer) return;
+  chatUsersCleanupTimer = setInterval(() => {
+    cleanupChatUsers();
+    cleanupPendingNomination();
+  }, 60 * 1000);
+  if (chatUsersCleanupTimer.unref) chatUsersCleanupTimer.unref();
+}
+
+function stopChatUsersCleanup() {
+  if (chatUsersCleanupTimer) {
+    clearInterval(chatUsersCleanupTimer);
+    chatUsersCleanupTimer = null;
+  }
+}
+
 function createApi(app, options = {}) {
   app.use(express.json({ limit: "32kb" }));
   if (options.moderator) {
@@ -1067,6 +1196,98 @@ function createApi(app, options = {}) {
       res.json({ ok: true, ...settings });
     });
 
+    // --- Temp mod nomination endpoints ---
+
+    app.get("/api/control/temp-mod/status", (_req, res) => {
+      cleanupPendingNomination();
+      const now = Date.now();
+      let tempMod = null;
+      let tempModRemaining = 0;
+      if (activeTempMod && now < activeTempMod.expiresAt) {
+        tempMod = {
+          username: activeTempMod.username,
+          displayName: activeTempMod.displayname,
+          expiresAt: activeTempMod.expiresAt
+        };
+        tempModRemaining = Math.max(0, activeTempMod.expiresAt - now);
+      } else if (activeTempMod && now >= activeTempMod.expiresAt) {
+        // Expired but timer hasn't fired yet — expire it now
+        expireTempMod().catch(e => console.error("[temp-mod] Error expiring:", e));
+      }
+
+      let nominationCooldown = 0;
+      if (pendingNomination) {
+        nominationCooldown = Math.max(0, NOMINATION_COOLDOWN_MS - (now - pendingNomination.nominatedAt));
+      }
+
+      res.json({
+        tempMod,
+        tempModRemaining,
+        hasPendingNomination: !!pendingNomination,
+        nominationCooldown,
+        publicUrl: PUBLIC_URL
+      });
+    });
+
+    app.get("/api/control/chat-users", (_req, res) => {
+      const users = getOnlineUsers();
+      res.json(users);
+    });
+
+    app.post("/api/control/temp-mod/nominate", async (req, res) => {
+      const { username, tempModTime } = req.body;
+      const modTime = Math.min(60, Math.max(1, Number(tempModTime) || 15));
+
+      if (!username || !username.trim()) {
+        return res.status(400).json({ error: "Username is required" });
+      }
+
+      if (!PUBLIC_URL) {
+        return res.status(400).json({ error: "PUBLIC_URL is not configured" });
+      }
+
+      // Check for valid external URL (not localhost/127.0.0.1)
+      try {
+        const url = new URL(PUBLIC_URL);
+        if (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1') {
+          return res.status(400).json({ error: "PUBLIC_URL must be a publicly accessible URL (not localhost)" });
+        }
+      } catch (e) {
+        return res.status(400).json({ error: "PUBLIC_URL is not a valid URL" });
+      }
+
+      if (pendingNomination) {
+        const remaining = Math.ceil((NOMINATION_COOLDOWN_MS - (Date.now() - pendingNomination.nominatedAt)) / 1000);
+        return res.status(429).json({ error: `Nomination pending. Cooldown: ${remaining}s` });
+      }
+      if (activeTempMod) {
+        const remaining = Math.ceil((activeTempMod.expiresAt - Date.now()) / 1000);
+        return res.status(409).json({ error: `Temp mod ${activeTempMod.displayname} is active (${remaining}s remaining)` });
+      }
+      if (!twitchClient) {
+        return res.status(503).json({ error: "Twitch client not connected" });
+      }
+
+      const userKey = username.trim().toLowerCase();
+      const chatUser = chatUsers.get(userKey);
+      const displayname = chatUser ? chatUser.displayName : username.trim();
+
+      pendingNomination = {
+        username: userKey,
+        displayname,
+        nominatedAt: Date.now(),
+        tempModTime: modTime
+      };
+
+      try {
+        await sendWhisper(userKey, `${twitchConfig.username} wants to know if you would like to moderate the request queue. Please reply Y or N`);
+        res.json({ ok: true, username: userKey, displayname, tempModTime: modTime });
+      } catch (e) {
+        pendingNomination = null;
+        res.status(500).json({ error: `Failed to send whisper: ${e.message}` });
+      }
+    });
+
     app.post("/api/queue/:id/play", async (req, res) => {
       const id = Number(req.params.id);
       const request = getRequestById(id);
@@ -1350,6 +1571,22 @@ function loadTwitchConfig() {
 }
 
 let twitchRefreshTimer = null;
+let chatUsersCleanupTimer = null;
+
+// Track recent chat users for temp mod nomination (username -> { displayName, lastSeen })
+const chatUsers = new Map();
+const CHAT_USER_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+// Temp mod nomination state
+let pendingNomination = null; // { username, displayname, nominatedAt, tempModTime }
+const NOMINATION_COOLDOWN_MS = 60 * 1000; // 60 seconds
+
+// Active temp mod session
+let activeTempMod = null; // { username, displayname, passwordHash, expiresAt }
+let tempModExpirationTimer = null;
+
+// Store the original moderator password hash so we can restore it after temp mod expires
+let originalModeratorPasswordHash = null;
 
 function clearTwitchRefreshTimer() {
   if (twitchRefreshTimer) {
@@ -1506,13 +1743,16 @@ async function startTmiClient(cfg) {
   }
 
   client.on("message", async (_channel, tags, message, self) => {
+    // Track all chat users for temp mod nomination (including self for completeness)
+    const display = tags["display-name"] || tags.username;
+    updateChatUser(tags.username, display);
+
     if (self || !message.startsWith(PREFIX)) return;
 
     const body = message.slice(PREFIX.length).trim();
     const space = body.indexOf(" ");
     const command = (space === -1 ? body : body.slice(0, space)).toLowerCase();
     const arg = space === -1 ? "" : body.slice(space + 1).trim();
-    const display = tags["display-name"] || tags.username;
 
     if (command === "help") {
       await postHelpMessage(client, cfg.channel);
@@ -1585,6 +1825,73 @@ async function startTmiClient(cfg) {
       maxLength: TWITCH_MAX_MESSAGE_LENGTH
     });
   });
+
+  // Handle whispers for temp mod nomination responses
+  client.on("whisper", async (from, _tags, message, self) => {
+    if (self || !pendingNomination) return;
+    const fromUsername = from.toLowerCase();
+    if (fromUsername !== pendingNomination.username) return;
+
+    const reply = message.trim().toUpperCase();
+    const wasPending = pendingNomination;
+    pendingNomination = null;
+
+    if (reply === "Y") {
+      // Generate temp credentials
+      const password = generateRandomPassword(12);
+      const passwordHash = hashModeratorPassword(password);
+      const expiresAt = Date.now() + wasPending.tempModTime * 60 * 1000;
+
+      // Store original password hash so we can restore it on expiration
+      originalModeratorPasswordHash = String(getSetting('moderatorPasswordHash', ''));
+
+      activeTempMod = {
+        username: wasPending.username,
+        displayname: wasPending.displayname,
+        passwordHash,
+        expiresAt
+      };
+
+      // Enable moderator access if not already enabled
+      if (!getControlSettings().moderatorEnabled) {
+        setSetting('moderatorEnabled', true);
+      }
+
+      try {
+        // Send credentials via whisper
+        await sendWhisper(wasPending.username, `Welcome! Your temp moderator credentials:\nUsername: ${wasPending.username}\nPassword: ${password}\nLink: ${PUBLIC_URL}/requestModerator.html\nYou have ${wasPending.tempModTime} minutes.`);
+
+        // Announce to chat
+        await sendChatMessage(twitchClient, twitchConfig.channel, `@${wasPending.displayname} is now moderating the request queue for ${wasPending.tempModTime} minutes!`);
+      } catch (e) {
+        console.error(`[temp-mod] Failed to send credentials to ${wasPending.username}:`, e && e.message ? e.message : e);
+        // Rollback on failure
+        activeTempMod = null;
+        if (originalModeratorPasswordHash) {
+          setSetting('moderatorPasswordHash', originalModeratorPasswordHash);
+          originalModeratorPasswordHash = null;
+        }
+        return;
+      }
+
+      // Schedule expiration
+      scheduleTempModExpiration();
+
+      console.log(`[temp-mod] ${wasPending.displayname} accepted temp mod nomination for ${wasPending.tempModTime} minutes.`);
+
+    } else if (reply === "N") {
+      try {
+        await sendWhisper(wasPending.username, `No problem!`);
+      } catch (e) {
+        console.error(`[temp-mod] Failed to send rejection reply to ${wasPending.username}:`, e && e.message ? e.message : e);
+      }
+      console.log(`[temp-mod] ${wasPending.displayname} declined temp mod nomination.`);
+    }
+  });
+
+  // Start periodic cleanup of chat users and pending nominations
+  startChatUsersCleanup();
+
   // Schedule a refresh if we have expiry information
   scheduleTwitchRefresh();
 }
@@ -1596,6 +1903,8 @@ async function stopTmiClient() {
   }
   clearInstructionsTimer();
   clearTwitchRefreshTimer();
+  clearTempModExpirationTimer();
+  stopChatUsersCleanup();
 }
 
 // Load config from disk or environment and start client if present.

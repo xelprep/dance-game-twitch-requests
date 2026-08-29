@@ -451,9 +451,152 @@ $("disconnectTwitch").onclick = async () => {
   catch(e){toast(e.message)}
 };
 
+// --- Temporary Moderator nomination ---
+
+let tempModPollTimer = null;
+let tempModUsers = [];
+
+function isPublicUrlValid(url) {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    return u.hostname !== 'localhost' && u.hostname !== '127.0.0.1' && u.hostname !== '::1';
+  } catch (e) {
+    return false;
+  }
+}
+
+async function renderTempMod() {
+  const section = $("tempModSection");
+  if (!section) return;
+
+  try {
+    const status = await api('/api/control/temp-mod/status');
+
+    // Only show the section if PUBLIC_URL is valid
+    if (!isPublicUrlValid(status.publicUrl)) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+    const statusDiv = $("tempModStatus");
+    const activeDiv = $("tempModActive");
+    const cooldownDiv = $("tempModCooldown");
+    const userList = $("tempModUserList");
+    const noUsers = $("tempModNoUsers");
+
+    // Update status
+    if (status.tempMod) {
+      statusDiv.style.display = '';
+      activeDiv.style.display = '';
+      cooldownDiv.style.display = 'none';
+      const remaining = Math.ceil(status.tempModRemaining / 1000);
+      const mins = Math.floor(remaining / 60);
+      const secs = remaining % 60;
+      activeDiv.textContent = `🟢 ${status.tempMod.displayName} is moderating (${mins}:${secs.toString().padStart(2, '0')} remaining)`;
+      // Disable nominate buttons
+      document.querySelectorAll('.temp-mod-nominate-btn').forEach(btn => {
+        btn.closest('.temp-mod-user-item').classList.add('disabled');
+      });
+    } else if (status.hasPendingNomination) {
+      statusDiv.style.display = '';
+      activeDiv.style.display = 'none';
+      cooldownDiv.style.display = '';
+      const secs = Math.ceil(status.nominationCooldown / 1000);
+      cooldownDiv.textContent = `⏳ Awaiting response… (${secs}s cooldown)`;
+      // Disable nominate buttons
+      document.querySelectorAll('.temp-mod-nominate-btn').forEach(btn => {
+        btn.closest('.temp-mod-user-item').classList.add('disabled');
+      });
+    } else {
+      statusDiv.style.display = 'none';
+      // Enable nominate buttons
+      document.querySelectorAll('.temp-mod-user-item.disabled').forEach(item => {
+        item.classList.remove('disabled');
+      });
+    }
+
+  } catch (e) {
+    // If endpoint doesn't exist (old server), hide the section
+    section.style.display = 'none';
+  }
+}
+
+async function loadTempModUsers() {
+  try {
+    tempModUsers = await api('/api/control/chat-users');
+    renderTempModUserList();
+  } catch (e) {
+    // Ignore errors
+  }
+}
+
+function renderTempModUserList(filter = '') {
+  const userList = $("tempModUserList");
+  const noUsers = $("tempModNoUsers");
+  if (!userList) return;
+
+  const filtered = filter
+    ? tempModUsers.filter(u =>
+        u.displayName.toLowerCase().includes(filter.toLowerCase()) ||
+        u.username.toLowerCase().includes(filter.toLowerCase()))
+    : tempModUsers;
+
+  if (filtered.length === 0) {
+    userList.style.display = 'none';
+    noUsers.style.display = '';
+    return;
+  }
+
+  userList.style.display = '';
+  noUsers.style.display = 'none';
+
+  userList.innerHTML = filtered.map(u => `
+    <div class="temp-mod-user-item" data-username="${esc(u.username)}">
+      <span class="username">@${esc(u.displayName)}</span>
+      <button class="temp-mod-nominate-btn" onclick="nominateTempMod('${esc(u.username)}')">Nominate</button>
+    </div>
+  `).join('');
+}
+
+async function nominateTempMod(username) {
+  const tempModTime = Math.min(60, Math.max(1, Number($("tempModTime").value) || 15));
+  try {
+    const result = await api('/api/control/temp-mod/nominate', {
+      method: 'POST',
+      body: JSON.stringify({ username, tempModTime })
+    });
+    toast(`Nomination sent to ${result.displayname} (${result.tempModTime} min)`);
+    renderTempMod();
+  } catch (e) {
+    toast(e.message);
+    renderTempMod();
+  }
+}
+
+// Make nominateTempMod available globally for onclick
+window.nominateTempMod = nominateTempMod;
+
+// Search filter for temp mod users
+const tempModSearch = $("tempModSearch");
+if (tempModSearch) {
+  tempModSearch.addEventListener('input', () => {
+    renderTempModUserList(tempModSearch.value.trim());
+  });
+}
+
+// --- Initialization ---
+
 getFilters();
 loadSongs(1);
 render();
 renderTwitch();
 setInterval(render, 2500);
 setInterval(renderTwitch, 5000);
+
+// Temp mod polling
+renderTempMod();
+loadTempModUsers();
+setInterval(renderTempMod, 2000);
+setInterval(loadTempModUsers, 10000);
