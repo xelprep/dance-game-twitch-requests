@@ -12,6 +12,9 @@ body{background:transparent;font-family:Inter,system-ui,-apple-system,Segoe UI,R
 .upcoming-section{display:flex;flex-direction:column;gap:2px}
 .upcoming-label{color:#ffffff;font-weight:700;font-size:48px;line-height:1;text-align:left;text-shadow:0 0 6px rgba(0,0,0,0.9),0 1px 0 rgba(0,0,0,0.6)}
 
+/* Section divider (horizontal line between Now Playing and Upcoming) */
+.section-divider{width:100%;height:3px;background:rgba(255,255,255,0.9);box-shadow:0 0 6px rgba(0,0,0,0.9);border-radius:999px;margin:4px 0}
+
 /* Queue display (existing styles) */
 #message{display:flex;align-items:stretch;color:#ffffff;font-weight:700;font-size:48px;line-height:1;text-align:left;-webkit-font-smoothing:antialiased;white-space:nowrap;overflow:hidden;max-width:100%}
 #message.queue-animate{animation:queue-slide-left .28s ease}

@@ -78,13 +78,16 @@ function formatQueue(queue){
 function updateOverlay(nowPlaying, queue){
   const npSection = $("now-playing-section");
   const npEl = $("now-playing");
+  const divider = $("section-divider");
   const msgEl = $("message");
 
   if(nowPlaying){
     npSection.style.display = 'flex';
+    divider.style.display = 'block';
     npEl.innerHTML = formatNowPlaying(nowPlaying);
   } else {
     npSection.style.display = 'none';
+    divider.style.display = 'none';
   }
 
   const msg = formatQueue(queue);
@@ -119,11 +122,14 @@ async function pollNowPlaying(){
     const data = await resp.json();
     const npEl = $("now-playing");
     const npSection = $("now-playing-section");
+    const divider = $("section-divider");
     if(data){
       npSection.style.display = 'flex';
+      divider.style.display = 'block';
       npEl.innerHTML = formatNowPlaying(data);
     } else {
       npSection.style.display = 'none';
+      divider.style.display = 'none';
     }
   }catch(e){ /* ignore polling errors */ }
 }
