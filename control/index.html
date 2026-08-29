@@ -145,17 +145,15 @@
     <p class="small muted">When disabled, chat users cannot add songs to the queue. The streamer can still add requests from the control panel.</p>
 
     <label>
-      <input type="checkbox" id="chatRequestsRequireFollowers">
-      Only allow requests via chat from followers
+      Chat request restrictions
+      <select id="chatRequestsRequireRole">
+        <option value="">Anyone</option>
+        <option value="moderator">Moderators only</option>
+        <option value="subscriber">Subscribers &amp; moderators only</option>
+        <option value="follower">Followers, subscribers &amp; moderators only</option>
+      </select>
     </label>
-    <label>
-      <input type="checkbox" id="chatRequestsRequireSubscribers">
-      Only allow requests via chat from subscribers
-    </label>
-    <label>
-      <input type="checkbox" id="chatRequestsRequireModerators">
-      Only allow requests via chat from moderators
-    </label>
+    <p class="small muted">Controls who can request songs through Twitch chat. Disabled when chat requests are turned off.</p>
   </div>
 </section>
 
