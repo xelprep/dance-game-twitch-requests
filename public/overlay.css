@@ -1,7 +1,7 @@
 /* Three-line, left-justified high-visibility overlay for OBS */
 html,body{height:100%;margin:0;padding:0}
 body{background:transparent;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-.overlay{display:flex;align-items:flex-start;justify-content:flex-end;flex-direction:column;height:100%;padding:8px 12px;overflow:hidden;gap:4px}
+.overlay{display:flex;align-items:flex-start;justify-content:flex-end;flex-direction:column;height:100%;padding:8px 12px 20px 12px;overflow:hidden;gap:4px}
 
 /* Now Playing section */
 .now-playing-section{display:flex;flex-direction:column;gap:2px}
