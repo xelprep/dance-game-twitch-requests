@@ -435,7 +435,7 @@ function authenticateModerator(req, res, next) {
   next();
 }
 
-function createRateLimiter({ windowMs = 60 * 1000, max = 120 } = {}) {
+function createRateLimiter({ windowMs = 60 * 1000, max = 480 } = {}) {
   const hits = new Map();
 
   const cleanupTimer = setInterval(() => {
