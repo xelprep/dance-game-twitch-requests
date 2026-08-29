@@ -75,21 +75,8 @@ function formatQueue(queue){
   `;
 }
 
-function updateOverlay(nowPlaying, queue){
-  const npSection = $("now-playing-section");
-  const npEl = $("now-playing");
-  const divider = $("section-divider");
+function updateQueue(queue){
   const msgEl = $("message");
-
-  if(nowPlaying){
-    npSection.style.display = 'flex';
-    divider.style.display = 'block';
-    npEl.innerHTML = formatNowPlaying(nowPlaying);
-  } else {
-    npSection.style.display = 'none';
-    divider.style.display = 'none';
-  }
-
   const msg = formatQueue(queue);
   msgEl.innerHTML = msg;
   msgEl.classList.remove('queue-animate');
@@ -97,12 +84,31 @@ function updateOverlay(nowPlaying, queue){
   msgEl.classList.add('queue-animate');
 }
 
+function updateNowPlaying(data){
+  const npEl = $("now-playing");
+  const npSection = $("now-playing-section");
+  const divider = $("section-divider");
+  if(data){
+    npSection.style.display = 'flex';
+    divider.style.display = 'block';
+    npEl.innerHTML = formatNowPlaying(data);
+  } else {
+    npSection.style.display = 'none';
+    divider.style.display = 'none';
+  }
+}
+
+function updateOverlay(nowPlaying, queue){
+  updateNowPlaying(nowPlaying);
+  updateQueue(queue);
+}
+
 // Try EventSource first; fall back to polling if not available.
 function startSSE(){
   try{
     const s = new EventSource('/overlay/queue/stream');
     s.addEventListener('message', (ev)=>{
-      try{ const data = JSON.parse(ev.data); updateOverlay(null, data); } catch(e){ console.error('Failed to parse SSE data', e); }
+      try{ const data = JSON.parse(ev.data); updateQueue(data); } catch(e){ console.error('Failed to parse SSE data', e); }
     });
     s.addEventListener('error', (e)=>{
       // On error, EventSource will retry automatically. If closed, fallback to polling.
@@ -120,17 +126,7 @@ async function pollNowPlaying(){
     const resp = await fetch('/api/now-playing');
     if(!resp.ok) throw new Error('Failed');
     const data = await resp.json();
-    const npEl = $("now-playing");
-    const npSection = $("now-playing-section");
-    const divider = $("section-divider");
-    if(data){
-      npSection.style.display = 'flex';
-      divider.style.display = 'block';
-      npEl.innerHTML = formatNowPlaying(data);
-    } else {
-      npSection.style.display = 'none';
-      divider.style.display = 'none';
-    }
+    updateNowPlaying(data);
   }catch(e){ /* ignore polling errors */ }
 }
 
