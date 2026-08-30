@@ -1,98 +1,121 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Twitch Song Requests</title>
-  <link rel="stylesheet" href="/style.css">
-</head>
-<body>
-  <main>
-    <header>
-      <div>
-        <h1>Twitch Song Requests</h1>
-        <p id="stats">Loading library…</p>
-      </div>
-    </header>
-
-    <div class="panel">
-      <p style="margin:0"><strong>Requesting songs:</strong> Use this page to find a song's numeric ID, then request it in Twitch chat with <code>!requestid &lt;songID&gt;</code>.<br><br>If you click or tap on a song in the below list, the appropriate command to request it will be copied to your clipboard for easy pasting in chat.</p>
-    </div>
-    <div id="copy-status" class="copy-status" role="status" aria-live="polite"></div>
-
-    <section class="panel">
-      <div class="section-head"><h2>Song Search</h2></div>
-      <label for="search">Search by title or browse songs</label>
-      <div class="search-row">
-        <input id="search" autocomplete="off" placeholder="Title">
-        <button id="reset-search" type="button">Reset Search</button>
-      </div>
-      <div class="filters">
-        <label>Pack
-          <select id="filter-pack"><option value="">All packs</option></select>
-        </label>
-        <label>Genre
-          <select id="filter-genre"><option value="">All genres</option></select>
-        </label>
-        <label>Style
-          <select id="filter-style">
-            <option value="">Any</option>
-            <option value="dance-single">Single</option>
-            <option value="dance-double">Doubles</option>
-          </select>
-        </label>
-        <label>Difficulty
-          <select id="filter-difficulty"><option value="">All difficulties</option></select>
-        </label>
-        <label>Meter
-          <select id="filter-meter-min"><option value="">Min</option></select>
-          <select id="filter-meter-max"><option value="">Max</option></select>
-        </label>
-        <label>Sort
-          <select id="sort-field">
-            <option value="title">Title</option>
-            <option value="artist">Artist</option>
-            <option value="pack">Pack</option>
-            <option value="last_modified">Last modified</option>
-          </select>
-        </label>
-        <label>Order
-          <select id="sort-order">
-            <option value="asc">Asc</option>
-            <option value="desc">Desc</option>
-          </select>
-        </label>
-        <label>Per page
-          <select id="per-page">
-            <option value="10">10</option>
-            <option value="25" selected>25</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-          </select>
-        </label>
-        <div class="pager">
-          <button id="search-prev" type="button" disabled>Prev</button>
-          <span id="pageInfo">Page 1</span>
-          <button id="search-next" type="button" disabled>Next</button>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Twitch Song Requests</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Twitch Song Requests</h1>
+          <p id="stats">Loading library…</p>
         </div>
-      </div>
-      <div id="results" class="results"></div>
-      <div class="pager">
-        <button id="search-prev-bottom" type="button" disabled>Prev</button>
-        <span id="pageInfo-bottom">Page 1</span>
-        <button id="search-next-bottom" type="button" disabled>Next</button>
-      </div>
-    </section>
+      </header>
 
-    <section class="panel">
-      <div class="section-head">
-        <h2>Request Queue</h2>
-        <button id="refresh">Refresh</button>
+      <div class="panel">
+        <p style="margin: 0">
+          <strong>Requesting songs:</strong> Use this page to find a song's numeric ID, then request
+          it in Twitch chat with <code>!requestid &lt;songID&gt;</code>.<br /><br />If you click or
+          tap on a song in the below list, the appropriate command to request it will be copied to
+          your clipboard for easy pasting in chat.
+        </p>
       </div>
-      <div id="queue"></div>
-    </section>
-  </main>
+      <div id="copy-status" class="copy-status" role="status" aria-live="polite"></div>
 
-  <script src="/app.js"></script>
-</body>
+      <section class="panel">
+        <div class="section-head"><h2>Song Search</h2></div>
+        <label for="search">Search by title or browse songs</label>
+        <div class="search-row">
+          <input id="search" autocomplete="off" placeholder="Title" />
+          <button id="reset-search" type="button">Reset Search</button>
+        </div>
+        <div class="filters">
+          <label
+            >Pack
+            <select id="filter-pack">
+              <option value="">All packs</option>
+            </select>
+          </label>
+          <label
+            >Genre
+            <select id="filter-genre">
+              <option value="">All genres</option>
+            </select>
+          </label>
+          <label
+            >Style
+            <select id="filter-style">
+              <option value="">Any</option>
+              <option value="dance-single">Single</option>
+              <option value="dance-double">Doubles</option>
+            </select>
+          </label>
+          <label
+            >Difficulty
+            <select id="filter-difficulty">
+              <option value="">All difficulties</option>
+            </select>
+          </label>
+          <label
+            >Meter
+            <select id="filter-meter-min">
+              <option value="">Min</option>
+            </select>
+            <select id="filter-meter-max">
+              <option value="">Max</option>
+            </select>
+          </label>
+          <label
+            >Sort
+            <select id="sort-field">
+              <option value="title">Title</option>
+              <option value="artist">Artist</option>
+              <option value="pack">Pack</option>
+              <option value="last_modified">Last modified</option>
+            </select>
+          </label>
+          <label
+            >Order
+            <select id="sort-order">
+              <option value="asc">Asc</option>
+              <option value="desc">Desc</option>
+            </select>
+          </label>
+          <label
+            >Per page
+            <select id="per-page">
+              <option value="10">10</option>
+              <option value="25" selected>25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+          <div class="pager">
+            <button id="search-prev" type="button" disabled>Prev</button>
+            <span id="pageInfo">Page 1</span>
+            <button id="search-next" type="button" disabled>Next</button>
+          </div>
+        </div>
+        <div id="results" class="results"></div>
+        <div class="pager">
+          <button id="search-prev-bottom" type="button" disabled>Prev</button>
+          <span id="pageInfo-bottom">Page 1</span>
+          <button id="search-next-bottom" type="button" disabled>Next</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <h2>Request Queue</h2>
+          <button id="refresh">Refresh</button>
+        </div>
+        <div id="queue"></div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
 </html>

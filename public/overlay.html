@@ -1,23 +1,23 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Request Queue Overlay</title>
-  <link rel="stylesheet" href="/overlay.css">
-</head>
-<body>
-  <div id="overlay" class="overlay">
-    <div id="now-playing-section" class="now-playing-section" style="display:none">
-      <div class="now-playing-label">Now Playing:</div>
-      <div id="now-playing" class="now-playing"></div>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Request Queue Overlay</title>
+    <link rel="stylesheet" href="/overlay.css" />
+  </head>
+  <body>
+    <div id="overlay" class="overlay">
+      <div id="now-playing-section" class="now-playing-section" style="display: none">
+        <div class="now-playing-label">Now Playing:</div>
+        <div id="now-playing" class="now-playing"></div>
+      </div>
+      <div id="section-divider" class="section-divider" style="display: none"></div>
+      <div id="upcoming-section" class="upcoming-section">
+        <div class="upcoming-label">Upcoming Requests:</div>
+        <div id="message">Loading…</div>
+      </div>
     </div>
-    <div id="section-divider" class="section-divider" style="display:none"></div>
-    <div id="upcoming-section" class="upcoming-section">
-      <div class="upcoming-label">Upcoming Requests:</div>
-      <div id="message">Loading…</div>
-    </div>
-  </div>
-  <script src="/overlay.js"></script>
-</body>
+    <script src="/overlay.js"></script>
+  </body>
 </html>

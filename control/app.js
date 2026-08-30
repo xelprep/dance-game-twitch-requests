@@ -1,9 +1,9 @@
-const $ = id => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 
 async function api(url, options = {}) {
   const res = await fetch(url, {
-    headers: {"Content-Type": "application/json", ...(options.headers || {})},
-    ...options
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Request failed");
@@ -11,8 +11,10 @@ async function api(url, options = {}) {
 }
 
 function esc(v) {
-  return String(v ?? "").replace(/[&<>"']/g, c =>
-    ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"})[c]);
+  return String(v ?? "").replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[c],
+  );
 }
 
 function toast(msg) {
@@ -26,15 +28,16 @@ function getSongSearchPerPage() {
 }
 
 function formatCharts(charts) {
-  const groups = [...new Set((charts || []).map(c => c.chartType))]
+  const groups = [...new Set((charts || []).map((c) => c.chartType))]
     .sort((a, b) => b.localeCompare(a))
-    .map(style => {
+    .map((style) => {
       const entries = charts
-        .filter(c => c.chartType === style)
+        .filter((c) => c.chartType === style)
         .sort((a, b) => Number(a.meter) - Number(b.meter))
-        .map(c => `${c.difficulty || "?"} ${c.meter || ""}`.trim())
+        .map((c) => `${c.difficulty || "?"} ${c.meter || ""}`.trim())
         .join(", ");
-      const label = style === "dance-single" ? "Single" : style === "dance-double" ? "Double" : style;
+      const label =
+        style === "dance-single" ? "Single" : style === "dance-double" ? "Double" : style;
       return entries ? `${label}: ${entries}` : "";
     })
     .filter(Boolean);
@@ -64,59 +67,67 @@ function songCard(song) {
 
 async function getFilters() {
   try {
-    const f = await api('/api/song-filters');
-    const packSel = $('filter-pack');
-    const genreSel = $('filter-genre');
-    const diffSel = $('filter-difficulty');
-    const meterMinSel = $('filter-meter-min');
-    const meterMaxSel = $('filter-meter-max');
+    const f = await api("/api/song-filters");
+    const packSel = $("filter-pack");
+    const genreSel = $("filter-genre");
+    const diffSel = $("filter-difficulty");
+    const meterMinSel = $("filter-meter-min");
+    const meterMaxSel = $("filter-meter-max");
 
-    packSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
-    genreSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
-    diffSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
-    meterMinSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
-    meterMaxSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
+    packSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    genreSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    diffSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    meterMinSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    meterMaxSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
 
-    const sortAlpha = (a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+    const sortAlpha = (a, b) =>
+      String(a).localeCompare(String(b), undefined, { sensitivity: "base" });
 
-    [...(f.packs || [])].sort((a, b) => sortAlpha(a.pack, b.pack)).forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.pack;
-      opt.textContent = `${p.pack} (${p.count})`;
-      packSel.appendChild(opt);
-    });
+    [...(f.packs || [])]
+      .sort((a, b) => sortAlpha(a.pack, b.pack))
+      .forEach((p) => {
+        const opt = document.createElement("option");
+        opt.value = p.pack;
+        opt.textContent = `${p.pack} (${p.count})`;
+        packSel.appendChild(opt);
+      });
 
-    [...(f.genres || [])].sort((a, b) => sortAlpha(a.genre, b.genre)).forEach(g => {
-      const opt = document.createElement('option');
-      opt.value = g.genre;
-      opt.textContent = `${g.genre} (${g.count})`;
-      genreSel.appendChild(opt);
-    });
+    [...(f.genres || [])]
+      .sort((a, b) => sortAlpha(a.genre, b.genre))
+      .forEach((g) => {
+        const opt = document.createElement("option");
+        opt.value = g.genre;
+        opt.textContent = `${g.genre} (${g.count})`;
+        genreSel.appendChild(opt);
+      });
 
-    [...(f.difficulties || [])].sort((a, b) => sortAlpha(a.difficulty, b.difficulty)).forEach(d => {
-      const opt = document.createElement('option');
-      opt.value = d.difficulty;
-      opt.textContent = `${d.difficulty} (${d.count})`;
-      diffSel.appendChild(opt);
-    });
+    [...(f.difficulties || [])]
+      .sort((a, b) => sortAlpha(a.difficulty, b.difficulty))
+      .forEach((d) => {
+        const opt = document.createElement("option");
+        opt.value = d.difficulty;
+        opt.textContent = `${d.difficulty} (${d.count})`;
+        diffSel.appendChild(opt);
+      });
 
-    const meters = (f.meters || []).map(m => ({ meter: Number(m.meter), count: m.count }))
-      .filter(m => !Number.isNaN(m.meter))
+    const meters = (f.meters || [])
+      .map((m) => ({ meter: Number(m.meter), count: m.count }))
+      .filter((m) => !Number.isNaN(m.meter))
       .sort((a, b) => a.meter - b.meter);
 
-    meters.forEach(m => {
-      const optMin = document.createElement('option');
+    meters.forEach((m) => {
+      const optMin = document.createElement("option");
       optMin.value = String(m.meter);
       optMin.textContent = String(m.meter);
       meterMinSel.appendChild(optMin);
 
-      const optMax = document.createElement('option');
+      const optMax = document.createElement("option");
       optMax.value = String(m.meter);
       optMax.textContent = String(m.meter);
       meterMaxSel.appendChild(optMax);
     });
   } catch (e) {
-    console.error('Failed to load filters', e);
+    console.error("Failed to load filters", e);
   }
 }
 
@@ -125,44 +136,44 @@ let searchPage = 1;
 let searchTotalPages = 1;
 
 function updateSearchPager() {
-  ['search-prev', 'search-prev-bottom'].forEach(id => {
+  ["search-prev", "search-prev-bottom"].forEach((id) => {
     $(id).disabled = searchPage <= 1;
   });
-  ['search-next', 'search-next-bottom'].forEach(id => {
+  ["search-next", "search-next-bottom"].forEach((id) => {
     $(id).disabled = searchPage >= searchTotalPages;
   });
-  ['pageInfo', 'pageInfo-bottom'].forEach(id => {
+  ["pageInfo", "pageInfo-bottom"].forEach((id) => {
     $(id).textContent = `Page ${searchPage} of ${searchTotalPages}`;
   });
 }
 
 async function loadSongs(page = 1) {
-  const results = $('results');
+  const results = $("results");
   results.replaceChildren();
 
-  const pack = $('filter-pack').value;
-  const genre = $('filter-genre').value;
-  const style = $('filter-style').value;
-  const difficulty = $('filter-difficulty').value;
-  const meterMin = $('filter-meter-min').value;
-  const meterMax = $('filter-meter-max').value;
-  const sort = $('sort-field').value;
-  const order = $('sort-order').value;
-  const q = $('search').value.trim();
+  const pack = $("filter-pack").value;
+  const genre = $("filter-genre").value;
+  const style = $("filter-style").value;
+  const difficulty = $("filter-difficulty").value;
+  const meterMin = $("filter-meter-min").value;
+  const meterMax = $("filter-meter-max").value;
+  const sort = $("sort-field").value;
+  const order = $("sort-order").value;
+  const q = $("search").value.trim();
   const perPage = getSongSearchPerPage();
 
   const params = new URLSearchParams();
-  params.set('page', page);
-  params.set('perPage', perPage);
-  if (pack) params.set('pack', pack);
-  if (genre) params.set('genre', genre);
-  if (style) params.set('style', style);
-  if (difficulty) params.set('difficulty', difficulty);
-  if (meterMin) params.set('meterMin', meterMin);
-  if (meterMax) params.set('meterMax', meterMax);
-  if (sort) params.set('sort', sort);
-  if (order) params.set('order', order);
-  if (q) params.set('q', q);
+  params.set("page", page);
+  params.set("perPage", perPage);
+  if (pack) params.set("pack", pack);
+  if (genre) params.set("genre", genre);
+  if (style) params.set("style", style);
+  if (difficulty) params.set("difficulty", difficulty);
+  if (meterMin) params.set("meterMin", meterMin);
+  if (meterMax) params.set("meterMax", meterMax);
+  if (sort) params.set("sort", sort);
+  if (order) params.set("order", order);
+  if (q) params.set("q", q);
 
   try {
     const res = await api(`/api/songs?${params.toString()}`);
@@ -172,12 +183,12 @@ async function loadSongs(page = 1) {
     searchTotalPages = Math.max(1, Math.ceil(total / (res.perPage || perPage)));
 
     if (!songs.length) {
-      results.textContent = 'No songs.';
+      results.textContent = "No songs.";
       updateSearchPager();
       return;
     }
 
-    songs.forEach(song => results.appendChild(songCard(song)));
+    songs.forEach((song) => results.appendChild(songCard(song)));
     updateSearchPager();
   } catch (e) {
     results.textContent = e.message;
@@ -185,15 +196,15 @@ async function loadSongs(page = 1) {
   }
 }
 
-window.addToQueue = async songId => {
+window.addToQueue = async (songId) => {
   try {
-    const result = await api('/api/request', {
-      method: 'POST',
+    const result = await api("/api/request", {
+      method: "POST",
       body: JSON.stringify({
         songId,
-        username: 'streamer',
-        displayName: 'Streamer'
-      })
+        username: "streamer",
+        displayName: "Streamer",
+      }),
     });
     toast(`Added ${result.request.song.title} to the queue.`);
     render();
@@ -206,16 +217,25 @@ window.addToQueue = async songId => {
 async function render() {
   try {
     const [stats, now, queue, blacklist, settings] = await Promise.all([
-      api("/api/stats"), api("/api/now-playing"),
-      api("/api/queue"), api("/api/blacklist"),
+      api("/api/stats"),
+      api("/api/now-playing"),
+      api("/api/queue"),
+      api("/api/blacklist"),
       // Control settings endpoint
-      (async () => { try { return await api('/api/control/settings'); } catch (e) { return { prioritizeViewerRequests: true }; } })()
+      (async () => {
+        try {
+          return await api("/api/control/settings");
+        } catch (e) {
+          return { prioritizeViewerRequests: true };
+        }
+      })(),
     ]);
 
     $("stats").textContent =
       `${stats.songs.toLocaleString()} songs • ${stats.queued} queued • ${stats.playing} playing`;
 
-    $("now").innerHTML = now ? `
+    $("now").innerHTML = now
+      ? `
       <div class="now-card">
         <div>
           <strong>${esc(now.title)}</strong>
@@ -225,9 +245,13 @@ async function render() {
           <small>requested by ${esc(now.requested_display)}</small>
         </div>
         <button onclick="complete(${now.id})">Complete</button>
-      </div>` : "Nothing playing.";
+      </div>`
+      : "Nothing playing.";
 
-    $("queue").innerHTML = queue.length ? queue.map((r, i) => `
+    $("queue").innerHTML = queue.length
+      ? queue
+          .map(
+            (r, i) => `
       <article class="request">
         <div class="rank">${i + 1}</div>
         <div class="info">
@@ -235,7 +259,7 @@ async function render() {
           ${r.subtitle ? `<span class="subtitle">${esc(r.subtitle)}</span>` : ""}
           <span>${esc(r.artist)}${r.pack ? " • " + esc(r.pack) : ""}</span>
           <small>${esc(formatCharts(r.charts))}</small>
-          <small>Requested by ${esc(r.requested_display)}${(String(r.requested_by.toLowerCase() || "") === "streamer") ? " (Control Panel)" : ""}</small>
+          <small>Requested by ${esc(r.requested_display)}${String(r.requested_by.toLowerCase() || "") === "streamer" ? " (Control Panel)" : ""}</small>
         </div>
         <div class="row-actions">
           <button onclick="move(${r.id},'up')">↑</button>
@@ -246,35 +270,49 @@ async function render() {
           <button onclick="blackUser('${esc(r.requested_by)}')">Block User</button>
         </div>
       </article>
-    `).join("") : `<p class="muted">Queue is empty.</p>`;
+    `,
+          )
+          .join("")
+      : `<p class="muted">Queue is empty.</p>`;
 
-    $("blacklist").innerHTML = blacklist.length ? blacklist.map(b => `
+    $("blacklist").innerHTML = blacklist.length
+      ? blacklist
+          .map(
+            (b) => `
       <div class="black-item">
         <span>${b.username ? "User: " + esc(b.username) : "Song #" + b.songId}</span>
         <small>${esc(b.reason)}</small>
         <button onclick="removeBlacklist(${b.id})">Remove</button>
       </div>
-    `).join("") : `<p class="muted">Nothing blacklisted.</p>`;
+    `,
+          )
+          .join("")
+      : `<p class="muted">Nothing blacklisted.</p>`;
 
     // Apply settings (if present) to UI
     try {
-      const chatRequestsEnabled = $('chatRequestsEnabled');
-      const chatRequestsRequireRole = $('chatRequestsRequireRole');
-      if (typeof settings !== 'undefined') {
-        const prioritizeElLocal = $('prioritizeViewerRequests');
-        if (prioritizeElLocal) prioritizeElLocal.checked = !!(settings && settings.prioritizeViewerRequests);
-        if (chatRequestsEnabled) chatRequestsEnabled.checked = !!(settings && settings.chatRequestsEnabled);
-        if (chatRequestsRequireRole) chatRequestsRequireRole.value = settings && settings.chatRequestsRequireRole || '';
-        const moderatorEnabled = $('moderatorEnabled');
-        const moderatorUsername = $('moderatorUsername');
+      const chatRequestsEnabled = $("chatRequestsEnabled");
+      const chatRequestsRequireRole = $("chatRequestsRequireRole");
+      if (typeof settings !== "undefined") {
+        const prioritizeElLocal = $("prioritizeViewerRequests");
+        if (prioritizeElLocal)
+          prioritizeElLocal.checked = !!(settings && settings.prioritizeViewerRequests);
+        if (chatRequestsEnabled)
+          chatRequestsEnabled.checked = !!(settings && settings.chatRequestsEnabled);
+        if (chatRequestsRequireRole)
+          chatRequestsRequireRole.value = (settings && settings.chatRequestsRequireRole) || "";
+        const moderatorEnabled = $("moderatorEnabled");
+        const moderatorUsername = $("moderatorUsername");
         if (moderatorEnabled) moderatorEnabled.checked = !!(settings && settings.moderatorEnabled);
-        if (moderatorUsername && document.activeElement !== moderatorUsername) moderatorUsername.value = settings && settings.moderatorUsername || '';
+        if (moderatorUsername && document.activeElement !== moderatorUsername)
+          moderatorUsername.value = (settings && settings.moderatorUsername) || "";
       }
 
       const allowChat = !!(chatRequestsEnabled && chatRequestsEnabled.checked);
       if (chatRequestsRequireRole) chatRequestsRequireRole.disabled = !allowChat;
-    } catch (e) { /* ignore */ }
-
+    } catch (e) {
+      /* ignore */
+    }
   } catch (e) {
     toast(e.message);
   }
@@ -282,10 +320,10 @@ async function render() {
 
 async function saveControlSettings(patch) {
   try {
-    const current = await api('/api/control/settings');
+    const current = await api("/api/control/settings");
     const next = { ...current, ...patch };
-    await api('/api/control/settings', { method: 'POST', body: JSON.stringify(next) });
-    toast('Settings saved');
+    await api("/api/control/settings", { method: "POST", body: JSON.stringify(next) });
+    toast("Settings saved");
     render();
   } catch (err) {
     toast(err.message);
@@ -294,40 +332,46 @@ async function saveControlSettings(patch) {
 }
 
 // Wire up settings UI: toggle to prioritize viewer requests above streamer requests
-const prioritizeEl = $('prioritizeViewerRequests');
+const prioritizeEl = $("prioritizeViewerRequests");
 if (prioritizeEl) {
-  prioritizeEl.addEventListener('change', () => saveControlSettings({ prioritizeViewerRequests: prioritizeEl.checked }));
+  prioritizeEl.addEventListener("change", () =>
+    saveControlSettings({ prioritizeViewerRequests: prioritizeEl.checked }),
+  );
 }
 
-const chatRequestsEnabledEl = $('chatRequestsEnabled');
+const chatRequestsEnabledEl = $("chatRequestsEnabled");
 if (chatRequestsEnabledEl) {
-  chatRequestsEnabledEl.addEventListener('change', () => saveControlSettings({ chatRequestsEnabled: chatRequestsEnabledEl.checked }));
+  chatRequestsEnabledEl.addEventListener("change", () =>
+    saveControlSettings({ chatRequestsEnabled: chatRequestsEnabledEl.checked }),
+  );
 }
 
-const chatRequestsRequireRoleEl = $('chatRequestsRequireRole');
+const chatRequestsRequireRoleEl = $("chatRequestsRequireRole");
 if (chatRequestsRequireRoleEl) {
-  chatRequestsRequireRoleEl.addEventListener('change', () => saveControlSettings({ chatRequestsRequireRole: chatRequestsRequireRoleEl.value }));
+  chatRequestsRequireRoleEl.addEventListener("change", () =>
+    saveControlSettings({ chatRequestsRequireRole: chatRequestsRequireRoleEl.value }),
+  );
 }
 
-const moderatorEnabledEl = $('moderatorEnabled');
-const moderatorUsernameEl = $('moderatorUsername');
-const moderatorPasswordEl = $('moderatorPassword');
+const moderatorEnabledEl = $("moderatorEnabled");
+const moderatorUsernameEl = $("moderatorUsername");
+const moderatorPasswordEl = $("moderatorPassword");
 if (moderatorEnabledEl) {
-  moderatorEnabledEl.addEventListener('change', async () => {
+  moderatorEnabledEl.addEventListener("change", async () => {
     if (moderatorEnabledEl.checked) {
       const username = moderatorUsernameEl.value.trim();
       const password = moderatorPasswordEl.value;
       try {
-        const current = await api('/api/control/settings');
+        const current = await api("/api/control/settings");
         if (!username) {
           moderatorEnabledEl.checked = false;
-          toast('Please enter a moderator username before enabling access.');
+          toast("Please enter a moderator username before enabling access.");
           moderatorUsernameEl.focus();
           return;
         }
         if (!current.moderatorPasswordConfigured && !password) {
           moderatorEnabledEl.checked = false;
-          toast('Please set a moderator password before enabling access for the first time.');
+          toast("Please set a moderator password before enabling access for the first time.");
           moderatorPasswordEl.focus();
           return;
         }
@@ -336,54 +380,122 @@ if (moderatorEnabledEl) {
     saveControlSettings({
       moderatorEnabled: moderatorEnabledEl.checked,
       moderatorUsername: moderatorUsernameEl.value.trim(),
-      moderatorPassword: moderatorPasswordEl.value
-    }).then(() => { moderatorPasswordEl.value = ''; });
+      moderatorPassword: moderatorPasswordEl.value,
+    }).then(() => {
+      moderatorPasswordEl.value = "";
+    });
   });
 }
 if (moderatorUsernameEl) {
-  moderatorUsernameEl.addEventListener('change', () => saveControlSettings({ moderatorUsername: moderatorUsernameEl.value.trim() }));
+  moderatorUsernameEl.addEventListener("change", () =>
+    saveControlSettings({ moderatorUsername: moderatorUsernameEl.value.trim() }),
+  );
 }
 if (moderatorPasswordEl) {
-  moderatorPasswordEl.addEventListener('change', () => {
+  moderatorPasswordEl.addEventListener("change", () => {
     if (!moderatorPasswordEl.value) return;
-    saveControlSettings({ moderatorPassword: moderatorPasswordEl.value }).then(() => { moderatorPasswordEl.value = ''; });
+    saveControlSettings({ moderatorPassword: moderatorPasswordEl.value }).then(() => {
+      moderatorPasswordEl.value = "";
+    });
   });
 }
 
-window.play = async id => { try { await api(`/api/queue/${id}/play`, {method:"POST"}); toast("Playing request."); render(); } catch(e){toast(e.message)} };
-window.complete = async id => { try { await api(`/api/queue/${id}/complete`, {method:"POST"}); toast("Marked complete."); render(); } catch(e){toast(e.message)} };
-window.skip = async id => { try { await api(`/api/queue/${id}/skip`, {method:"POST"}); toast("Skipped."); render(); } catch(e){toast(e.message)} };
+window.play = async (id) => {
+  try {
+    await api(`/api/queue/${id}/play`, { method: "POST" });
+    toast("Playing request.");
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
+};
+window.complete = async (id) => {
+  try {
+    await api(`/api/queue/${id}/complete`, { method: "POST" });
+    toast("Marked complete.");
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
+};
+window.skip = async (id) => {
+  try {
+    await api(`/api/queue/${id}/skip`, { method: "POST" });
+    toast("Skipped.");
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
+};
 const movingRequests = new Set();
-window.move = async (id,direction) => {
+window.move = async (id, direction) => {
   if (movingRequests.has(id)) return;
   movingRequests.add(id);
   try {
-    await api(`/api/queue/${id}/move`, {method:"POST",body:JSON.stringify({direction})});
+    await api(`/api/queue/${id}/move`, { method: "POST", body: JSON.stringify({ direction }) });
     await render();
-  } catch(e){toast(e.message)}
-  finally { movingRequests.delete(id); }
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    movingRequests.delete(id);
+  }
 };
-window.blackSong = async songId => { try { await api("/api/blacklist/song",{method:"POST",body:JSON.stringify({songId})}); toast("Song blacklisted."); render(); } catch(e){toast(e.message)} };
-window.blackUser = async username => {
-  try { await api("/api/blacklist/user",{method:"POST",body:JSON.stringify({username})}); toast("User blacklisted."); render(); }
-  catch(e){toast(e.message)}
+window.blackSong = async (songId) => {
+  try {
+    await api("/api/blacklist/song", { method: "POST", body: JSON.stringify({ songId }) });
+    toast("Song blacklisted.");
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
 };
-window.removeBlacklist = async id => { try { await api(`/api/blacklist/${id}`,{method:"DELETE"}); render(); } catch(e){toast(e.message)} };
+window.blackUser = async (username) => {
+  try {
+    await api("/api/blacklist/user", { method: "POST", body: JSON.stringify({ username }) });
+    toast("User blacklisted.");
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
+};
+window.removeBlacklist = async (id) => {
+  try {
+    await api(`/api/blacklist/${id}`, { method: "DELETE" });
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
+};
 
 $("next").onclick = async () => {
-  try { await api("/api/queue/next",{method:"POST"}); toast("Moved next request to Now Playing."); render(); }
-  catch(e){toast(e.message)}
+  try {
+    await api("/api/queue/next", { method: "POST" });
+    toast("Moved next request to Now Playing.");
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
 };
 
 $("clear").onclick = async () => {
   if (!confirm("Skip every queued request?")) return;
-  try { await api("/api/queue/clear",{method:"POST"}); toast("Queue cleared."); render(); }
-  catch(e){toast(e.message)}
+  try {
+    await api("/api/queue/clear", { method: "POST" });
+    toast("Queue cleared.");
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
 };
 
 $("rescan").onclick = async () => {
-  try { const r = await api("/api/rescan",{method:"POST"}); toast(`Scanned ${r.songs} songs.`); render(); }
-  catch(e){toast(e.message)}
+  try {
+    const r = await api("/api/rescan", { method: "POST" });
+    toast(`Scanned ${r.songs} songs.`);
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
 };
 
 $("addUser").onclick = () => blackUser($("blackUser").value.trim());
@@ -397,58 +509,105 @@ $("search").addEventListener("input", () => {
 $("reset-search").addEventListener("click", () => {
   clearTimeout(searchTimer);
   $("search").value = "";
-  ['filter-pack','filter-genre','filter-style','filter-difficulty','filter-meter-min','filter-meter-max','sort-field','sort-order']
-    .forEach(id => { $(id).selectedIndex = 0; });
+  [
+    "filter-pack",
+    "filter-genre",
+    "filter-style",
+    "filter-difficulty",
+    "filter-meter-min",
+    "filter-meter-max",
+    "sort-field",
+    "sort-order",
+  ].forEach((id) => {
+    $(id).selectedIndex = 0;
+  });
   loadSongs(1);
 });
 
-['filter-pack','filter-genre','filter-style','filter-difficulty','filter-meter-min','filter-meter-max','sort-field','sort-order','per-page'].forEach(id => {
+[
+  "filter-pack",
+  "filter-genre",
+  "filter-style",
+  "filter-difficulty",
+  "filter-meter-min",
+  "filter-meter-max",
+  "sort-field",
+  "sort-order",
+  "per-page",
+].forEach((id) => {
   const el = $(id);
-  if (el) el.addEventListener('change', () => loadSongs(1));
+  if (el) el.addEventListener("change", () => loadSongs(1));
 });
 
-['search-prev', 'search-prev-bottom'].forEach(id => {
-  $(id).addEventListener('click', () => { if (searchPage > 1) loadSongs(searchPage - 1); });
+["search-prev", "search-prev-bottom"].forEach((id) => {
+  $(id).addEventListener("click", () => {
+    if (searchPage > 1) loadSongs(searchPage - 1);
+  });
 });
-['search-next', 'search-next-bottom'].forEach(id => {
-  $(id).addEventListener('click', () => { if (searchPage < searchTotalPages) loadSongs(searchPage + 1); });
+["search-next", "search-next-bottom"].forEach((id) => {
+  $(id).addEventListener("click", () => {
+    if (searchPage < searchTotalPages) loadSongs(searchPage + 1);
+  });
 });
 
 async function renderTwitch() {
   try {
-    const status = await api('/api/twitch/status');
+    const status = await api("/api/twitch/status");
     if (status.configured) {
-      $("twitchStatus").textContent = (status.connected ? `Connected as ${status.username} to #${status.channel}` : `Configured for ${status.clientId}${status.username ? ' (' + status.username + ')' : ''}`);
+      $("twitchStatus").textContent = status.connected
+        ? `Connected as ${status.username} to #${status.channel}`
+        : `Configured for ${status.clientId}${status.username ? " (" + status.username + ")" : ""}`;
     } else {
-      $("twitchStatus").textContent = 'Not connected';
+      $("twitchStatus").textContent = "Not connected";
     }
   } catch (e) {
-    $("twitchStatus").textContent = 'Twitch status unavailable';
+    $("twitchStatus").textContent = "Twitch status unavailable";
   }
 }
 
-$("checkTwitch").onclick = async () => { try { await renderTwitch(); toast('Checked Twitch status.'); } catch(e){toast(e.message)} };
+$("checkTwitch").onclick = async () => {
+  try {
+    await renderTwitch();
+    toast("Checked Twitch status.");
+  } catch (e) {
+    toast(e.message);
+  }
+};
 
 $("connectTwitch").onclick = async () => {
   const clientId = $("twitchClientId").value.trim();
   const clientSecret = $("twitchClientSecret").value.trim();
   const channel = $("twitchChannel").value.trim();
-  if (!clientId || !clientSecret) { toast('Client ID and secret required'); return; }
+  if (!clientId || !clientSecret) {
+    toast("Client ID and secret required");
+    return;
+  }
   try {
     // store the secret in sessionStorage temporarily so the callback can complete the exchange
-    sessionStorage.setItem('twitch_clientId', clientId);
-    sessionStorage.setItem('twitch_clientSecret', clientSecret);
-    if (channel) sessionStorage.setItem('twitch_channel', channel);
+    sessionStorage.setItem("twitch_clientId", clientId);
+    sessionStorage.setItem("twitch_clientSecret", clientSecret);
+    if (channel) sessionStorage.setItem("twitch_channel", channel);
     const redirectUri = `${location.origin}/twitch-callback.html`;
-    const r = await api('/api/twitch/start-auth', { method: 'POST', body: JSON.stringify({ clientId, redirectUri, scopes: 'chat:read chat:edit' }) });
+    const r = await api("/api/twitch/start-auth", {
+      method: "POST",
+      body: JSON.stringify({ clientId, redirectUri, scopes: "chat:read chat:edit" }),
+    });
     if (r && r.url) window.location = r.url;
-  } catch (e) { toast(e.message); }
+  } catch (e) {
+    toast(e.message);
+  }
 };
 
 $("disconnectTwitch").onclick = async () => {
-  if (!confirm('Disconnect the Twitch bot and remove stored credentials?')) return;
-  try { await api('/api/twitch/disconnect', { method: 'POST' }); toast('Disconnected.'); render(); renderTwitch(); }
-  catch(e){toast(e.message)}
+  if (!confirm("Disconnect the Twitch bot and remove stored credentials?")) return;
+  try {
+    await api("/api/twitch/disconnect", { method: "POST" });
+    toast("Disconnected.");
+    render();
+    renderTwitch();
+  } catch (e) {
+    toast(e.message);
+  }
 };
 
 // --- Temporary Moderator nomination ---
@@ -460,7 +619,7 @@ function isPublicUrlValid(url) {
   if (!url) return false;
   try {
     const u = new URL(url);
-    return u.hostname !== 'localhost' && u.hostname !== '127.0.0.1' && u.hostname !== '::1';
+    return u.hostname !== "localhost" && u.hostname !== "127.0.0.1" && u.hostname !== "::1";
   } catch (e) {
     return false;
   }
@@ -471,15 +630,15 @@ async function renderTempMod() {
   if (!section) return;
 
   try {
-    const status = await api('/api/control/temp-mod/status');
+    const status = await api("/api/control/temp-mod/status");
 
     // Only show the section if PUBLIC_URL is valid
     if (!isPublicUrlValid(status.publicUrl)) {
-      section.style.display = 'none';
+      section.style.display = "none";
       return;
     }
 
-    section.style.display = '';
+    section.style.display = "";
     const statusDiv = $("tempModStatus");
     const activeDiv = $("tempModActive");
     const cooldownDiv = $("tempModCooldown");
@@ -488,84 +647,89 @@ async function renderTempMod() {
 
     // Update status
     if (status.tempMod) {
-      statusDiv.style.display = '';
-      activeDiv.style.display = '';
-      cooldownDiv.style.display = 'none';
+      statusDiv.style.display = "";
+      activeDiv.style.display = "";
+      cooldownDiv.style.display = "none";
       const remaining = Math.ceil(status.tempModRemaining / 1000);
       const mins = Math.floor(remaining / 60);
       const secs = remaining % 60;
-      activeDiv.textContent = `🟢 ${status.tempMod.displayName} is moderating (${mins}:${secs.toString().padStart(2, '0')} remaining)`;
+      activeDiv.textContent = `🟢 ${status.tempMod.displayName} is moderating (${mins}:${secs.toString().padStart(2, "0")} remaining)`;
       // Disable nominate buttons
-      document.querySelectorAll('.temp-mod-nominate-btn').forEach(btn => {
-        btn.closest('.temp-mod-user-item').classList.add('disabled');
+      document.querySelectorAll(".temp-mod-nominate-btn").forEach((btn) => {
+        btn.closest(".temp-mod-user-item").classList.add("disabled");
       });
     } else if (status.hasPendingNomination) {
-      statusDiv.style.display = '';
-      activeDiv.style.display = 'none';
-      cooldownDiv.style.display = '';
+      statusDiv.style.display = "";
+      activeDiv.style.display = "none";
+      cooldownDiv.style.display = "";
       const secs = Math.ceil(status.nominationCooldown / 1000);
       cooldownDiv.textContent = `⏳ Awaiting response… (${secs}s cooldown)`;
       // Disable nominate buttons
-      document.querySelectorAll('.temp-mod-nominate-btn').forEach(btn => {
-        btn.closest('.temp-mod-user-item').classList.add('disabled');
+      document.querySelectorAll(".temp-mod-nominate-btn").forEach((btn) => {
+        btn.closest(".temp-mod-user-item").classList.add("disabled");
       });
     } else {
-      statusDiv.style.display = 'none';
+      statusDiv.style.display = "none";
       // Enable nominate buttons
-      document.querySelectorAll('.temp-mod-user-item.disabled').forEach(item => {
-        item.classList.remove('disabled');
+      document.querySelectorAll(".temp-mod-user-item.disabled").forEach((item) => {
+        item.classList.remove("disabled");
       });
     }
-
   } catch (e) {
     // If endpoint doesn't exist (old server), hide the section
-    section.style.display = 'none';
+    section.style.display = "none";
   }
 }
 
 async function loadTempModUsers() {
   try {
-    tempModUsers = await api('/api/control/chat-users');
+    tempModUsers = await api("/api/control/chat-users");
     renderTempModUserList();
   } catch (e) {
     // Ignore errors
   }
 }
 
-function renderTempModUserList(filter = '') {
+function renderTempModUserList(filter = "") {
   const userList = $("tempModUserList");
   const noUsers = $("tempModNoUsers");
   if (!userList) return;
 
   const filtered = filter
-    ? tempModUsers.filter(u =>
-        u.displayName.toLowerCase().includes(filter.toLowerCase()) ||
-        u.username.toLowerCase().includes(filter.toLowerCase()))
+    ? tempModUsers.filter(
+        (u) =>
+          u.displayName.toLowerCase().includes(filter.toLowerCase()) ||
+          u.username.toLowerCase().includes(filter.toLowerCase()),
+      )
     : tempModUsers;
 
   if (filtered.length === 0) {
-    userList.style.display = 'none';
-    noUsers.style.display = '';
+    userList.style.display = "none";
+    noUsers.style.display = "";
     return;
   }
 
-  userList.style.display = '';
-  noUsers.style.display = 'none';
+  userList.style.display = "";
+  noUsers.style.display = "none";
 
-  userList.innerHTML = filtered.map(u => `
+  userList.innerHTML = filtered
+    .map(
+      (u) => `
     <div class="temp-mod-user-item" data-username="${esc(u.username)}">
       <span class="username">@${esc(u.displayName)}</span>
       <button class="temp-mod-nominate-btn" onclick="nominateTempMod('${esc(u.username)}')">Nominate</button>
     </div>
-  `).join('');
+  `,
+    )
+    .join("");
 }
 
 async function nominateTempMod(username) {
   const tempModTime = Math.min(60, Math.max(1, Number($("tempModTime").value) || 15));
   try {
-    const result = await api('/api/control/temp-mod/nominate', {
-      method: 'POST',
-      body: JSON.stringify({ username, tempModTime })
+    const result = await api("/api/control/temp-mod/nominate", {
+      method: "POST",
+      body: JSON.stringify({ username, tempModTime }),
     });
     toast(`Nomination sent to ${result.displayname} (${result.tempModTime} min)`);
     renderTempMod();
@@ -581,7 +745,7 @@ window.nominateTempMod = nominateTempMod;
 // Search filter for temp mod users
 const tempModSearch = $("tempModSearch");
 if (tempModSearch) {
-  tempModSearch.addEventListener('input', () => {
+  tempModSearch.addEventListener("input", () => {
     renderTempModUserList(tempModSearch.value.trim());
   });
 }
