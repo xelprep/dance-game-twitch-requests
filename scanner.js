@@ -25,13 +25,13 @@ function parseNotesBlocks(text) {
   const smRe = /#NOTES:\s*([\s\S]*?);/gi;
   let m;
   while ((m = smRe.exec(text))) {
-    const fields = m[1].split(":").map(x => x.trim());
+    const fields = m[1].split(":").map((x) => x.trim());
     if (fields.length >= 6) {
       const chart = {
         chartType: fields[0],
         difficulty: fields[2],
         meter: fields[3],
-        radar: fields[4]
+        radar: fields[4],
       };
       if (chart.chartType === "dance-single" || chart.chartType === "dance-double") {
         charts.push(chart);
@@ -49,7 +49,7 @@ function parseNotesBlocks(text) {
         chartType: tags.STEPSTYPE || "",
         difficulty: tags.DIFFICULTY || "",
         meter: tags.METER || "",
-        radar: tags.RADARVALUES || ""
+        radar: tags.RADARVALUES || "",
       };
       if (chart.chartType === "dance-single" || chart.chartType === "dance-double") {
         charts.push(chart);
@@ -95,7 +95,7 @@ function readSongFile(filePath, packOverride) {
     music: tags.MUSIC || "",
     pack,
     lastModified: stat.mtimeMs,
-    charts: parseNotesBlocks(text)
+    charts: parseNotesBlocks(text),
   };
 }
 
@@ -120,7 +120,7 @@ function collectSongFiles(songsDir) {
 
       if (!songFiles.length) continue;
 
-      const preferredFile = songFiles.find(file => /\.ssc$/i.test(file)) || songFiles[0];
+      const preferredFile = songFiles.find((file) => /\.ssc$/i.test(file)) || songFiles[0];
       files.push(preferredFile);
     }
   }
@@ -160,7 +160,7 @@ function scanSongs(songsDir, db) {
       const normalizedPath = path.resolve(filePath);
       const relativePath = path.relative(songsDir, normalizedPath);
       const packDir = path.join(songsDir, relativePath.split(path.sep)[0] || "");
-      const pack = readPackIniDisplayTitle(packDir) || (relativePath.split(path.sep)[0] || "");
+      const pack = readPackIniDisplayTitle(packDir) || relativePath.split(path.sep)[0] || "";
       const song = readSongFile(normalizedPath, pack);
 
       upsertSong.run(song);
@@ -171,13 +171,7 @@ function scanSongs(songsDir, db) {
       clearCharts.run(row.id);
 
       for (const chart of song.charts) {
-        addChart.run(
-          row.id,
-          chart.chartType,
-          chart.difficulty,
-          chart.meter,
-          chart.radar
-        );
+        addChart.run(row.id, chart.chartType, chart.difficulty, chart.meter, chart.radar);
       }
     }
 
@@ -201,7 +195,7 @@ function scanSongs(songsDir, db) {
 
   return {
     songs: db.prepare("SELECT COUNT(*) AS n FROM songs").get().n,
-    charts: db.prepare("SELECT COUNT(*) AS n FROM charts").get().n
+    charts: db.prepare("SELECT COUNT(*) AS n FROM charts").get().n,
   };
 }
 

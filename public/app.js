@@ -8,33 +8,33 @@ async function getJSON(url, options) {
 }
 
 function showCopyStatus(message) {
-  const status = $('copy-status');
+  const status = $("copy-status");
   if (!status) return;
 
   status.textContent = message;
-  status.classList.add('visible');
+  status.classList.add("visible");
   clearTimeout(status.hideTimer);
   status.hideTimer = setTimeout(() => {
-    status.classList.remove('visible');
+    status.classList.remove("visible");
   }, 2200);
 }
 
 function fallbackCopyText(value) {
-  const textarea = document.createElement('textarea');
+  const textarea = document.createElement("textarea");
   textarea.value = value;
-  textarea.setAttribute('readonly', '');
-  textarea.style.position = 'fixed';
-  textarea.style.top = '-9999px';
-  textarea.style.left = '-9999px';
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-9999px";
+  textarea.style.left = "-9999px";
   document.body.appendChild(textarea);
   textarea.select();
-  const copied = document.execCommand('copy');
+  const copied = document.execCommand("copy");
   document.body.removeChild(textarea);
   return copied;
 }
 
 async function copyRequestCommand(songId) {
-  const id = String(songId ?? '').trim();
+  const id = String(songId ?? "").trim();
   if (!id) return;
 
   const command = `!requestid ${id}`;
@@ -43,26 +43,27 @@ async function copyRequestCommand(songId) {
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(command);
     } else if (!fallbackCopyText(command)) {
-      throw new Error('Clipboard fallback failed');
+      throw new Error("Clipboard fallback failed");
     }
 
     showCopyStatus(`Copied ${command} to your clipboard.`);
   } catch (e) {
-    console.error('Failed to copy request command', e);
-    showCopyStatus('Copy failed. Please copy the command manually.');
+    console.error("Failed to copy request command", e);
+    showCopyStatus("Copy failed. Please copy the command manually.");
   }
 }
 
 function formatCharts(charts) {
-  const groups = [...new Set((charts || []).map(c => c.chartType))]
+  const groups = [...new Set((charts || []).map((c) => c.chartType))]
     .sort((a, b) => b.localeCompare(a))
-    .map(style => {
+    .map((style) => {
       const entries = charts
-        .filter(c => c.chartType === style)
+        .filter((c) => c.chartType === style)
         .sort((a, b) => Number(a.meter) - Number(b.meter))
-        .map(c => `${c.difficulty || "?"} ${c.meter || ""}`.trim())
+        .map((c) => `${c.difficulty || "?"} ${c.meter || ""}`.trim())
         .join(", ");
-      const label = style === "dance-single" ? "Single" : style === "dance-double" ? "Double" : style;
+      const label =
+        style === "dance-single" ? "Single" : style === "dance-double" ? "Double" : style;
       return entries ? `${label}: ${entries}` : "";
     })
     .filter(Boolean);
@@ -75,8 +76,8 @@ function songCard(song) {
   const article = document.createElement("article");
   article.className = "song clickable";
   article.tabIndex = 0;
-  article.setAttribute('role', 'button');
-  article.setAttribute('aria-label', `Copy request command for ${song.title}`);
+  article.setAttribute("role", "button");
+  article.setAttribute("aria-label", `Copy request command for ${song.title}`);
   article.innerHTML = `
     <div class="song-main">
       <div class="song-meta">
@@ -88,9 +89,9 @@ function songCard(song) {
     </div>
   `;
 
-  article.addEventListener('click', () => copyRequestCommand(song.id));
-  article.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' || event.key === ' ') {
+  article.addEventListener("click", () => copyRequestCommand(song.id));
+  article.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       copyRequestCommand(song.id);
     }
@@ -115,7 +116,9 @@ async function queue() {
       return;
     }
 
-    container.innerHTML = items.map((r, i) => `
+    container.innerHTML = items
+      .map(
+        (r, i) => `
       <article class="request">
         <div class="rank">${i + 1}</div>
         <div class="info">
@@ -123,10 +126,12 @@ async function queue() {
           ${r.subtitle ? `<span class="subtitle">${escapeHTML(r.subtitle)}</span>` : ""}
           <span>${escapeHTML(r.artist)}${r.pack ? " • " + escapeHTML(r.pack) : ""}</span>
           <small>${escapeHTML(formatCharts(r.charts))}</small>
-          <small>Requested by ${escapeHTML(r.requested_display)}${(String(r.requested_by || "").toLowerCase() === "streamer") ? " (Control Panel)" : ""}</small>
+          <small>Requested by ${escapeHTML(r.requested_display)}${String(r.requested_by || "").toLowerCase() === "streamer" ? " (Control Panel)" : ""}</small>
         </div>
       </article>
-    `).join("");
+    `,
+      )
+      .join("");
   } catch (e) {
     container.innerHTML = `<p class="muted">${escapeHTML(e.message)}</p>`;
   }
@@ -135,14 +140,23 @@ async function queue() {
 async function stats() {
   try {
     const s = await getJSON("/api/stats");
-    $("stats").textContent = `${s.songs.toLocaleString()} songs • ${s.charts.toLocaleString()} charts • ${s.queued} queued`;
+    $("stats").textContent =
+      `${s.songs.toLocaleString()} songs • ${s.charts.toLocaleString()} charts • ${s.queued} queued`;
   } catch {}
 }
 
 function escapeHTML(value) {
-  return String(value ?? "").replace(/[&<>"']/g, c => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
-  }[c]));
+  return String(value ?? "").replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+      })[c],
+  );
 }
 
 // Browsing / filtering state
@@ -151,7 +165,7 @@ let currentPage = 1;
 let totalPages = 1;
 
 function getPerPage() {
-  return Number($('per-page').value) || 25;
+  return Number($("per-page").value) || 25;
 }
 
 $("search").addEventListener("input", () => {
@@ -164,114 +178,148 @@ $("search").addEventListener("input", () => {
 $("reset-search").addEventListener("click", () => {
   clearTimeout(timer);
   $("search").value = "";
-  ['filter-pack','filter-genre','filter-style','filter-difficulty','filter-meter-min','filter-meter-max','sort-field','sort-order']
-    .forEach(id => { $(id).selectedIndex = 0; });
+  [
+    "filter-pack",
+    "filter-genre",
+    "filter-style",
+    "filter-difficulty",
+    "filter-meter-min",
+    "filter-meter-max",
+    "sort-field",
+    "sort-order",
+  ].forEach((id) => {
+    $(id).selectedIndex = 0;
+  });
   loadSongs(1);
 });
 
-['filter-pack','filter-genre','filter-style','filter-difficulty','filter-meter-min','filter-meter-max','sort-field','sort-order','per-page'].forEach(id => {
+[
+  "filter-pack",
+  "filter-genre",
+  "filter-style",
+  "filter-difficulty",
+  "filter-meter-min",
+  "filter-meter-max",
+  "sort-field",
+  "sort-order",
+  "per-page",
+].forEach((id) => {
   const el = document.getElementById(id);
-  if (el) el.addEventListener('change', () => loadSongs(1));
+  if (el) el.addEventListener("change", () => loadSongs(1));
 });
 
-['search-prev', 'search-prev-bottom'].forEach(id => {
+["search-prev", "search-prev-bottom"].forEach((id) => {
   const el = $(id);
-  if (el) el.addEventListener('click', () => { if (currentPage > 1) loadSongs(currentPage - 1); });
+  if (el)
+    el.addEventListener("click", () => {
+      if (currentPage > 1) loadSongs(currentPage - 1);
+    });
 });
-['search-next', 'search-next-bottom'].forEach(id => {
+["search-next", "search-next-bottom"].forEach((id) => {
   const el = $(id);
-  if (el) el.addEventListener('click', () => { if (currentPage < totalPages) loadSongs(currentPage + 1); });
+  if (el)
+    el.addEventListener("click", () => {
+      if (currentPage < totalPages) loadSongs(currentPage + 1);
+    });
 });
 
 $("refresh").addEventListener("click", queue);
 
 async function getFilters() {
   try {
-    const f = await getJSON('/api/song-filters');
-    const packSel = $('filter-pack');
-    const genreSel = $('filter-genre');
-    const diffSel = $('filter-difficulty');
-    const meterMinSel = $('filter-meter-min');
-    const meterMaxSel = $('filter-meter-max');
+    const f = await getJSON("/api/song-filters");
+    const packSel = $("filter-pack");
+    const genreSel = $("filter-genre");
+    const diffSel = $("filter-difficulty");
+    const meterMinSel = $("filter-meter-min");
+    const meterMaxSel = $("filter-meter-max");
 
     // Clear existing (keep the first "All"/Min option)
-    packSel.querySelectorAll('option:not([value=""])').forEach(n => n.remove());
-    genreSel.querySelectorAll('option:not([value=""])').forEach(n => n.remove());
-    diffSel.querySelectorAll('option:not([value=""])').forEach(n => n.remove());
-    meterMinSel.querySelectorAll('option:not([value=""])').forEach(n => n.remove());
-    meterMaxSel.querySelectorAll('option:not([value=""])').forEach(n => n.remove());
+    packSel.querySelectorAll('option:not([value=""])').forEach((n) => n.remove());
+    genreSel.querySelectorAll('option:not([value=""])').forEach((n) => n.remove());
+    diffSel.querySelectorAll('option:not([value=""])').forEach((n) => n.remove());
+    meterMinSel.querySelectorAll('option:not([value=""])').forEach((n) => n.remove());
+    meterMaxSel.querySelectorAll('option:not([value=""])').forEach((n) => n.remove());
 
-    const sortAlpha = (a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+    const sortAlpha = (a, b) =>
+      String(a).localeCompare(String(b), undefined, { sensitivity: "base" });
 
-    [...(f.packs || [])].sort((a, b) => sortAlpha(a.pack, b.pack)).forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.pack;
-      opt.textContent = `${p.pack} (${p.count})`;
-      packSel.appendChild(opt);
-    });
+    [...(f.packs || [])]
+      .sort((a, b) => sortAlpha(a.pack, b.pack))
+      .forEach((p) => {
+        const opt = document.createElement("option");
+        opt.value = p.pack;
+        opt.textContent = `${p.pack} (${p.count})`;
+        packSel.appendChild(opt);
+      });
 
-    [...(f.genres || [])].sort((a, b) => sortAlpha(a.genre, b.genre)).forEach(g => {
-      const opt = document.createElement('option');
-      opt.value = g.genre;
-      opt.textContent = `${g.genre} (${g.count})`;
-      genreSel.appendChild(opt);
-    });
+    [...(f.genres || [])]
+      .sort((a, b) => sortAlpha(a.genre, b.genre))
+      .forEach((g) => {
+        const opt = document.createElement("option");
+        opt.value = g.genre;
+        opt.textContent = `${g.genre} (${g.count})`;
+        genreSel.appendChild(opt);
+      });
 
-    [...(f.difficulties || [])].sort((a, b) => sortAlpha(a.difficulty, b.difficulty)).forEach(d => {
-      const opt = document.createElement('option');
-      opt.value = d.difficulty;
-      opt.textContent = `${d.difficulty} (${d.count})`;
-      diffSel.appendChild(opt);
-    });
+    [...(f.difficulties || [])]
+      .sort((a, b) => sortAlpha(a.difficulty, b.difficulty))
+      .forEach((d) => {
+        const opt = document.createElement("option");
+        opt.value = d.difficulty;
+        opt.textContent = `${d.difficulty} (${d.count})`;
+        diffSel.appendChild(opt);
+      });
 
     // meters are returned as {meter, count}
-    const meters = (f.meters || []).map(m => ({ meter: Number(m.meter), count: m.count }))
-      .filter(m => !Number.isNaN(m.meter))
-      .sort((a,b) => a.meter - b.meter);
+    const meters = (f.meters || [])
+      .map((m) => ({ meter: Number(m.meter), count: m.count }))
+      .filter((m) => !Number.isNaN(m.meter))
+      .sort((a, b) => a.meter - b.meter);
 
-    meters.forEach(m => {
-      const optMin = document.createElement('option');
+    meters.forEach((m) => {
+      const optMin = document.createElement("option");
       optMin.value = String(m.meter);
       optMin.textContent = String(m.meter);
       meterMinSel.appendChild(optMin);
 
-      const optMax = document.createElement('option');
+      const optMax = document.createElement("option");
       optMax.value = String(m.meter);
       optMax.textContent = String(m.meter);
       meterMaxSel.appendChild(optMax);
     });
   } catch (e) {
-    console.error('Failed to load filters', e);
+    console.error("Failed to load filters", e);
   }
 }
 
 async function loadSongs(page = 1) {
-  const results = $('results');
+  const results = $("results");
   results.replaceChildren();
 
-  const pack = $('filter-pack').value;
-  const genre = $('filter-genre').value;
-  const style = $('filter-style').value;
-  const difficulty = $('filter-difficulty').value;
-  const meterMin = $('filter-meter-min').value;
-  const meterMax = $('filter-meter-max').value;
-  const sort = $('sort-field').value;
-  const order = $('sort-order').value;
-  const q = $('search').value.trim();
+  const pack = $("filter-pack").value;
+  const genre = $("filter-genre").value;
+  const style = $("filter-style").value;
+  const difficulty = $("filter-difficulty").value;
+  const meterMin = $("filter-meter-min").value;
+  const meterMax = $("filter-meter-max").value;
+  const sort = $("sort-field").value;
+  const order = $("sort-order").value;
+  const q = $("search").value.trim();
   const perPage = getPerPage();
 
   const params = new URLSearchParams();
-  params.set('page', page);
-  params.set('perPage', perPage);
-  if (pack) params.set('pack', pack);
-  if (genre) params.set('genre', genre);
-  if (style) params.set('style', style);
-  if (difficulty) params.set('difficulty', difficulty);
-  if (meterMin) params.set('meterMin', meterMin);
-  if (meterMax) params.set('meterMax', meterMax);
-  if (sort) params.set('sort', sort);
-  if (order) params.set('order', order);
-  if (q) params.set('q', q);
+  params.set("page", page);
+  params.set("perPage", perPage);
+  if (pack) params.set("pack", pack);
+  if (genre) params.set("genre", genre);
+  if (style) params.set("style", style);
+  if (difficulty) params.set("difficulty", difficulty);
+  if (meterMin) params.set("meterMin", meterMin);
+  if (meterMax) params.set("meterMax", meterMax);
+  if (sort) params.set("sort", sort);
+  if (order) params.set("order", order);
+  if (q) params.set("q", q);
 
   try {
     const res = await getJSON(`/api/songs?${params.toString()}`);
@@ -281,12 +329,12 @@ async function loadSongs(page = 1) {
     totalPages = Math.max(1, Math.ceil(total / (res.perPage || perPage)));
 
     if (!songs.length) {
-      results.textContent = 'No songs.';
+      results.textContent = "No songs.";
       updatePager();
       return;
     }
 
-    songs.forEach(song => results.appendChild(songCard(song)));
+    songs.forEach((song) => results.appendChild(songCard(song)));
     updatePager();
   } catch (e) {
     results.textContent = e.message;
@@ -295,15 +343,15 @@ async function loadSongs(page = 1) {
 }
 
 function updatePager() {
-  ['search-prev', 'search-prev-bottom'].forEach(id => {
+  ["search-prev", "search-prev-bottom"].forEach((id) => {
     const el = $(id);
     if (el) el.disabled = currentPage <= 1;
   });
-  ['search-next', 'search-next-bottom'].forEach(id => {
+  ["search-next", "search-next-bottom"].forEach((id) => {
     const el = $(id);
     if (el) el.disabled = currentPage >= totalPages;
   });
-  ['pageInfo', 'pageInfo-bottom'].forEach(id => {
+  ["pageInfo", "pageInfo-bottom"].forEach((id) => {
     const el = $(id);
     if (el) el.textContent = `Page ${currentPage} of ${totalPages}`;
   });

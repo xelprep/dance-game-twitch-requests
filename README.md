@@ -17,12 +17,12 @@ A small local application that:
 - Node.js 20+
 - A local dance game Songs directory that contains .sm/.ssc simfiles
 - A Twitch app
-  - Go to dev.twitch.com and register an application 
+  - Go to dev.twitch.com and register an application
   - Give it any name
   - Set OAuth Redirect URL to https://localhost:3001/twitch-callback.html
   - Set Category to Chat Bot
   - Set Client Type to Confidential
-  - Make note of the Client ID and generate a Client Secret as these will be needed later to authoriza the tool to read and write to your chat 
+  - Make note of the Client ID and generate a Client Secret as these will be needed later to authoriza the tool to read and write to your chat
 
 ## Ports
 
@@ -148,7 +148,7 @@ The control panel then uses HTTP Basic Authentication. The browser will ask for:
 
 This page is now served with HTTPS using a locally generated self-signed certificate, so it stays private on your LAN while allowing Twitch OAuth redirects from a custom port.
 
-Set: 
+Set:
 
 ```text
 MAX_REQUESTS_PER_USER=2
@@ -156,7 +156,7 @@ MAX_REQUESTS_PER_USER=2
 
 This defines the maximum number of songs that one user may have in the request queue.
 
-Set: 
+Set:
 
 ```text
 QUEUE_LIMIT=25
@@ -164,7 +164,7 @@ QUEUE_LIMIT=25
 
 This defines the maximum number of songs in the queue before additional requests are rejected.
 
-Optionally Set: 
+Optionally Set:
 
 ```text
 PUBLIC_URL=https://my.cool.publicsite
@@ -172,7 +172,7 @@ PUBLIC_URL=https://my.cool.publicsite
 
 If this variable is set, the chat bot will inform users that they can visit this site to perform robust song searches and filters.
 
-Optionally Set: 
+Optionally Set:
 
 ```text
 INSTRUCTIONS_MINUTES=10
@@ -180,7 +180,7 @@ INSTRUCTIONS_MINUTES=10
 
 If this variable is set, the chat bot will post usage instructions in chat at the defined number of minutes. If left blank, it will never post instructions automatically; viewers can still use `!help` to request them (with a 30-second global cooldown).
 
-Optionally Set: 
+Optionally Set:
 
 ```text
 STREAMER_VANITY_NAME=Manblingo

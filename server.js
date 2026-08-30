@@ -29,10 +29,20 @@ const STREAMER_VANITY_NAME = String(process.env.STREAMER_VANITY_NAME || "Streame
 // INSTRUCTIONS_MINUTES controls posting of usage instructions to Twitch chat.
 // If INSTRUCTIONS_MINUTES is not defined -> default to 10 minutes.
 // If INSTRUCTIONS_MINUTES is defined but blank (empty string) -> never post instructions.
-const _INSTRUCTIONS_MINUTES_RAW = Object.prototype.hasOwnProperty.call(process.env, 'INSTRUCTIONS_MINUTES') ? process.env.INSTRUCTIONS_MINUTES : undefined;
-const INSTRUCTIONS_MINUTES = (typeof _INSTRUCTIONS_MINUTES_RAW === 'undefined')
-  ? 10
-  : (_INSTRUCTIONS_MINUTES_RAW === '' ? null : (Number.isFinite(Number(_INSTRUCTIONS_MINUTES_RAW)) ? Number(_INSTRUCTIONS_MINUTES_RAW) : 10));
+const _INSTRUCTIONS_MINUTES_RAW = Object.prototype.hasOwnProperty.call(
+  process.env,
+  "INSTRUCTIONS_MINUTES",
+)
+  ? process.env.INSTRUCTIONS_MINUTES
+  : undefined;
+const INSTRUCTIONS_MINUTES =
+  typeof _INSTRUCTIONS_MINUTES_RAW === "undefined"
+    ? 10
+    : _INSTRUCTIONS_MINUTES_RAW === ""
+      ? null
+      : Number.isFinite(Number(_INSTRUCTIONS_MINUTES_RAW))
+        ? Number(_INSTRUCTIONS_MINUTES_RAW)
+        : 10;
 
 const CONTROL_PASSWORD = String(process.env.CONTROL_PASSWORD || "").trim();
 
@@ -58,7 +68,7 @@ async function getControlTlsOptions() {
   if (fs.existsSync(CONTROL_TLS_KEY_PATH) && fs.existsSync(CONTROL_TLS_CERT_PATH)) {
     return {
       key: fs.readFileSync(CONTROL_TLS_KEY_PATH, "utf8"),
-      cert: fs.readFileSync(CONTROL_TLS_CERT_PATH, "utf8")
+      cert: fs.readFileSync(CONTROL_TLS_CERT_PATH, "utf8"),
     };
   }
 
@@ -67,7 +77,7 @@ async function getControlTlsOptions() {
     { type: 7, ip: "127.0.0.1" },
     { type: 7, ip: "::1" },
     { type: 2, value: "0.0.0.0" },
-    { type: 2, value: "127.0.0.1" }
+    { type: 2, value: "127.0.0.1" },
   ];
   if (CONTROL_HOST && CONTROL_HOST !== "0.0.0.0") {
     const ipLike = /^\d+(?:\.\d+){3}$/.test(CONTROL_HOST);
@@ -80,21 +90,20 @@ async function getControlTlsOptions() {
 
   // selfsigned.generate may return the certificate synchronously or as a Promise (in newer versions).
   // Call it and await if it returns a Promise.
-  const generated = selfsigned.generate(
-    [{ name: "commonName", value: "localhost" }],
-    {
-      algorithm: "sha256",
-      keySize: 2048,
-      days: 365,
-      extensions: [{ name: "subjectAltName", altNames }]
-    }
-  );
+  const generated = selfsigned.generate([{ name: "commonName", value: "localhost" }], {
+    algorithm: "sha256",
+    keySize: 2048,
+    days: 365,
+    extensions: [{ name: "subjectAltName", altNames }],
+  });
 
-  const cert = (generated && typeof generated.then === "function") ? await generated : generated;
+  const cert = generated && typeof generated.then === "function" ? await generated : generated;
 
   // Support different shapes that various versions of the library may return.
-  const privateKey = cert && (cert.private || cert.privateKey || cert.key || cert.private_key || cert.pem);
-  const certificate = cert && (cert.cert || cert.public || cert.certificate || cert.cert_pem || cert.pem);
+  const privateKey =
+    cert && (cert.private || cert.privateKey || cert.key || cert.private_key || cert.pem);
+  const certificate =
+    cert && (cert.cert || cert.public || cert.certificate || cert.cert_pem || cert.pem);
 
   if (!privateKey || !certificate) {
     throw new Error("Failed to generate TLS certificate: unexpected selfsigned output");
@@ -213,12 +222,16 @@ function transliterateLatin(s) {
     .replace(/[ĸ]/g, "k")
     .replace(/[ŋ]/g, "ng")
     .replace(/[ŧ]/g, "t")
-    .replace(/[ÆŒØÞ]/g, ch => ({
-      "Æ": "AE",
-      "Œ": "OE",
-      "Ø": "O",
-      "Þ": "TH"
-    }[ch]))
+    .replace(
+      /[ÆŒØÞ]/g,
+      (ch) =>
+        ({
+          Æ: "AE",
+          Œ: "OE",
+          Ø: "O",
+          Þ: "TH",
+        })[ch],
+    )
     .replace(/[\u00A0]/g, " ");
 }
 
@@ -237,20 +250,20 @@ db.function("match_query", { deterministic: true }, (text, query) => {
   return normalize(text).includes(q) ? 1 : 0;
 });
 
-function songMatchesQuery(song, query, allowedFields = ['title']) {
+function songMatchesQuery(song, query, allowedFields = ["title"]) {
   const q = normalize(query);
   if (!q) return true;
 
   const fieldsMap = {
-    title: song.title || '',
-    subtitle: song.subtitle || '',
-    artist: song.artist || '',
-    pack: song.pack || ''
+    title: song.title || "",
+    subtitle: song.subtitle || "",
+    artist: song.artist || "",
+    pack: song.pack || "",
   };
 
   const candidateFields = allowedFields
     .filter((field) => Object.prototype.hasOwnProperty.call(fieldsMap, field))
-    .map((field) => normalize(fieldsMap[field] || ''));
+    .map((field) => normalize(fieldsMap[field] || ""));
 
   return candidateFields.some((field) => field.includes(q));
 }
@@ -259,13 +272,21 @@ function getSongSearchRows(limit = 25, query = "") {
   const q = String(query || "").trim();
   const maxLimit = Math.max(1, limit);
   if (q) {
-    return db.prepare(`SELECT * FROM songs WHERE match_query(title, @q) = 1 ORDER BY title COLLATE NOCASE LIMIT @limit`).all({ q, limit: maxLimit });
+    return db
+      .prepare(
+        `SELECT * FROM songs WHERE match_query(title, @q) = 1 ORDER BY title COLLATE NOCASE LIMIT @limit`,
+      )
+      .all({ q, limit: maxLimit });
   }
-  return db.prepare(`SELECT * FROM songs ORDER BY title COLLATE NOCASE LIMIT @limit`).all({ limit: maxLimit });
+  return db
+    .prepare(`SELECT * FROM songs ORDER BY title COLLATE NOCASE LIMIT @limit`)
+    .all({ limit: maxLimit });
 }
 
 function getQueue(limit = QUEUE_LIMIT) {
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT r.id, r.requested_by, r.requested_display, r.status, r.created_at,
            r.started_at, r.completed_at,
            s.id AS song_id, s.title, s.subtitle, s.artist, s.pack, s.music
@@ -273,18 +294,24 @@ function getQueue(limit = QUEUE_LIMIT) {
     WHERE r.status = 'queued'
     ORDER BY r.created_at ASC, r.id ASC
     LIMIT ?
-  `).all(limit);
+  `,
+    )
+    .all(limit);
   return rows.map((row) => ({ ...row, charts: getSongCharts(row.song_id) }));
 }
 
 function getNowPlaying() {
-  const row = db.prepare(`
+  const row = db
+    .prepare(
+      `
    SELECT r.id, r.requested_by, r.requested_display, r.status,
            r.started_at, s.id AS song_id, s.title, s.subtitle, s.artist, s.pack, s.music
     FROM requests r JOIN songs s ON s.id = r.song_id
     WHERE r.status = 'playing'
     ORDER BY r.started_at DESC LIMIT 1
-  `).get();
+  `,
+    )
+    .get();
   return row ? { ...row, charts: getSongCharts(row.song_id) } : null;
 }
 
@@ -293,24 +320,32 @@ function getStats() {
     songs: db.prepare("SELECT COUNT(*) n FROM songs").get().n,
     charts: db.prepare("SELECT COUNT(*) n FROM charts").get().n,
     queued: db.prepare("SELECT COUNT(*) n FROM requests WHERE status='queued'").get().n,
-    playing: db.prepare("SELECT COUNT(*) n FROM requests WHERE status='playing'").get().n
+    playing: db.prepare("SELECT COUNT(*) n FROM requests WHERE status='playing'").get().n,
   };
 }
 
 function isBlacklisted(songId, username) {
-  return !!db.prepare(`
+  return !!db
+    .prepare(
+      `
     SELECT id FROM blacklist
     WHERE (song_id = ? AND song_id IS NOT NULL)
        OR (username = ? AND username IS NOT NULL)
     LIMIT 1
-  `).get(songId, username);
+  `,
+    )
+    .get(songId, username);
 }
 
 function canRequest(username) {
-  const active = db.prepare(`
+  const active = db
+    .prepare(
+      `
     SELECT COUNT(*) n FROM requests
     WHERE requested_by = ? AND status IN ('queued','playing')
-  `).get(username).n;
+  `,
+    )
+    .get(username).n;
   return active < MAX_REQUESTS_PER_USER;
 }
 
@@ -319,55 +354,63 @@ function getSetting(key, defaultValue) {
   try {
     const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key);
     if (!row) return defaultValue;
-    try { return JSON.parse(row.value); } catch (e) { return row.value; }
+    try {
+      return JSON.parse(row.value);
+    } catch (e) {
+      return row.value;
+    }
   } catch (e) {
     return defaultValue;
   }
 }
 function setSetting(key, value) {
-  const val = typeof value === 'string' ? value : JSON.stringify(value);
+  const val = typeof value === "string" ? value : JSON.stringify(value);
   db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)").run(key, val);
 }
 
 function getControlSettings() {
   // Migrate legacy boolean settings to the new single role setting
-  const legacyFollowers = getSetting('chatRequestsRequireFollowers', false);
-  const legacySubscribers = getSetting('chatRequestsRequireSubscribers', false);
-  const legacyModerators = getSetting('chatRequestsRequireModerators', false);
-  let role = getSetting('chatRequestsRequireRole', '');
+  const legacyFollowers = getSetting("chatRequestsRequireFollowers", false);
+  const legacySubscribers = getSetting("chatRequestsRequireSubscribers", false);
+  const legacyModerators = getSetting("chatRequestsRequireModerators", false);
+  let role = getSetting("chatRequestsRequireRole", "");
   if (!role && (legacyFollowers || legacySubscribers || legacyModerators)) {
     // Migrate: highest priority wins
-    if (legacyFollowers) role = 'follower';
-    else if (legacySubscribers) role = 'subscriber';
-    else if (legacyModerators) role = 'moderator';
+    if (legacyFollowers) role = "follower";
+    else if (legacySubscribers) role = "subscriber";
+    else if (legacyModerators) role = "moderator";
     // Persist the migrated value
-    setSetting('chatRequestsRequireRole', role);
+    setSetting("chatRequestsRequireRole", role);
     // Clean up legacy keys
     const db2 = db;
-    db2.prepare("DELETE FROM settings WHERE key IN ('chatRequestsRequireFollowers','chatRequestsRequireSubscribers','chatRequestsRequireModerators')").run();
+    db2
+      .prepare(
+        "DELETE FROM settings WHERE key IN ('chatRequestsRequireFollowers','chatRequestsRequireSubscribers','chatRequestsRequireModerators')",
+      )
+      .run();
   }
   return {
-    prioritizeViewerRequests: !!getSetting('prioritizeViewerRequests', true),
-    chatRequestsEnabled: !!getSetting('chatRequestsEnabled', true),
+    prioritizeViewerRequests: !!getSetting("prioritizeViewerRequests", true),
+    chatRequestsEnabled: !!getSetting("chatRequestsEnabled", true),
     chatRequestsRequireRole: role,
-    moderatorEnabled: !!getSetting('moderatorEnabled', false),
-    moderatorUsername: String(getSetting('moderatorUsername', '')),
-    moderatorPasswordConfigured: !!getSetting('moderatorPasswordHash', '')
+    moderatorEnabled: !!getSetting("moderatorEnabled", false),
+    moderatorUsername: String(getSetting("moderatorUsername", "")),
+    moderatorPasswordConfigured: !!getSetting("moderatorPasswordHash", ""),
   };
 }
 
 function hashModeratorPassword(password) {
   const salt = crypto.randomBytes(16);
   const hash = crypto.scryptSync(password, salt, 64);
-  return `${salt.toString('hex')}:${hash.toString('hex')}`;
+  return `${salt.toString("hex")}:${hash.toString("hex")}`;
 }
 
 function verifyModeratorPassword(password, encoded) {
-  const [saltHex, hashHex] = String(encoded || '').split(':');
+  const [saltHex, hashHex] = String(encoded || "").split(":");
   if (!saltHex || !hashHex) return false;
   try {
-    const expected = Buffer.from(hashHex, 'hex');
-    const actual = crypto.scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length);
+    const expected = Buffer.from(hashHex, "hex");
+    const actual = crypto.scryptSync(password, Buffer.from(saltHex, "hex"), expected.length);
     return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
   } catch (_error) {
     return false;
@@ -376,21 +419,21 @@ function verifyModeratorPassword(password, encoded) {
 
 function verifyStreamerAuth(authHeader, expectedPassword) {
   if (!expectedPassword) return true;
-  const match = String(authHeader || '').match(/^Basic\s+(.+)$/i);
+  const match = String(authHeader || "").match(/^Basic\s+(.+)$/i);
   if (!match) return false;
   try {
-    const decoded = Buffer.from(match[1], 'base64').toString('utf8');
-    const separator = decoded.indexOf(':');
+    const decoded = Buffer.from(match[1], "base64").toString("utf8");
+    const separator = decoded.indexOf(":");
     if (separator < 0) return false;
     const username = decoded.slice(0, separator);
     const password = decoded.slice(separator + 1);
 
-    const expectedUserHash = crypto.createHash('sha256').update('streamer').digest();
-    const actualUserHash = crypto.createHash('sha256').update(username).digest();
+    const expectedUserHash = crypto.createHash("sha256").update("streamer").digest();
+    const actualUserHash = crypto.createHash("sha256").update(username).digest();
     const userMatch = crypto.timingSafeEqual(expectedUserHash, actualUserHash);
 
-    const expectedPassHash = crypto.createHash('sha256').update(expectedPassword).digest();
-    const actualPassHash = crypto.createHash('sha256').update(password).digest();
+    const expectedPassHash = crypto.createHash("sha256").update(expectedPassword).digest();
+    const actualPassHash = crypto.createHash("sha256").update(password).digest();
     const passMatch = crypto.timingSafeEqual(expectedPassHash, actualPassHash);
 
     return userMatch && passMatch;
@@ -404,20 +447,20 @@ function getModeratorCredentials() {
   return {
     enabled: settings.moderatorEnabled,
     username: settings.moderatorUsername,
-    passwordHash: String(getSetting('moderatorPasswordHash', ''))
+    passwordHash: String(getSetting("moderatorPasswordHash", "")),
   };
 }
 
 function authenticateModerator(req, res, next) {
   const credentials = getModeratorCredentials();
-  const auth = String(req.headers.authorization || '');
+  const auth = String(req.headers.authorization || "");
   const match = auth.match(/^Basic\s+(.+)$/i);
-  let username = '';
-  let password = '';
+  let username = "";
+  let password = "";
   if (match) {
     try {
-      const decoded = Buffer.from(match[1], 'base64').toString('utf8');
-      const separator = decoded.indexOf(':');
+      const decoded = Buffer.from(match[1], "base64").toString("utf8");
+      const separator = decoded.indexOf(":");
       if (separator >= 0) {
         username = decoded.slice(0, separator);
         password = decoded.slice(separator + 1);
@@ -428,13 +471,21 @@ function authenticateModerator(req, res, next) {
   }
 
   // Check permanent moderator credentials
-  if (credentials.enabled && username === credentials.username && verifyModeratorPassword(password, credentials.passwordHash)) {
+  if (
+    credentials.enabled &&
+    username === credentials.username &&
+    verifyModeratorPassword(password, credentials.passwordHash)
+  ) {
     req.moderatorUsername = credentials.username;
     return next();
   }
 
   // Check active temp mod credentials
-  if (activeTempMod && username.toLowerCase() === activeTempMod.username && verifyModeratorPassword(password, activeTempMod.passwordHash)) {
+  if (
+    activeTempMod &&
+    username.toLowerCase() === activeTempMod.username &&
+    verifyModeratorPassword(password, activeTempMod.passwordHash)
+  ) {
     // Check expiration
     if (Date.now() >= activeTempMod.expiresAt) {
       activeTempMod = null;
@@ -444,9 +495,12 @@ function authenticateModerator(req, res, next) {
     }
   }
 
-  return res.status(401)
-    .set('WWW-Authenticate', 'Basic realm="Moderator Access"')
-    .json({ error: credentials.enabled ? 'Authentication required.' : 'Moderator access is disabled.' });
+  return res
+    .status(401)
+    .set("WWW-Authenticate", 'Basic realm="Moderator Access"')
+    .json({
+      error: credentials.enabled ? "Authentication required." : "Moderator access is disabled.",
+    });
 }
 
 function createRateLimiter({ windowMs = 60 * 1000, max = 120 } = {}) {
@@ -463,11 +517,11 @@ function createRateLimiter({ windowMs = 60 * 1000, max = 120 } = {}) {
   if (cleanupTimer.unref) cleanupTimer.unref();
 
   return (req, res, next) => {
-    const ip = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+    const ip = req.ip || req.socket?.remoteAddress || "127.0.0.1";
     const now = Date.now();
     let record = hits.get(ip);
 
-    if (!record || (now - record.startTime > windowMs)) {
+    if (!record || now - record.startTime > windowMs) {
       record = { count: 0, startTime: now };
     }
 
@@ -477,14 +531,16 @@ function createRateLimiter({ windowMs = 60 * 1000, max = 120 } = {}) {
     const remaining = Math.max(0, max - record.count);
     const resetTime = Math.ceil((record.startTime + windowMs) / 1000);
 
-    res.setHeader('X-RateLimit-Limit', max);
-    res.setHeader('X-RateLimit-Remaining', remaining);
-    res.setHeader('X-RateLimit-Reset', resetTime);
+    res.setHeader("X-RateLimit-Limit", max);
+    res.setHeader("X-RateLimit-Remaining", remaining);
+    res.setHeader("X-RateLimit-Reset", resetTime);
 
     if (record.count > max) {
-      console.warn(`[rate-limit] IP ${ip} exceeded ${max} requests in ${windowMs/1000}s window (count: ${record.count})`);
-      res.setHeader('Retry-After', Math.ceil((record.startTime + windowMs - now) / 1000));
-      return res.status(429).json({ error: 'Too many requests. Please slow down.' });
+      console.warn(
+        `[rate-limit] IP ${ip} exceeded ${max} requests in ${windowMs / 1000}s window (count: ${record.count})`,
+      );
+      res.setHeader("Retry-After", Math.ceil((record.startTime + windowMs - now) / 1000));
+      return res.status(429).json({ error: "Too many requests. Please slow down." });
     }
 
     next();
@@ -494,27 +550,34 @@ function createRateLimiter({ windowMs = 60 * 1000, max = 120 } = {}) {
 function parseBadgeString(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value.map(String);
-  if (typeof value === 'object') return Object.keys(value).map(String);
-  return String(value).split(',').map(part => part.trim()).filter(Boolean);
+  if (typeof value === "object") return Object.keys(value).map(String);
+  return String(value)
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
 function hasTwitchBadge(badges, badgeName) {
-  const badgeKey = String(badgeName || '').toLowerCase();
+  const badgeKey = String(badgeName || "").toLowerCase();
   const pieces = parseBadgeString(badges);
-  return pieces.some(piece => piece.toLowerCase().startsWith(`${badgeKey}/`) || piece.toLowerCase() === badgeKey);
+  return pieces.some(
+    (piece) => piece.toLowerCase().startsWith(`${badgeKey}/`) || piece.toLowerCase() === badgeKey,
+  );
 }
 
 function isTwitchModerator(tags = {}) {
-  return tags.mod === '1' || hasTwitchBadge(tags.badges, 'moderator');
+  return tags.mod === "1" || hasTwitchBadge(tags.badges, "moderator");
 }
 
 function isTwitchSubscriber(tags = {}) {
-  return tags.subscriber === '1' || hasTwitchBadge(tags.badges, 'subscriber');
+  return tags.subscriber === "1" || hasTwitchBadge(tags.badges, "subscriber");
 }
 
 async function userIsFollowingChannel(username, channel) {
-  const actorLogin = String(username || '').trim();
-  const channelLogin = String(channel || '').replace(/^#/, '').trim();
+  const actorLogin = String(username || "").trim();
+  const channelLogin = String(channel || "")
+    .replace(/^#/, "")
+    .trim();
   if (!actorLogin || !channelLogin) return false;
   if (actorLogin.toLowerCase() === channelLogin.toLowerCase()) return true;
 
@@ -522,36 +585,46 @@ async function userIsFollowingChannel(username, channel) {
   if (!cfg || !cfg.accessToken || !cfg.clientId) return false;
 
   try {
-    const actorResp = await fetch(`https://api.twitch.tv/helix/users?logins=${encodeURIComponent(actorLogin)}`, {
-      headers: {
-        'Client-Id': cfg.clientId,
-        Authorization: `Bearer ${cfg.accessToken}`
-      }
-    });
+    const actorResp = await fetch(
+      `https://api.twitch.tv/helix/users?logins=${encodeURIComponent(actorLogin)}`,
+      {
+        headers: {
+          "Client-Id": cfg.clientId,
+          Authorization: `Bearer ${cfg.accessToken}`,
+        },
+      },
+    );
     const actorJson = await actorResp.json();
     const actorId = actorJson && actorJson.data && actorJson.data[0] && actorJson.data[0].id;
     if (!actorId) return false;
 
-    const channelResp = await fetch(`https://api.twitch.tv/helix/users?logins=${encodeURIComponent(channelLogin)}`, {
-      headers: {
-        'Client-Id': cfg.clientId,
-        Authorization: `Bearer ${cfg.accessToken}`
-      }
-    });
+    const channelResp = await fetch(
+      `https://api.twitch.tv/helix/users?logins=${encodeURIComponent(channelLogin)}`,
+      {
+        headers: {
+          "Client-Id": cfg.clientId,
+          Authorization: `Bearer ${cfg.accessToken}`,
+        },
+      },
+    );
     const channelJson = await channelResp.json();
-    const channelId = channelJson && channelJson.data && channelJson.data[0] && channelJson.data[0].id;
+    const channelId =
+      channelJson && channelJson.data && channelJson.data[0] && channelJson.data[0].id;
     if (!channelId) return false;
 
-    const followResp = await fetch(`https://api.twitch.tv/helix/users/follows?from_id=${encodeURIComponent(actorId)}&to_id=${encodeURIComponent(channelId)}`, {
-      headers: {
-        'Client-Id': cfg.clientId,
-        Authorization: `Bearer ${cfg.accessToken}`
-      }
-    });
+    const followResp = await fetch(
+      `https://api.twitch.tv/helix/users/follows?from_id=${encodeURIComponent(actorId)}&to_id=${encodeURIComponent(channelId)}`,
+      {
+        headers: {
+          "Client-Id": cfg.clientId,
+          Authorization: `Bearer ${cfg.accessToken}`,
+        },
+      },
+    );
     const followJson = await followResp.json();
     return !!(followJson && followJson.data && followJson.data.length);
   } catch (e) {
-    console.warn('Failed to check follow status for chat request:', e && e.message ? e.message : e);
+    console.warn("Failed to check follow status for chat request:", e && e.message ? e.message : e);
     return false;
   }
 }
@@ -561,49 +634,60 @@ async function getChatRequestPermission(username, tags = {}) {
   if (!settings.chatRequestsEnabled) {
     return {
       allowed: false,
-      reason: 'Chat requests are currently disabled by the streamer. The streamer can still add requests from the control panel.'
+      reason:
+        "Chat requests are currently disabled by the streamer. The streamer can still add requests from the control panel.",
     };
   }
 
   const role = settings.chatRequestsRequireRole;
-  if (role === 'moderator' && !isTwitchModerator(tags)) {
-    return { allowed: false, reason: 'Only moderators can request songs via chat right now.' };
+  if (role === "moderator" && !isTwitchModerator(tags)) {
+    return { allowed: false, reason: "Only moderators can request songs via chat right now." };
   }
 
-  if (role === 'subscriber' && !isTwitchSubscriber(tags)) {
-    return { allowed: false, reason: 'Only subscribers and moderators can request songs via chat right now.' };
+  if (role === "subscriber" && !isTwitchSubscriber(tags)) {
+    return {
+      allowed: false,
+      reason: "Only subscribers and moderators can request songs via chat right now.",
+    };
   }
 
-  if (role === 'follower') {
-    const channelName = (twitchConfig && twitchConfig.channel) || '';
+  if (role === "follower") {
+    const channelName = (twitchConfig && twitchConfig.channel) || "";
     const allowed = await userIsFollowingChannel(username, channelName);
     if (!allowed) {
-      return { allowed: false, reason: 'Only followers, subscribers, and moderators can request songs via chat right now.' };
+      return {
+        allowed: false,
+        reason: "Only followers, subscribers, and moderators can request songs via chat right now.",
+      };
     }
   }
 
-  return { allowed: true, reason: '' };
+  return { allowed: true, reason: "" };
 }
 
 async function announceChatRequestStatus(enabled, role) {
   if (!twitchClient || !twitchConfig || !twitchConfig.channel) return;
-  const channel = String(twitchConfig.channel).replace(/^#/, '');
+  const channel = String(twitchConfig.channel).replace(/^#/, "");
   let message;
   if (enabled) {
     const roleLabels = {
-      moderator: 'Moderators only',
-      subscriber: 'Subscribers & moderators only',
-      follower: 'Followers, subscribers & moderators only'
+      moderator: "Moderators only",
+      subscriber: "Subscribers & moderators only",
+      follower: "Followers, subscribers & moderators only",
     };
-    const restriction = roleLabels[role] || 'Anyone';
+    const restriction = roleLabels[role] || "Anyone";
     message = `Chat requests are now enabled (${restriction}).`;
   } else {
-    message = 'Chat requests are now disabled. The streamer can still add requests from the control panel.';
+    message =
+      "Chat requests are now disabled. The streamer can still add requests from the control panel.";
   }
   try {
     await sendChatMessage(twitchClient, channel, message);
   } catch (error) {
-    console.error('Failed to announce chat request status:', error && error.message ? error.message : error);
+    console.error(
+      "Failed to announce chat request status:",
+      error && error.message ? error.message : error,
+    );
   }
 }
 
@@ -619,36 +703,43 @@ function addRequest(songId, username, displayName, options = {}) {
     throw new Error("That song or viewer is currently blacklisted.");
   }
 
-  const totalQueued = db.prepare(
-    "SELECT COUNT(*) n FROM requests WHERE status='queued'"
-  ).get().n;
+  const totalQueued = db.prepare("SELECT COUNT(*) n FROM requests WHERE status='queued'").get().n;
   if (totalQueued >= QUEUE_LIMIT) throw new Error("The request queue is full.");
 
   if (!skipLimit && !canRequest(username)) {
     throw new Error(`You already have the maximum of ${MAX_REQUESTS_PER_USER} active request(s).`);
   }
 
-  const duplicate = db.prepare(`
+  const duplicate = db
+    .prepare(
+      `
     SELECT id FROM requests
     WHERE song_id=? AND status IN ('queued','playing')
     LIMIT 1
-  `).get(songId);
+  `,
+    )
+    .get(songId);
   if (duplicate) throw new Error("That song is already queued or playing.");
 
-  const isViewerRequest = String(username).toLowerCase() !== 'streamer';
-  const prioritize = getSetting('prioritizeViewerRequests', true);
+  const isViewerRequest = String(username).toLowerCase() !== "streamer";
+  const prioritize = getSetting("prioritizeViewerRequests", true);
   const insertRequest = db.transaction(() => {
-    const queued = db.prepare(`
+    const queued = db
+      .prepare(
+        `
       SELECT id, created_at, requested_by
       FROM requests
       WHERE status='queued'
       ORDER BY created_at ASC, id ASC
-    `).all();
+    `,
+      )
+      .all();
     let insertIndex = queued.length;
     if (prioritize && prioritizeViewerInsertion && isViewerRequest) {
       const lastViewerIndex = queued.reduce(
-        (lastIndex, request, index) => request.requested_by.toLowerCase() === 'streamer' ? lastIndex : index,
-        -1
+        (lastIndex, request, index) =>
+          request.requested_by.toLowerCase() === "streamer" ? lastIndex : index,
+        -1,
       );
       insertIndex = lastViewerIndex + 1;
     }
@@ -660,16 +751,24 @@ function addRequest(songId, username, displayName, options = {}) {
     queued.forEach((request, index) => {
       update.run(baseTimestamp + index + (index >= insertIndex ? 1 : 0), request.id);
     });
-    return db.prepare(`
+    return db
+      .prepare(
+        `
       INSERT INTO requests
         (song_id, requested_by, requested_display, status, created_at)
       VALUES (?, ?, ?, 'queued', ?)
-    `).run(songId, username, displayName, baseTimestamp + insertIndex);
+    `,
+      )
+      .run(songId, username, displayName, baseTimestamp + insertIndex);
   });
   const info = insertRequest();
 
   const result = { id: Number(info.lastInsertRowid), song };
-  try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch (e) { /* ignore */ }
+  try {
+    if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
+  } catch (e) {
+    /* ignore */
+  }
   return result;
 }
 
@@ -677,36 +776,58 @@ function setRequestStatus(id, status) {
   const now = Date.now();
   if (status === "playing") {
     // Only one request may be playing.
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE requests SET status='completed', completed_at=?
       WHERE status='playing'
-    `).run(now);
+    `,
+    ).run(now);
 
-    const result = db.prepare(`
+    const result = db
+      .prepare(
+        `
       UPDATE requests SET status='playing', started_at=?
       WHERE id=? AND status='queued'
-    `).run(now, id);
+    `,
+      )
+      .run(now, id);
     const ok = result.changes > 0;
-    try { if (ok && typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch (e) { /* ignore */ }
+    try {
+      if (ok && typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
+    } catch (e) {
+      /* ignore */
+    }
     return ok;
   }
 
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     UPDATE requests SET status=?, completed_at=?
     WHERE id=? AND status IN ('queued','playing')
-  `).run(status, now, id);
+  `,
+    )
+    .run(status, now, id);
   const ok = result.changes > 0;
-  try { if (ok && typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch (e) { /* ignore */ }
+  try {
+    if (ok && typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
+  } catch (e) {
+    /* ignore */
+  }
   return ok;
 }
 
 function nextRequest() {
-  const next = db.prepare(`
+  const next = db
+    .prepare(
+      `
     SELECT r.id FROM requests r
     WHERE r.status='queued'
     ORDER BY r.created_at ASC, r.id ASC
     LIMIT 1
-  `).get();
+  `,
+    )
+    .get();
   if (!next) return null;
   setRequestStatus(next.id, "playing");
   return getNowPlaying();
@@ -714,18 +835,27 @@ function nextRequest() {
 
 function songRow(row) {
   return {
-    id: row.id, title: row.title, subtitle: row.subtitle,
-    artist: row.artist, genre: row.genre, pack: row.pack,
-    music: row.music, filePath: row.file_path,
-    charts: getSongCharts(row.id)
+    id: row.id,
+    title: row.title,
+    subtitle: row.subtitle,
+    artist: row.artist,
+    genre: row.genre,
+    pack: row.pack,
+    music: row.music,
+    filePath: row.file_path,
+    charts: getSongCharts(row.id),
   };
 }
 
 function getSongCharts(songId) {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT id, chart_type chartType, difficulty, meter
     FROM charts WHERE song_id=? ORDER BY id
-  `).all(songId);
+  `,
+    )
+    .all(songId);
 }
 
 function formatSongRequestLabel(song) {
@@ -748,28 +878,39 @@ async function sendChatMessage(targetClient, channel, message, options = {}) {
   const { skipPrefix = false, maxLength = TWITCH_MAX_MESSAGE_LENGTH } = options;
   const text = String(message ?? "");
   const payload = skipPrefix ? text : `! ${text}`;
-  const boundedPayload = Number.isInteger(maxLength) && maxLength > 0
-    ? truncateMessage(payload, maxLength)
-    : payload;
+  const boundedPayload =
+    Number.isInteger(maxLength) && maxLength > 0 ? truncateMessage(payload, maxLength) : payload;
   await targetClient.say(channel, boundedPayload);
 }
 
 function getRequestById(id) {
-  return db.prepare(`
+  return (
+    db
+      .prepare(
+        `
     SELECT r.id, r.requested_by, r.requested_display, s.id AS song_id, s.title, s.artist, s.pack
     FROM requests r JOIN songs s ON s.id = r.song_id
     WHERE r.id = ?
-  `).get(id) || null;
+  `,
+      )
+      .get(id) || null
+  );
 }
 
 function getRequestBySongId(songId) {
-  return db.prepare(`
+  return (
+    db
+      .prepare(
+        `
     SELECT r.id, r.requested_by, r.requested_display, s.id AS song_id, s.title, s.artist, s.pack
     FROM requests r JOIN songs s ON s.id = r.song_id
     WHERE s.id = ? AND r.status IN ('queued', 'playing')
     ORDER BY r.created_at DESC
     LIMIT 1
-  `).get(songId) || null;
+  `,
+      )
+      .get(songId) || null
+  );
 }
 
 async function announceRequestAction(action, request) {
@@ -823,9 +964,9 @@ function getOnlineUsers() {
 }
 
 function generateRandomPassword(length = 12) {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // ambiguous chars omitted
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // ambiguous chars omitted
   const bytes = crypto.randomBytes(length);
-  let password = '';
+  let password = "";
   for (let i = 0; i < length; i++) {
     password += chars[bytes[i] % chars.length];
   }
@@ -839,36 +980,60 @@ function generateRandomPassword(length = 12) {
 // The first meaningful token of the message is used, so "yes please",
 // "yep", "n no", etc. all resolve correctly.
 function classifyWhisperReply(message) {
-  const text = String(message || '').trim().toLowerCase();
+  const text = String(message || "")
+    .trim()
+    .toLowerCase();
   const token = text.split(/\s+/)[0];
-  if (!token) return 'none';
-  if (['y', 'yes', 'yeah', 'yep', 'yup', 'sure', 'ok', 'okay', 'accepted', 'accept', 'accepting'].includes(token)) {
-    return 'yes';
-    }
-  if (['n', 'no', 'nope', 'nah', 'not', 'decline', 'declined', 'declining'].includes(token)) {
-    return 'no';
-    }
-  return 'none';
+  if (!token) return "none";
+  if (
+    [
+      "y",
+      "yes",
+      "yeah",
+      "yep",
+      "yup",
+      "sure",
+      "ok",
+      "okay",
+      "accepted",
+      "accept",
+      "accepting",
+    ].includes(token)
+  ) {
+    return "yes";
+  }
+  if (["n", "no", "nope", "nah", "not", "decline", "declined", "declining"].includes(token)) {
+    return "no";
+  }
+  return "none";
 }
 
 async function sendWhisper(username, message) {
   if (!twitchClient) {
-    console.error(`[whisper] Attempt to send whisper to ${username} FAILED: Twitch client not connected`);
-    throw new Error('Twitch client not connected');
-   }
-  const preview = String(message).replace(/\s+/g, ' ').trim().slice(0, 60);
-  console.log(`[whisper] Sending whisper to ${username}: "${preview}${message.length > 60 ? '…' : ''}"`);
+    console.error(
+      `[whisper] Attempt to send whisper to ${username} FAILED: Twitch client not connected`,
+    );
+    throw new Error("Twitch client not connected");
+  }
+  const preview = String(message).replace(/\s+/g, " ").trim().slice(0, 60);
+  console.log(
+    `[whisper] Sending whisper to ${username}: "${preview}${message.length > 60 ? "…" : ""}"`,
+  );
   try {
     const result = await twitchClient.whisper(username, message);
     // tmi.js resolves on a "no error within timeout" basis, which is NOT a
     // guarantee of delivery. Log the resolution so we can correlate with the
     // client 'error' handler below when a whisper silently fails.
-    console.log(`[whisper] Whisper to ${username} resolved by tmi.js (result: ${JSON.stringify(result)}). Note: this only means no error was emitted within the timeout window; it does NOT confirm delivery.`);
+    console.log(
+      `[whisper] Whisper to ${username} resolved by tmi.js (result: ${JSON.stringify(result)}). Note: this only means no error was emitted within the timeout window; it does NOT confirm delivery.`,
+    );
     return result;
-   } catch (e) {
-    console.error(`[whisper] Whisper to ${username} REJECTED by tmi.js: ${e && e.message ? e.message : e}`);
+  } catch (e) {
+    console.error(
+      `[whisper] Whisper to ${username} REJECTED by tmi.js: ${e && e.message ? e.message : e}`,
+    );
     throw e;
-   }
+  }
 }
 
 function clearTempModExpirationTimer() {
@@ -903,15 +1068,21 @@ async function expireTempMod() {
 
   // Restore the original moderator password to invalidate the temp mod's credentials
   if (originalModeratorPasswordHash) {
-    setSetting('moderatorPasswordHash', originalModeratorPasswordHash);
+    setSetting("moderatorPasswordHash", originalModeratorPasswordHash);
   }
 
   try {
-    await sendChatMessage(twitchClient, twitchConfig.channel, `@${displayname} is no longer moderating the request queue.`);
+    await sendChatMessage(
+      twitchClient,
+      twitchConfig.channel,
+      `@${displayname} is no longer moderating the request queue.`,
+    );
   } catch (e) {
     console.error("Failed to announce temp mod expiration:", e && e.message ? e.message : e);
   }
-  try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch(e){}
+  try {
+    if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
+  } catch (e) {}
 
   console.log(`[temp-mod] ${displayname}'s temporary moderator session has expired.`);
 }
@@ -946,62 +1117,97 @@ function stopChatUsersCleanup() {
 function createApi(app, options = {}) {
   app.use(express.json({ limit: "32kb" }));
   if (options.moderator) {
-    app.use('/api/moderator', authenticateModerator);
-    app.get('/api/moderator/settings', (_req, res) => res.json(getControlSettings()));
-    app.post('/api/moderator/settings', async (req, res) => {
+    app.use("/api/moderator", authenticateModerator);
+    app.get("/api/moderator/settings", (_req, res) => res.json(getControlSettings()));
+    app.post("/api/moderator/settings", async (req, res) => {
       const current = getControlSettings();
       const settings = {
-        prioritizeViewerRequests: Object.prototype.hasOwnProperty.call(req.body, 'prioritizeViewerRequests') ? !!req.body.prioritizeViewerRequests : current.prioritizeViewerRequests,
-        chatRequestsEnabled: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsEnabled') ? !!req.body.chatRequestsEnabled : current.chatRequestsEnabled,
-        chatRequestsRequireRole: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireRole') ? String(req.body.chatRequestsRequireRole) : current.chatRequestsRequireRole
+        prioritizeViewerRequests: Object.prototype.hasOwnProperty.call(
+          req.body,
+          "prioritizeViewerRequests",
+        )
+          ? !!req.body.prioritizeViewerRequests
+          : current.prioritizeViewerRequests,
+        chatRequestsEnabled: Object.prototype.hasOwnProperty.call(req.body, "chatRequestsEnabled")
+          ? !!req.body.chatRequestsEnabled
+          : current.chatRequestsEnabled,
+        chatRequestsRequireRole: Object.prototype.hasOwnProperty.call(
+          req.body,
+          "chatRequestsRequireRole",
+        )
+          ? String(req.body.chatRequestsRequireRole)
+          : current.chatRequestsRequireRole,
       };
       Object.entries(settings).forEach(([key, value]) => setSetting(key, value));
 
-      if (current.chatRequestsEnabled !== settings.chatRequestsEnabled || current.chatRequestsRequireRole !== settings.chatRequestsRequireRole) {
-        await announceChatRequestStatus(settings.chatRequestsEnabled, settings.chatRequestsRequireRole);
+      if (
+        current.chatRequestsEnabled !== settings.chatRequestsEnabled ||
+        current.chatRequestsRequireRole !== settings.chatRequestsRequireRole
+      ) {
+        await announceChatRequestStatus(
+          settings.chatRequestsEnabled,
+          settings.chatRequestsRequireRole,
+        );
       }
       res.json({ ok: true, ...settings });
     });
-    app.post('/api/moderator/request', (req, res) => {
+    app.post("/api/moderator/request", (req, res) => {
       try {
-        const r = addRequest(Number(req.body.songId), req.moderatorUsername, req.moderatorUsername, { skipLimit: true });
+        const r = addRequest(
+          Number(req.body.songId),
+          req.moderatorUsername,
+          req.moderatorUsername,
+          { skipLimit: true },
+        );
         res.json({ ok: true, request: r });
       } catch (e) {
         res.status(400).json({ error: e.message });
       }
     });
-    app.post('/api/moderator/queue/:id/play', async (req, res) => {
+    app.post("/api/moderator/queue/:id/play", async (req, res) => {
       const id = Number(req.params.id);
       const request = getRequestById(id);
       const ok = setRequestStatus(id, "playing");
       if (ok) await announceRequestAction("playing", request);
       res.json({ ok, nowPlaying: getNowPlaying() });
     });
-    app.post('/api/moderator/queue/:id/skip', async (req, res) => {
+    app.post("/api/moderator/queue/:id/skip", async (req, res) => {
       const id = Number(req.params.id);
       const request = getRequestById(id);
       const ok = setRequestStatus(id, "skipped");
       if (ok) await announceRequestAction("skipped", request);
       res.json({ ok });
     });
-    app.post('/api/moderator/queue/next', async (_req, res) => {
-      const next = db.prepare("SELECT id FROM requests WHERE status='queued' ORDER BY created_at ASC, id ASC LIMIT 1").get();
+    app.post("/api/moderator/queue/next", async (_req, res) => {
+      const next = db
+        .prepare(
+          "SELECT id FROM requests WHERE status='queued' ORDER BY created_at ASC, id ASC LIMIT 1",
+        )
+        .get();
       if (!next) return res.json({ ok: true, nowPlaying: null });
       const request = getRequestById(next.id);
       const nowPlaying = nextRequest();
       if (request) await announceRequestAction("playing", request);
       res.json({ ok: true, nowPlaying });
     });
-    app.post('/api/moderator/queue/clear', (_req, res) => {
-      const info = db.prepare("UPDATE requests SET status='skipped', completed_at=? WHERE status='queued'").run(Date.now());
-      try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch (_error) {}
+    app.post("/api/moderator/queue/clear", (_req, res) => {
+      const info = db
+        .prepare("UPDATE requests SET status='skipped', completed_at=? WHERE status='queued'")
+        .run(Date.now());
+      try {
+        if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
+      } catch (_error) {}
       res.json({ ok: true, changed: info.changes });
     });
-    app.post('/api/moderator/queue/:id/move', (req, res) => {
+    app.post("/api/moderator/queue/:id/move", (req, res) => {
       const id = Number(req.params.id);
       const direction = req.body.direction === "up" ? -1 : 1;
       const tx = db.transaction(() => {
-        const queued = db.prepare("SELECT id, created_at FROM requests WHERE status='queued' ORDER BY created_at ASC, id ASC").all();
+        const queued = db
+          .prepare(
+            "SELECT id, created_at FROM requests WHERE status='queued' ORDER BY created_at ASC, id ASC",
+          )
+          .all();
         const index = queued.findIndex((request) => request.id === id);
         const neighborIndex = index + direction;
         if (index < 0) return false;
@@ -1013,10 +1219,12 @@ function createApi(app, options = {}) {
         return true;
       });
       if (!tx()) return res.status(404).json({ error: "Queued request not found." });
-      try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch (_error) {}
+      try {
+        if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
+      } catch (_error) {}
       res.json({ ok: true });
     });
-    app.post('/api/moderator/queue/:id/complete', (req, res) => {
+    app.post("/api/moderator/queue/:id/complete", (req, res) => {
       const ok = setRequestStatus(Number(req.params.id), "completed");
       res.json({ ok });
     });
@@ -1062,8 +1270,14 @@ function createApi(app, options = {}) {
       chartWhere.push("difficulty = @difficulty");
       params.difficulty = String(req.query.difficulty);
     }
-    const meterMin = (typeof req.query.meterMin !== 'undefined' && req.query.meterMin !== '') ? Number(req.query.meterMin) : null;
-    const meterMax = (typeof req.query.meterMax !== 'undefined' && req.query.meterMax !== '') ? Number(req.query.meterMax) : null;
+    const meterMin =
+      typeof req.query.meterMin !== "undefined" && req.query.meterMin !== ""
+        ? Number(req.query.meterMin)
+        : null;
+    const meterMax =
+      typeof req.query.meterMax !== "undefined" && req.query.meterMax !== ""
+        ? Number(req.query.meterMax)
+        : null;
     if (meterMin !== null && meterMax !== null) {
       chartWhere.push("CAST(meter AS INTEGER) BETWEEN @meterMin AND @meterMax");
       params.meterMin = meterMin;
@@ -1088,48 +1302,75 @@ function createApi(app, options = {}) {
 
     const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
 
-    const sort = (new Set(["title","artist","pack","last_modified"]).has(req.query.sort)) ? req.query.sort : "title";
-    const order = (String(req.query.order || "asc").toLowerCase() === "desc") ? "DESC" : "ASC";
-    const orderSql = (sort === "last_modified") ? `ORDER BY ${sort} ${order}` : `ORDER BY ${sort} COLLATE NOCASE ${order}`;
+    const sort = new Set(["title", "artist", "pack", "last_modified"]).has(req.query.sort)
+      ? req.query.sort
+      : "title";
+    const order = String(req.query.order || "asc").toLowerCase() === "desc" ? "DESC" : "ASC";
+    const orderSql =
+      sort === "last_modified"
+        ? `ORDER BY ${sort} ${order}`
+        : `ORDER BY ${sort} COLLATE NOCASE ${order}`;
 
     const total = db.prepare(`SELECT COUNT(*) AS count FROM songs ${whereSql}`).get(params).count;
-    const pageRows = db.prepare(`SELECT * FROM songs ${whereSql} ${orderSql} LIMIT @perPage OFFSET @offset`).all({
-      ...params,
-      perPage,
-      offset
-    });
+    const pageRows = db
+      .prepare(`SELECT * FROM songs ${whereSql} ${orderSql} LIMIT @perPage OFFSET @offset`)
+      .all({
+        ...params,
+        perPage,
+        offset,
+      });
 
     res.json({ songs: pageRows.map(songRow), total, page, perPage });
   });
 
   app.get("/api/song-filters", (_req, res) => {
-    const packs = db.prepare(`
+    const packs = db
+      .prepare(
+        `
       SELECT pack, COUNT(*) count FROM songs
       WHERE pack IS NOT NULL AND pack != ''
       GROUP BY pack ORDER BY pack COLLATE NOCASE ASC
-    `).all();
-    const genres = db.prepare(`
+    `,
+      )
+      .all();
+    const genres = db
+      .prepare(
+        `
       SELECT genre, COUNT(*) count FROM songs
       WHERE genre IS NOT NULL AND genre != ''
       GROUP BY genre ORDER BY genre COLLATE NOCASE ASC
-    `).all();
+    `,
+      )
+      .all();
 
-    const difficulties = db.prepare(`
+    const difficulties = db
+      .prepare(
+        `
       SELECT difficulty, COUNT(DISTINCT song_id) count FROM charts
       WHERE difficulty IS NOT NULL AND difficulty != ''
       GROUP BY difficulty ORDER BY difficulty COLLATE NOCASE ASC
-    `).all();
-    const styles = db.prepare(`
+    `,
+      )
+      .all();
+    const styles = db
+      .prepare(
+        `
       SELECT chart_type style, COUNT(DISTINCT song_id) count FROM charts
       WHERE chart_type IN ('dance-single', 'dance-double')
       GROUP BY chart_type ORDER BY chart_type
-    `).all();
+    `,
+      )
+      .all();
 
-    const meters = db.prepare(`
+    const meters = db
+      .prepare(
+        `
       SELECT CAST(meter AS INTEGER) meter, COUNT(DISTINCT song_id) count FROM charts
       WHERE meter IS NOT NULL AND trim(meter) != ''
       GROUP BY meter ORDER BY meter ASC
-    `).all();
+    `,
+      )
+      .all();
 
     res.json({ packs, genres, difficulties, meters, styles });
   });
@@ -1146,19 +1387,24 @@ function createApi(app, options = {}) {
       const username = rawUsername;
 
       // Default display name provided by client; may be overridden for control-panel streamer requests.
-      let displayName = String(req.body.displayName || req.body.username || "web-user").slice(0, 50);
+      let displayName = String(req.body.displayName || req.body.username || "web-user").slice(
+        0,
+        50,
+      );
 
       // If this API is mounted as the control panel (options.control === true) and the
       // control client is submitting a request as the special 'streamer' sentinel username,
       // treat it as the streamer and bypass MAX_REQUESTS_PER_USER. Also use the configured
       // STREAMER_VANITY_NAME for the displayed name so overlays show the streamer's chosen name.
-      const isControlStreamer = !!(options.control && String(username || "").toLowerCase() === "streamer");
+      const isControlStreamer = !!(
+        options.control && String(username || "").toLowerCase() === "streamer"
+      );
 
       const r = addRequest(
         Number(req.body.songId),
         username,
         isControlStreamer ? STREAMER_VANITY_NAME : displayName,
-        { skipLimit: isControlStreamer }
+        { skipLimit: isControlStreamer },
       );
       res.json({ ok: true, request: r });
     } catch (e) {
@@ -1171,7 +1417,10 @@ function createApi(app, options = {}) {
       if (!CONTROL_PASSWORD) return next();
       if (req.path === "/api/control-login") return next();
       if (!verifyStreamerAuth(req.headers.authorization, CONTROL_PASSWORD)) {
-        return res.status(401).set("WWW-Authenticate", 'Basic realm="Streamer Control Panel"').json({ error: "Authentication required." });
+        return res
+          .status(401)
+          .set("WWW-Authenticate", 'Basic realm="Streamer Control Panel"')
+          .json({ error: "Authentication required." });
       }
       next();
     });
@@ -1179,52 +1428,82 @@ function createApi(app, options = {}) {
     app.post("/api/control-login", (_req, res) => res.json({ ok: true }));
 
     // Control panel settings endpoints
-    app.get('/api/control/settings', (_req, res) => {
+    app.get("/api/control/settings", (_req, res) => {
       res.json(getControlSettings());
     });
-    app.post('/api/control/settings', async (req, res) => {
+    app.post("/api/control/settings", async (req, res) => {
       const current = getControlSettings();
       const next = {
         prioritizeViewerRequests: !!req.body.prioritizeViewerRequests,
         chatRequestsEnabled: !!req.body.chatRequestsEnabled,
-        chatRequestsRequireRole: String(req.body.chatRequestsRequireRole || ''),
+        chatRequestsRequireRole: String(req.body.chatRequestsRequireRole || ""),
         moderatorEnabled: !!req.body.moderatorEnabled,
-        moderatorUsername: String(req.body.moderatorUsername || '').trim().slice(0, 50)
+        moderatorUsername: String(req.body.moderatorUsername || "")
+          .trim()
+          .slice(0, 50),
       };
 
       const settings = {
-        prioritizeViewerRequests: Object.prototype.hasOwnProperty.call(req.body, 'prioritizeViewerRequests') ? next.prioritizeViewerRequests : current.prioritizeViewerRequests,
-        chatRequestsEnabled: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsEnabled') ? next.chatRequestsEnabled : current.chatRequestsEnabled,
-        chatRequestsRequireRole: Object.prototype.hasOwnProperty.call(req.body, 'chatRequestsRequireRole') ? next.chatRequestsRequireRole : current.chatRequestsRequireRole,
-        moderatorEnabled: Object.prototype.hasOwnProperty.call(req.body, 'moderatorEnabled') ? next.moderatorEnabled : current.moderatorEnabled,
-        moderatorUsername: Object.prototype.hasOwnProperty.call(req.body, 'moderatorUsername') ? next.moderatorUsername : current.moderatorUsername,
-        moderatorPasswordConfigured: current.moderatorPasswordConfigured
+        prioritizeViewerRequests: Object.prototype.hasOwnProperty.call(
+          req.body,
+          "prioritizeViewerRequests",
+        )
+          ? next.prioritizeViewerRequests
+          : current.prioritizeViewerRequests,
+        chatRequestsEnabled: Object.prototype.hasOwnProperty.call(req.body, "chatRequestsEnabled")
+          ? next.chatRequestsEnabled
+          : current.chatRequestsEnabled,
+        chatRequestsRequireRole: Object.prototype.hasOwnProperty.call(
+          req.body,
+          "chatRequestsRequireRole",
+        )
+          ? next.chatRequestsRequireRole
+          : current.chatRequestsRequireRole,
+        moderatorEnabled: Object.prototype.hasOwnProperty.call(req.body, "moderatorEnabled")
+          ? next.moderatorEnabled
+          : current.moderatorEnabled,
+        moderatorUsername: Object.prototype.hasOwnProperty.call(req.body, "moderatorUsername")
+          ? next.moderatorUsername
+          : current.moderatorUsername,
+        moderatorPasswordConfigured: current.moderatorPasswordConfigured,
       };
 
-      const password = Object.prototype.hasOwnProperty.call(req.body, 'moderatorPassword')
-        ? String(req.body.moderatorPassword || '')
-        : '';
+      const password = Object.prototype.hasOwnProperty.call(req.body, "moderatorPassword")
+        ? String(req.body.moderatorPassword || "")
+        : "";
       if (settings.moderatorEnabled && !settings.moderatorUsername) {
-        return res.status(400).json({ error: 'Moderator username is required before enabling access.' });
+        return res
+          .status(400)
+          .json({ error: "Moderator username is required before enabling access." });
       }
       if (settings.moderatorEnabled && !settings.moderatorPasswordConfigured && !password) {
-        return res.status(400).json({ error: 'Moderator password must be set before enabling access for the first time.' });
+        return res.status(400).json({
+          error: "Moderator password must be set before enabling access for the first time.",
+        });
       }
 
-      setSetting('prioritizeViewerRequests', settings.prioritizeViewerRequests);
-      setSetting('chatRequestsEnabled', settings.chatRequestsEnabled);
-      setSetting('chatRequestsRequireRole', settings.chatRequestsRequireRole);
-      setSetting('moderatorEnabled', settings.moderatorEnabled);
-      setSetting('moderatorUsername', settings.moderatorUsername);
+      setSetting("prioritizeViewerRequests", settings.prioritizeViewerRequests);
+      setSetting("chatRequestsEnabled", settings.chatRequestsEnabled);
+      setSetting("chatRequestsRequireRole", settings.chatRequestsRequireRole);
+      setSetting("moderatorEnabled", settings.moderatorEnabled);
+      setSetting("moderatorUsername", settings.moderatorUsername);
       if (password) {
-        setSetting('moderatorPasswordHash', hashModeratorPassword(password));
+        setSetting("moderatorPasswordHash", hashModeratorPassword(password));
         settings.moderatorPasswordConfigured = true;
       }
 
-      if (current.chatRequestsEnabled !== settings.chatRequestsEnabled || current.chatRequestsRequireRole !== settings.chatRequestsRequireRole) {
-        await announceChatRequestStatus(settings.chatRequestsEnabled, settings.chatRequestsRequireRole);
+      if (
+        current.chatRequestsEnabled !== settings.chatRequestsEnabled ||
+        current.chatRequestsRequireRole !== settings.chatRequestsRequireRole
+      ) {
+        await announceChatRequestStatus(
+          settings.chatRequestsEnabled,
+          settings.chatRequestsRequireRole,
+        );
       }
-      try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch(e){}
+      try {
+        if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
+      } catch (e) {}
       res.json({ ok: true, ...settings });
     });
 
@@ -1239,17 +1518,20 @@ function createApi(app, options = {}) {
         tempMod = {
           username: activeTempMod.username,
           displayName: activeTempMod.displayname,
-          expiresAt: activeTempMod.expiresAt
+          expiresAt: activeTempMod.expiresAt,
         };
         tempModRemaining = Math.max(0, activeTempMod.expiresAt - now);
       } else if (activeTempMod && now >= activeTempMod.expiresAt) {
         // Expired but timer hasn't fired yet — expire it now
-        expireTempMod().catch(e => console.error("[temp-mod] Error expiring:", e));
+        expireTempMod().catch((e) => console.error("[temp-mod] Error expiring:", e));
       }
 
       let nominationCooldown = 0;
       if (pendingNomination) {
-        nominationCooldown = Math.max(0, NOMINATION_COOLDOWN_MS - (now - pendingNomination.nominatedAt));
+        nominationCooldown = Math.max(
+          0,
+          NOMINATION_COOLDOWN_MS - (now - pendingNomination.nominatedAt),
+        );
       }
 
       res.json({
@@ -1257,7 +1539,7 @@ function createApi(app, options = {}) {
         tempModRemaining,
         hasPendingNomination: !!pendingNomination,
         nominationCooldown,
-        publicUrl: PUBLIC_URL
+        publicUrl: PUBLIC_URL,
       });
     });
 
@@ -1281,20 +1563,30 @@ function createApi(app, options = {}) {
       // Check for valid external URL (not localhost/127.0.0.1)
       try {
         const url = new URL(PUBLIC_URL);
-        if (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1') {
-          return res.status(400).json({ error: "PUBLIC_URL must be a publicly accessible URL (not localhost)" });
+        if (
+          url.hostname === "localhost" ||
+          url.hostname === "127.0.0.1" ||
+          url.hostname === "::1"
+        ) {
+          return res
+            .status(400)
+            .json({ error: "PUBLIC_URL must be a publicly accessible URL (not localhost)" });
         }
       } catch (e) {
         return res.status(400).json({ error: "PUBLIC_URL is not a valid URL" });
       }
 
       if (pendingNomination) {
-        const remaining = Math.ceil((NOMINATION_COOLDOWN_MS - (Date.now() - pendingNomination.nominatedAt)) / 1000);
+        const remaining = Math.ceil(
+          (NOMINATION_COOLDOWN_MS - (Date.now() - pendingNomination.nominatedAt)) / 1000,
+        );
         return res.status(429).json({ error: `Nomination pending. Cooldown: ${remaining}s` });
       }
       if (activeTempMod) {
         const remaining = Math.ceil((activeTempMod.expiresAt - Date.now()) / 1000);
-        return res.status(409).json({ error: `Temp mod ${activeTempMod.displayname} is active (${remaining}s remaining)` });
+        return res.status(409).json({
+          error: `Temp mod ${activeTempMod.displayname} is active (${remaining}s remaining)`,
+        });
       }
       if (!twitchClient) {
         return res.status(503).json({ error: "Twitch client not connected" });
@@ -1308,11 +1600,14 @@ function createApi(app, options = {}) {
         username: userKey,
         displayname,
         nominatedAt: Date.now(),
-        tempModTime: modTime
+        tempModTime: modTime,
       };
 
       try {
-        await sendWhisper(userKey, `${twitchConfig.username} wants to know if you would like to moderate the request queue. Please reply Y or N`);
+        await sendWhisper(
+          userKey,
+          `${twitchConfig.username} wants to know if you would like to moderate the request queue. Please reply Y or N`,
+        );
         res.json({ ok: true, username: userKey, displayname, tempModTime: modTime });
       } catch (e) {
         pendingNomination = null;
@@ -1342,12 +1637,16 @@ function createApi(app, options = {}) {
     });
 
     app.post("/api/queue/next", async (_req, res) => {
-      const next = db.prepare(`
+      const next = db
+        .prepare(
+          `
         SELECT r.id FROM requests r
         WHERE r.status='queued'
         ORDER BY r.created_at ASC, r.id ASC
         LIMIT 1
-      `).get();
+      `,
+        )
+        .get();
       if (!next) return res.json({ ok: true, nowPlaying: null });
       const request = getRequestById(next.id);
       const nowPlaying = nextRequest();
@@ -1356,11 +1655,17 @@ function createApi(app, options = {}) {
     });
 
     app.post("/api/queue/clear", (_req, res) => {
-      const info = db.prepare(`
+      const info = db
+        .prepare(
+          `
         UPDATE requests SET status='skipped', completed_at=?
         WHERE status='queued'
-      `).run(Date.now());
-      try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch(e){}
+      `,
+        )
+        .run(Date.now());
+      try {
+        if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
+      } catch (e) {}
       res.json({ ok: true, changed: info.changes });
     });
 
@@ -1368,12 +1673,16 @@ function createApi(app, options = {}) {
       const id = Number(req.params.id);
       const direction = req.body.direction === "up" ? -1 : 1;
       const tx = db.transaction(() => {
-        const queued = db.prepare(`
+        const queued = db
+          .prepare(
+            `
           SELECT r.id, r.created_at
           FROM requests r
           WHERE r.status='queued'
           ORDER BY r.created_at ASC, r.id ASC
-        `).all();
+        `,
+          )
+          .all();
         const index = queued.findIndex((request) => request.id === id);
         const neighborIndex = index + direction;
         if (index < 0) return false;
@@ -1386,7 +1695,9 @@ function createApi(app, options = {}) {
         return true;
       });
       if (!tx()) return res.status(404).json({ error: "Queued request not found." });
-      try { if (typeof broadcastQueueUpdate === 'function') broadcastQueueUpdate(); } catch(e){}
+      try {
+        if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
+      } catch (e) {}
       res.json({ ok: true });
     });
 
@@ -1394,30 +1705,42 @@ function createApi(app, options = {}) {
       const songId = Number(req.body.songId);
       const reason = String(req.body.reason || "Streamer blacklist").slice(0, 200);
       const request = getRequestBySongId(songId);
-      db.prepare(`
+      db.prepare(
+        `
         INSERT OR IGNORE INTO blacklist(song_id, username, reason, created_at)
         VALUES (?, NULL, ?, ?)
-      `).run(songId, reason, Date.now());
+      `,
+      ).run(songId, reason, Date.now());
       if (request) await announceRequestAction("blacklisted", request);
       res.json({ ok: true });
     });
 
     app.post("/api/blacklist/user", (req, res) => {
-      const username = String(req.body.username || "").trim().toLowerCase();
+      const username = String(req.body.username || "")
+        .trim()
+        .toLowerCase();
       if (!username) return res.status(400).json({ error: "Username required." });
       const reason = String(req.body.reason || "Streamer blacklist").slice(0, 200);
-      db.prepare(`
+      db.prepare(
+        `
         INSERT OR IGNORE INTO blacklist(song_id, username, reason, created_at)
         VALUES (NULL, ?, ?, ?)
-      `).run(username, reason, Date.now());
+      `,
+      ).run(username, reason, Date.now());
       res.json({ ok: true });
     });
 
     app.get("/api/blacklist", (_req, res) => {
-      res.json(db.prepare(`
+      res.json(
+        db
+          .prepare(
+            `
         SELECT id, song_id songId, username, reason, created_at createdAt
         FROM blacklist ORDER BY created_at DESC
-      `).all());
+      `,
+          )
+          .all(),
+      );
     });
 
     app.delete("/api/blacklist/:id", (req, res) => {
@@ -1442,15 +1765,22 @@ function createApi(app, options = {}) {
         connected: !!twitchClient,
         channel: cfg ? cfg.channel : null,
         username: cfg ? cfg.username : null,
-        clientId: cfg ? cfg.clientId : null
+        clientId: cfg ? cfg.clientId : null,
       });
     });
 
     app.post("/api/twitch/start-auth", (req, res) => {
-      const clientId = String(req.body.clientId || (twitchConfig && twitchConfig.clientId) || "").trim();
-      const redirectUri = String(req.body.redirectUri || req.body.redirect || `https://localhost:${CONTROL_PORT}/twitch-callback.html`).trim();
+      const clientId = String(
+        req.body.clientId || (twitchConfig && twitchConfig.clientId) || "",
+      ).trim();
+      const redirectUri = String(
+        req.body.redirectUri ||
+          req.body.redirect ||
+          `https://localhost:${CONTROL_PORT}/twitch-callback.html`,
+      ).trim();
       const scopes = String(req.body.scopes || "chat:read chat:edit");
-      if (!clientId || !redirectUri) return res.status(400).json({ error: "clientId and redirectUri are required" });
+      if (!clientId || !redirectUri)
+        return res.status(400).json({ error: "clientId and redirectUri are required" });
       const state = Math.random().toString(36).slice(2);
       twitchAuthStates.add(state);
       const url = `https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${encodeURIComponent(state)}`;
@@ -1461,9 +1791,12 @@ function createApi(app, options = {}) {
       const code = String(req.body.code || "").trim();
       const clientId = String(req.body.clientId || "").trim();
       const clientSecret = String(req.body.clientSecret || "").trim();
-      const redirectUri = String(req.body.redirectUri || `https://localhost:${CONTROL_PORT}/twitch-callback.html`).trim();
+      const redirectUri = String(
+        req.body.redirectUri || `https://localhost:${CONTROL_PORT}/twitch-callback.html`,
+      ).trim();
       const channel = String(req.body.channel || "").trim();
-      if (!code || !clientId || !clientSecret) return res.status(400).json({ error: "code, clientId and clientSecret are required" });
+      if (!code || !clientId || !clientSecret)
+        return res.status(400).json({ error: "code, clientId and clientSecret are required" });
       try {
         // Exchange code for token
         const params = new URLSearchParams();
@@ -1476,17 +1809,19 @@ function createApi(app, options = {}) {
         const tokenResp = await globalThis.fetch("https://id.twitch.tv/oauth2/token", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: params
+          body: params,
         });
         const tokenJson = await tokenResp.json();
-        if (!tokenJson.access_token) return res.status(400).json({ error: "Token exchange failed", details: tokenJson });
+        if (!tokenJson.access_token)
+          return res.status(400).json({ error: "Token exchange failed", details: tokenJson });
 
         // Fetch user info
         const userResp = await globalThis.fetch("https://api.twitch.tv/helix/users", {
-          headers: { Authorization: `Bearer ${tokenJson.access_token}`, "Client-Id": clientId }
+          headers: { Authorization: `Bearer ${tokenJson.access_token}`, "Client-Id": clientId },
         });
         const userJson = await userResp.json();
-        const login = (userJson && userJson.data && userJson.data[0] && userJson.data[0].login) || null;
+        const login =
+          (userJson && userJson.data && userJson.data[0] && userJson.data[0].login) || null;
         const finalChannel = channel || login;
 
         const cfg = {
@@ -1494,9 +1829,9 @@ function createApi(app, options = {}) {
           clientSecret,
           accessToken: tokenJson.access_token,
           refreshToken: tokenJson.refresh_token,
-          expiresAt: tokenJson.expires_in ? Date.now() + (Number(tokenJson.expires_in) * 1000) : null,
+          expiresAt: tokenJson.expires_in ? Date.now() + Number(tokenJson.expires_in) * 1000 : null,
           username: login,
-          channel: finalChannel
+          channel: finalChannel,
         };
         saveTwitchConfig(cfg);
         await startTmiClient(cfg);
@@ -1523,9 +1858,9 @@ function createApi(app, options = {}) {
 }
 
 const publicApp = express();
-publicApp.set('trust proxy', true);
-publicApp.use('/api/', createRateLimiter({ windowMs: 60 * 1000, max: 120 }));
-publicApp.get('/requestModerator.html', authenticateModerator, (_req, res) => {
+publicApp.set("trust proxy", true);
+publicApp.use("/api/", createRateLimiter({ windowMs: 60 * 1000, max: 120 }));
+publicApp.get("/requestModerator.html", authenticateModerator, (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "requestModerator.html"));
 });
 publicApp.use(express.static(path.join(__dirname, "public")));
@@ -1534,20 +1869,30 @@ createApi(publicApp, { moderator: true });
 // Server-Sent Events (SSE) endpoint for OBS overlay to receive real-time queue updates.
 // Clients should connect to /overlay/queue/stream and will receive JSON array payloads in `message` events.
 const sseQueueClients = new Set();
-function broadcastQueueUpdate(){
-  try{
+function broadcastQueueUpdate() {
+  try {
     const payload = `data: ${JSON.stringify(getQueue())}\n\n`;
-    for(const res of Array.from(sseQueueClients)){
-      try{ res.write(payload); }catch(e){ sseQueueClients.delete(res); }
+    for (const res of Array.from(sseQueueClients)) {
+      try {
+        res.write(payload);
+      } catch (e) {
+        sseQueueClients.delete(res);
+      }
     }
-  }catch(e){ /* ignore */ }
+  } catch (e) {
+    /* ignore */
+  }
 }
 
-publicApp.get('/overlay/queue/stream', (req, res) => {
-  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+publicApp.get("/overlay/queue/stream", (req, res) => {
+  res.set({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
   res.flushHeaders && res.flushHeaders();
   sseQueueClients.add(res);
-  req.on('close', () => sseQueueClients.delete(res));
+  req.on("close", () => sseQueueClients.delete(res));
   // Send initial state
   res.write(`data: ${JSON.stringify(getQueue())}\n\n`);
 });
@@ -1630,26 +1975,26 @@ function clearTwitchRefreshTimer() {
 async function refreshTwitchToken() {
   const cfg = twitchConfig || loadTwitchConfig();
   if (!cfg || !cfg.refreshToken || !cfg.clientId || !cfg.clientSecret) {
-    console.warn('Twitch token refresh skipped: missing refresh token or client credentials.');
+    console.warn("Twitch token refresh skipped: missing refresh token or client credentials.");
     return false;
   }
 
   try {
-    console.log('Refreshing Twitch access token...');
+    console.log("Refreshing Twitch access token...");
     const params = new URLSearchParams();
-    params.append('grant_type', 'refresh_token');
-    params.append('refresh_token', cfg.refreshToken);
-    params.append('client_id', cfg.clientId);
-    params.append('client_secret', cfg.clientSecret);
+    params.append("grant_type", "refresh_token");
+    params.append("refresh_token", cfg.refreshToken);
+    params.append("client_id", cfg.clientId);
+    params.append("client_secret", cfg.clientSecret);
 
-    const resp = await globalThis.fetch('https://id.twitch.tv/oauth2/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params
+    const resp = await globalThis.fetch("https://id.twitch.tv/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params,
     });
     const json = await resp.json();
     if (!json.access_token) {
-      console.error('Twitch refresh failed:', json);
+      console.error("Twitch refresh failed:", json);
       return false;
     }
 
@@ -1661,10 +2006,10 @@ async function refreshTwitchToken() {
     // restart client with new token
     await startTmiClient(cfg);
     scheduleTwitchRefresh();
-    console.log('Twitch access token refreshed.');
+    console.log("Twitch access token refreshed.");
     return true;
   } catch (e) {
-    console.error('Error refreshing Twitch token:', e.message || e);
+    console.error("Error refreshing Twitch token:", e.message || e);
     return false;
   }
 }
@@ -1677,7 +2022,7 @@ function scheduleTwitchRefresh() {
   // Refresh 60s before expiry or in 1s if already expired
   const refreshIn = Math.max(1000, msUntilExpiry - 60000);
   twitchRefreshTimer = setTimeout(() => {
-    refreshTwitchToken().catch(err => console.error('Scheduled refresh failed:', err));
+    refreshTwitchToken().catch((err) => console.error("Scheduled refresh failed:", err));
   }, refreshIn);
 }
 
@@ -1702,8 +2047,9 @@ function getInstructionsMessage() {
   parts.push(`Use "${PREFIX}${REQUEST_ID_COMMAND} <songID>" to request a song.`);
   parts.push(`Use "${PREFIX}queue" to view the next 5 songs in the request queue.`);
   parts.push(`Use "${PREFIX}help" to display these usage instructions.`);
-  if (PUBLIC_URL) parts.push(`Visit ${PUBLIC_URL} for a more robust song browse and search experience.`);
-  return parts.join(' ');
+  if (PUBLIC_URL)
+    parts.push(`Visit ${PUBLIC_URL} for a more robust song browse and search experience.`);
+  return parts.join(" ");
 }
 
 async function postInstructionsOnce() {
@@ -1713,7 +2059,7 @@ async function postInstructionsOnce() {
   try {
     await sendChatMessage(twitchClient, channel, getInstructionsMessage());
   } catch (e) {
-    console.error('Failed to post instructions:', e && e.message ? e.message : e);
+    console.error("Failed to post instructions:", e && e.message ? e.message : e);
   }
 }
 
@@ -1735,9 +2081,12 @@ function scheduleInstructions() {
   }
   // Post immediately once, then schedule repeating posts every N minutes.
   postInstructionsOnce().catch(() => {});
-  instructionsTimer = setInterval(() => {
-    postInstructionsOnce().catch(() => {});
-  }, minutes * 60 * 1000);
+  instructionsTimer = setInterval(
+    () => {
+      postInstructionsOnce().catch(() => {});
+    },
+    minutes * 60 * 1000,
+  );
 }
 
 async function startTmiClient(cfg) {
@@ -1747,58 +2096,73 @@ async function startTmiClient(cfg) {
   }
 
   if (twitchClient) {
-    try { await twitchClient.disconnect(); } catch (e) {}
+    try {
+      await twitchClient.disconnect();
+    } catch (e) {}
     twitchClient = null;
   }
 
-  const identityPassword = String(cfg.accessToken).startsWith("oauth:") ? cfg.accessToken : `oauth:${cfg.accessToken}`;
+  const identityPassword = String(cfg.accessToken).startsWith("oauth:")
+    ? cfg.accessToken
+    : `oauth:${cfg.accessToken}`;
   const client = new tmi.Client({
     options: { debug: false },
-    identity: { username: cfg.username || (cfg.channel || "").replace(/^#/, ""), password: identityPassword },
-    channels: [cfg.channel]
+    identity: {
+      username: cfg.username || (cfg.channel || "").replace(/^#/, ""),
+      password: identityPassword,
+    },
+    channels: [cfg.channel],
   });
 
   twitchClient = client;
   const expectedChannel = `#${String(cfg.channel).replace(/^#/, "").toLowerCase()}`;
-  client.once("roomstate", channel => {
+  client.once("roomstate", (channel) => {
     if (String(channel).toLowerCase() === expectedChannel) {
-      console.log(`Twitch channel join confirmed for ${channel}; any nearby "No response from Twitch." message can probably be safely ignored.`);
+      console.log(
+        `Twitch channel join confirmed for ${channel}; any nearby "No response from Twitch." message can probably be safely ignored.`,
+      );
     }
   });
   try {
     await client.connect();
     client.on("error", (context, error) => {
       const text = error instanceof Error ? error.message : String(error);
-      console.error(`[tmi] Client error${context ? ` (${context})` : ''}: ${text}`);
-      });
+      console.error(`[tmi] Client error${context ? ` (${context})` : ""}: ${text}`);
+    });
 
-      // CRITICAL for whisper debugging: tmi.js reports whisper delivery failures
-      // as "notice" events (whisper_invalid_login, whisper_restricted,
-      // whisper_restricted_recipient, whisper_limit_per_min, whisper_limit_per_sec)
-      // -- NOT as errors. And crucially, client.whisper() treats these notices as
-      // "no error" and RESOLVES the promise, so the HTTP endpoint returns 200 /
-      // shows success even though the whisper was NOT delivered. This handler is
-      // the only reliable way to detect that silent failure.
+    // CRITICAL for whisper debugging: tmi.js reports whisper delivery failures
+    // as "notice" events (whisper_invalid_login, whisper_restricted,
+    // whisper_restricted_recipient, whisper_limit_per_min, whisper_limit_per_sec)
+    // -- NOT as errors. And crucially, client.whisper() treats these notices as
+    // "no error" and RESOLVES the promise, so the HTTP endpoint returns 200 /
+    // shows success even though the whisper was NOT delivered. This handler is
+    // the only reliable way to detect that silent failure.
     const WHISPER_NOTICES = [
-        'whisper_invalid_login',
-        'whisper_invalid_self',
-        'whisper_limit_per_min',
-        'whisper_limit_per_sec',
-        'whisper_restricted',
-        'whisper_restricted_recipient',
-       ];
+      "whisper_invalid_login",
+      "whisper_invalid_self",
+      "whisper_limit_per_min",
+      "whisper_limit_per_sec",
+      "whisper_restricted",
+      "whisper_restricted_recipient",
+    ];
     client.on("notice", (channel, msgid, msg) => {
       if (WHISPER_NOTICES.includes(msgid)) {
-        console.error(`[whisper] DELIVERY FAILED: notice "${msgid}" on ${channel}. Message: ${msg}. The HTTP layer will still report success because tmi.js treats this as non-fatal.`);
-         } else {
+        console.error(
+          `[whisper] DELIVERY FAILED: notice "${msgid}" on ${channel}. Message: ${msg}. The HTTP layer will still report success because tmi.js treats this as non-fatal.`,
+        );
+      } else {
         console.log(`[tmi] Notice ${msgid} on ${channel}: ${msg}`);
-         }
-        });
+      }
+    });
     console.log(`Twitch bot connected to #${cfg.channel}`);
     // Post instructions once at startup and schedule recurring posts if configured
-    try { scheduleInstructions(); } catch (e) { console.error('Failed to schedule instructions:', e && e.message ? e.message : e); }
+    try {
+      scheduleInstructions();
+    } catch (e) {
+      console.error("Failed to schedule instructions:", e && e.message ? e.message : e);
+    }
   } catch (err) {
-    console.error('Twitch connection failed:', err && err.message ? err.message : err);
+    console.error("Twitch connection failed:", err && err.message ? err.message : err);
   }
 
   client.on("message", async (_channel, tags, message, self) => {
@@ -1821,7 +2185,11 @@ async function startTmiClient(cfg) {
     // Support requesting by numeric ID: !requestid <id>
     if (command === REQUEST_ID_COMMAND) {
       if (!arg) {
-        await sendChatMessage(client, cfg.channel, `@${display}, usage: ${PREFIX}${REQUEST_ID_COMMAND} <song id>`);
+        await sendChatMessage(
+          client,
+          cfg.channel,
+          `@${display}, usage: ${PREFIX}${REQUEST_ID_COMMAND} <song id>`,
+        );
         return;
       }
       const id = Number(arg);
@@ -1837,13 +2205,22 @@ async function startTmiClient(cfg) {
       }
 
       if (!canRequest(tags.username)) {
-        await sendChatMessage(client, cfg.channel, `@${display}, you already have the maximum number of active requests.`);
+        await sendChatMessage(
+          client,
+          cfg.channel,
+          `@${display}, you already have the maximum number of active requests.`,
+        );
         return;
       }
       try {
         // Mark this as a chat-made viewer request so prioritization logic can apply.
         const r = addRequest(id, tags.username, display, { prioritizeViewerInsertion: true });
-        await sendChatMessage(client, cfg.channel, `@${display}, added "${r.song.title}" to the request queue!`, { skipPrefix: true });
+        await sendChatMessage(
+          client,
+          cfg.channel,
+          `@${display}, added "${r.song.title}" to the request queue!`,
+          { skipPrefix: true },
+        );
       } catch (e) {
         await sendChatMessage(client, cfg.channel, `@${display}, ${e.message}`);
       }
@@ -1854,18 +2231,31 @@ async function startTmiClient(cfg) {
     if (command === "queue") {
       const queued = getQueue(5);
       if (!queued || !queued.length) {
-        await sendChatMessage(client, cfg.channel, `@${display}, the request queue is currently empty.`);
+        await sendChatMessage(
+          client,
+          cfg.channel,
+          `@${display}, the request queue is currently empty.`,
+        );
         return;
       }
       const top = queued.slice(0, 5);
-      const reply = top.map((req) => `ID:${req.song_id} Title:${req.title} Artist:${req.artist || ''} Pack:${req.pack || ''}`).join(' | ');
+      const reply = top
+        .map(
+          (req) =>
+            `ID:${req.song_id} Title:${req.title} Artist:${req.artist || ""} Pack:${req.pack || ""}`,
+        )
+        .join(" | ");
       await sendChatMessage(client, cfg.channel, `@${display}, ${reply}`);
       return;
     }
 
     if (command !== SEARCH_COMMAND) return;
     if (!arg) {
-      await sendChatMessage(client, cfg.channel, `@${display}, usage: ${PREFIX}${SEARCH_COMMAND} <song title>`);
+      await sendChatMessage(
+        client,
+        cfg.channel,
+        `@${display}, usage: ${PREFIX}${SEARCH_COMMAND} <song title>`,
+      );
       return;
     }
     // Perform the search and present results (do not auto-request on unique match).
@@ -1878,10 +2268,15 @@ async function startTmiClient(cfg) {
 
     // Present the top 5 matches in the requested compact format.
     const top = matches.slice(0, 5);
-    const reply = top.map((song) => `ID:${song.id} Title:${song.title} Artist:${song.artist || ''} Pack:${song.pack || ''}`).join(' | ');
+    const reply = top
+      .map(
+        (song) =>
+          `ID:${song.id} Title:${song.title} Artist:${song.artist || ""} Pack:${song.pack || ""}`,
+      )
+      .join(" | ");
 
     await sendChatMessage(client, cfg.channel, `@${display}, ${reply}`, {
-      maxLength: TWITCH_MAX_MESSAGE_LENGTH
+      maxLength: TWITCH_MAX_MESSAGE_LENGTH,
     });
   });
 
@@ -1893,42 +2288,52 @@ async function startTmiClient(cfg) {
 
     const decision = classifyWhisperReply(message);
 
-    if (decision === 'yes') {
+    if (decision === "yes") {
       const wasPending = pendingNomination;
       pendingNomination = null;
 
-        // Generate temp credentials
+      // Generate temp credentials
       const password = generateRandomPassword(12);
-        const passwordHash = hashModeratorPassword(password);
+      const passwordHash = hashModeratorPassword(password);
       const expiresAt = Date.now() + wasPending.tempModTime * 60 * 1000;
 
       // Store original password hash so we can restore it on expiration
-      originalModeratorPasswordHash = String(getSetting('moderatorPasswordHash', ''));
+      originalModeratorPasswordHash = String(getSetting("moderatorPasswordHash", ""));
 
       activeTempMod = {
         username: wasPending.username,
         displayname: wasPending.displayname,
         passwordHash,
-        expiresAt
+        expiresAt,
       };
 
       // Enable moderator access if not already enabled
       if (!getControlSettings().moderatorEnabled) {
-        setSetting('moderatorEnabled', true);
+        setSetting("moderatorEnabled", true);
       }
 
       try {
         // Send credentials via whisper
-        await sendWhisper(wasPending.username, `Welcome! Your temp moderator credentials:\nUsername: ${wasPending.username}\nPassword: ${password}\nLink: ${PUBLIC_URL}/requestModerator.html\nYou have ${wasPending.tempModTime} minutes.`);
+        await sendWhisper(
+          wasPending.username,
+          `Welcome! Your temp moderator credentials:\nUsername: ${wasPending.username}\nPassword: ${password}\nLink: ${PUBLIC_URL}/requestModerator.html\nYou have ${wasPending.tempModTime} minutes.`,
+        );
 
         // Announce to chat
-        await sendChatMessage(twitchClient, twitchConfig.channel, `@${wasPending.displayname} is now moderating the request queue for ${wasPending.tempModTime} minutes!`);
+        await sendChatMessage(
+          twitchClient,
+          twitchConfig.channel,
+          `@${wasPending.displayname} is now moderating the request queue for ${wasPending.tempModTime} minutes!`,
+        );
       } catch (e) {
-        console.error(`[temp-mod] Failed to send credentials to ${wasPending.username}:`, e && e.message ? e.message : e);
+        console.error(
+          `[temp-mod] Failed to send credentials to ${wasPending.username}:`,
+          e && e.message ? e.message : e,
+        );
         // Rollback on failure
         activeTempMod = null;
         if (originalModeratorPasswordHash) {
-          setSetting('moderatorPasswordHash', originalModeratorPasswordHash);
+          setSetting("moderatorPasswordHash", originalModeratorPasswordHash);
           originalModeratorPasswordHash = null;
         }
         return;
@@ -1937,25 +2342,37 @@ async function startTmiClient(cfg) {
       // Schedule expiration
       scheduleTempModExpiration();
 
-      console.log(`[temp-mod] ${wasPending.displayname} accepted temp mod nomination for ${wasPending.tempModTime} minutes.`);
-
-} else if (decision === 'no') {
+      console.log(
+        `[temp-mod] ${wasPending.displayname} accepted temp mod nomination for ${wasPending.tempModTime} minutes.`,
+      );
+    } else if (decision === "no") {
       const wasPending = pendingNomination;
       pendingNomination = null;
       try {
         await sendWhisper(wasPending.username, `No problem!`);
-        } catch (e) {
-        console.error(`[temp-mod] Failed to send rejection reply to ${wasPending.username}:`, e && e.message ? e.message : e);
-        }
+      } catch (e) {
+        console.error(
+          `[temp-mod] Failed to send rejection reply to ${wasPending.username}:`,
+          e && e.message ? e.message : e,
+        );
+      }
       console.log(`[temp-mod] ${wasPending.displayname} declined temp mod nomination.`);
-     } else {
-       // Unrecognized reply: keep the nomination pending and nudge the user.
-      console.log(`[temp-mod] ${pendingNomination.displayname} sent an unrecognized whisper reply: "${message}" (nomination kept pending).`);
+    } else {
+      // Unrecognized reply: keep the nomination pending and nudge the user.
+      console.log(
+        `[temp-mod] ${pendingNomination.displayname} sent an unrecognized whisper reply: "${message}" (nomination kept pending).`,
+      );
       try {
-        await sendWhisper(pendingNomination.username, `Please reply **Y** to accept or **N** to decline.`);
-        } catch (e) {
-        console.error(`[temp-mod] Failed to send nudge to ${pendingNomination.username}:`, e && e.message ? e.message : e);
-        }
+        await sendWhisper(
+          pendingNomination.username,
+          `Please reply **Y** to accept or **N** to decline.`,
+        );
+      } catch (e) {
+        console.error(
+          `[temp-mod] Failed to send nudge to ${pendingNomination.username}:`,
+          e && e.message ? e.message : e,
+        );
+      }
     }
   });
 
@@ -1968,7 +2385,11 @@ async function startTmiClient(cfg) {
 
 async function stopTmiClient() {
   if (twitchClient) {
-    try { await twitchClient.disconnect(); } catch (e) { /* ignore */ }
+    try {
+      await twitchClient.disconnect();
+    } catch (e) {
+      /* ignore */
+    }
     twitchClient = null;
   }
   clearInstructionsTimer();
@@ -1987,7 +2408,13 @@ async function stopTmiClient() {
   const envClientSecret = process.env.TWITCH_CLIENT_SECRET || null;
 
   if (envUsername && envOauth && envChannel) {
-    saveTwitchConfig({ username: envUsername, accessToken: String(envOauth).replace(/^oauth:/, ""), channel: envChannel, clientId: envClientId, clientSecret: envClientSecret });
+    saveTwitchConfig({
+      username: envUsername,
+      accessToken: String(envOauth).replace(/^oauth:/, ""),
+      channel: envChannel,
+      clientId: envClientId,
+      clientSecret: envClientSecret,
+    });
   }
 
   const cfg = loadTwitchConfig();
@@ -1995,7 +2422,9 @@ async function stopTmiClient() {
     startTmiClient(cfg);
     scheduleTwitchRefresh();
   } else {
-    console.warn("Twitch bot disabled: set TWITCH_USERNAME, TWITCH_OAUTH_TOKEN and TWITCH_CHANNEL, or use the control panel to connect.");
+    console.warn(
+      "Twitch bot disabled: set TWITCH_USERNAME, TWITCH_OAUTH_TOKEN and TWITCH_CHANNEL, or use the control panel to connect.",
+    );
   }
 })();
 
