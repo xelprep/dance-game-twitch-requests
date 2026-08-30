@@ -5,6 +5,14 @@ body {
   margin: 0;
   padding: 0;
 }
+/* Ensure padding on fixed-height containers is counted *inside* the height,
+   not added on top of it. With the default content-box sizing, the 20px
+   bottom padding pushed .overlay past the OBS canvas and clipped text. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 body {
   background: transparent;
   font-family:
