@@ -102,6 +102,27 @@ The temporary moderator has the same permissions as a permanent moderator (queue
 
 This feature requires `PUBLIC_URL` to be set to a valid, publicly accessible URL so the nominated user can reach the moderator page.
 
+### Whisper reply handling
+
+The user's whisper reply is interpreted permissively: only the first word is inspected, and the following all count as a decision:
+
+- **Accept (yes):** `y`, `yes`, `yeah`, `yep`, `yup`, `sure`, `ok`, `okay`, `accept`, `accepted`, `accepting`
+- **Decline (no):** `n`, `no`, `nope`, `nah`, `not`, `decline`, `declined`, `declining`
+
+Anything else is treated as an unrecognized reply: the nomination stays pending and the bot sends a nudge reminding the user to reply **Y** or **N**.
+
+### Whisper limitations (important)
+
+This feature depends on Twitch whispers, which have restrictions that are **outside the bot's control**. A nominated user may not receive the whisper even though the bot reports success:
+
+- The **sending (bot) account must have a verified phone number** — otherwise it cannot send whispers at all.
+- The recipient may have enabled **"Block whispers from strangers"**, which prevents whispers from accounts they don't follow.
+- The recipient may have **blocked the sending account** specifically.
+- The recipient may have **Do Not Disturb (DND)** enabled, which suppresses whispers.
+- Users can only receive whispers from **40 unique individuals per day**; the bot counts toward that limit, so after 40 distinct recipients in a day further whispers may be dropped.
+
+Because these are enforced by Twitch at delivery time, a whisper can appear to "succeed" on the bot's side while the user never sees it. If nominations aren't reaching users, first confirm the bot account has a verified phone number, then check the recipient's whisper/DND settings.
+
 ## Install
 
 ```bash

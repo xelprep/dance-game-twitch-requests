@@ -832,11 +832,43 @@ function generateRandomPassword(length = 12) {
   return password;
 }
 
+// Interpret a user's whisper reply to a temp-mod nomination. Returns:
+//   'yes'   - affirmative (accept the nomination)
+//   'no'    - negative (decline the nomination)
+//   'none'  - unrecognized / no decision (leave the nomination pending)
+// The first meaningful token of the message is used, so "yes please",
+// "yep", "n no", etc. all resolve correctly.
+function classifyWhisperReply(message) {
+  const text = String(message || '').trim().toLowerCase();
+  const token = text.split(/\s+/)[0];
+  if (!token) return 'none';
+  if (['y', 'yes', 'yeah', 'yep', 'yup', 'sure', 'ok', 'okay', 'accepted', 'accept', 'accepting'].includes(token)) {
+    return 'yes';
+    }
+  if (['n', 'no', 'nope', 'nah', 'not', 'decline', 'declined', 'declining'].includes(token)) {
+    return 'no';
+    }
+  return 'none';
+}
+
 async function sendWhisper(username, message) {
   if (!twitchClient) {
+    console.error(`[whisper] Attempt to send whisper to ${username} FAILED: Twitch client not connected`);
     throw new Error('Twitch client not connected');
-  }
-  await twitchClient.whisper(username, message);
+   }
+  const preview = String(message).replace(/\s+/g, ' ').trim().slice(0, 60);
+  console.log(`[whisper] Sending whisper to ${username}: "${preview}${message.length > 60 ? '…' : ''}"`);
+  try {
+    const result = await twitchClient.whisper(username, message);
+    // tmi.js resolves on a "no error within timeout" basis, which is NOT a
+    // guarantee of delivery. Log the resolution so we can correlate with the
+    // client 'error' handler below when a whisper silently fails.
+    console.log(`[whisper] Whisper to ${username} resolved by tmi.js (result: ${JSON.stringify(result)}). Note: this only means no error was emitted within the timeout window; it does NOT confirm delivery.`);
+    return result;
+   } catch (e) {
+    console.error(`[whisper] Whisper to ${username} REJECTED by tmi.js: ${e && e.message ? e.message : e}`);
+    throw e;
+   }
 }
 
 function clearTempModExpirationTimer() {
@@ -1735,6 +1767,33 @@ async function startTmiClient(cfg) {
   });
   try {
     await client.connect();
+    client.on("error", (context, error) => {
+      const text = error instanceof Error ? error.message : String(error);
+      console.error(`[tmi] Client error${context ? ` (${context})` : ''}: ${text}`);
+      });
+
+      // CRITICAL for whisper debugging: tmi.js reports whisper delivery failures
+      // as "notice" events (whisper_invalid_login, whisper_restricted,
+      // whisper_restricted_recipient, whisper_limit_per_min, whisper_limit_per_sec)
+      // -- NOT as errors. And crucially, client.whisper() treats these notices as
+      // "no error" and RESOLVES the promise, so the HTTP endpoint returns 200 /
+      // shows success even though the whisper was NOT delivered. This handler is
+      // the only reliable way to detect that silent failure.
+    const WHISPER_NOTICES = [
+        'whisper_invalid_login',
+        'whisper_invalid_self',
+        'whisper_limit_per_min',
+        'whisper_limit_per_sec',
+        'whisper_restricted',
+        'whisper_restricted_recipient',
+       ];
+    client.on("notice", (channel, msgid, msg) => {
+      if (WHISPER_NOTICES.includes(msgid)) {
+        console.error(`[whisper] DELIVERY FAILED: notice "${msgid}" on ${channel}. Message: ${msg}. The HTTP layer will still report success because tmi.js treats this as non-fatal.`);
+         } else {
+        console.log(`[tmi] Notice ${msgid} on ${channel}: ${msg}`);
+         }
+        });
     console.log(`Twitch bot connected to #${cfg.channel}`);
     // Post instructions once at startup and schedule recurring posts if configured
     try { scheduleInstructions(); } catch (e) { console.error('Failed to schedule instructions:', e && e.message ? e.message : e); }
@@ -1832,14 +1891,15 @@ async function startTmiClient(cfg) {
     const fromUsername = from.toLowerCase();
     if (fromUsername !== pendingNomination.username) return;
 
-    const reply = message.trim().toUpperCase();
-    const wasPending = pendingNomination;
-    pendingNomination = null;
+    const decision = classifyWhisperReply(message);
 
-    if (reply === "Y") {
-      // Generate temp credentials
+    if (decision === 'yes') {
+      const wasPending = pendingNomination;
+      pendingNomination = null;
+
+        // Generate temp credentials
       const password = generateRandomPassword(12);
-      const passwordHash = hashModeratorPassword(password);
+        const passwordHash = hashModeratorPassword(password);
       const expiresAt = Date.now() + wasPending.tempModTime * 60 * 1000;
 
       // Store original password hash so we can restore it on expiration
@@ -1879,13 +1939,23 @@ async function startTmiClient(cfg) {
 
       console.log(`[temp-mod] ${wasPending.displayname} accepted temp mod nomination for ${wasPending.tempModTime} minutes.`);
 
-    } else if (reply === "N") {
+} else if (decision === 'no') {
+      const wasPending = pendingNomination;
+      pendingNomination = null;
       try {
         await sendWhisper(wasPending.username, `No problem!`);
-      } catch (e) {
+        } catch (e) {
         console.error(`[temp-mod] Failed to send rejection reply to ${wasPending.username}:`, e && e.message ? e.message : e);
-      }
+        }
       console.log(`[temp-mod] ${wasPending.displayname} declined temp mod nomination.`);
+     } else {
+       // Unrecognized reply: keep the nomination pending and nudge the user.
+      console.log(`[temp-mod] ${pendingNomination.displayname} sent an unrecognized whisper reply: "${message}" (nomination kept pending).`);
+      try {
+        await sendWhisper(pendingNomination.username, `Please reply **Y** to accept or **N** to decline.`);
+        } catch (e) {
+        console.error(`[temp-mod] Failed to send nudge to ${pendingNomination.username}:`, e && e.message ? e.message : e);
+        }
     }
   });
 
