@@ -1,75 +1,100 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Twitch Connect</title>
-<link rel="stylesheet" href="/style.css">
-</head>
-<body>
-<main>
-  <h1>Completing Twitch connection…</h1>
-  <div id="status">Working...</div>
-  <div id="manual" style="display:none">
-    <p>If automatic completion failed, paste your Client ID and Client Secret below to finish the setup.</p>
-    <input id="clientId" placeholder="Client ID"><br>
-    <input id="clientSecret" placeholder="Client Secret"><br>
-    <button id="finish">Finish Connect</button>
-    <p class="small muted">Important: After a successful exchange the server will persist the Client Secret, access and refresh tokens to <code>data/twitch.json</code> so it can automatically refresh tokens. Ensure that file is stored securely on the server. Use the Disconnect button in the control panel to remove stored credentials.</p>
-  </div>
-  <p><a href="/">Back to control panel</a></p>
-</main>
-<script>
-function qs(name) {
-  const p = new URLSearchParams(window.location.search);
-  return p.get(name);
-}
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Twitch Connect</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Completing Twitch connection…</h1>
+      <div id="status">Working...</div>
+      <div id="manual" style="display: none">
+        <p>
+          If automatic completion failed, paste your Client ID and Client Secret below to finish the
+          setup.
+        </p>
+        <input id="clientId" placeholder="Client ID" /><br />
+        <input id="clientSecret" placeholder="Client Secret" /><br />
+        <button id="finish">Finish Connect</button>
+        <p class="small muted">
+          Important: After a successful exchange the server will persist the Client Secret, access
+          and refresh tokens to <code>data/twitch.json</code> so it can automatically refresh
+          tokens. Ensure that file is stored securely on the server. Use the Disconnect button in
+          the control panel to remove stored credentials.
+        </p>
+      </div>
+      <p><a href="/">Back to control panel</a></p>
+    </main>
+    <script>
+      function qs(name) {
+        const p = new URLSearchParams(window.location.search);
+        return p.get(name);
+      }
 
-async function api(url, options = {}) {
-  const res = await fetch(url, { headers: { 'Content-Type': 'application/json', ...(options.headers||{}) }, ...options });
-  return res.json();
-}
+      async function api(url, options = {}) {
+        const res = await fetch(url, {
+          headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+          ...options,
+        });
+        return res.json();
+      }
 
-async function finishWith(clientId, clientSecret) {
-  const code = qs('code');
-  const redirectUri = `${location.origin}/twitch-callback.html`;
-  if (!code) { document.getElementById('status').textContent = 'No code present in the URL.'; document.getElementById('manual').style.display='block'; return; }
-  try {
-    document.getElementById('status').textContent = 'Exchanging code for token...';
-    const channel = sessionStorage.getItem('twitch_channel') || undefined;
-    const r = await api('/api/twitch/exchange', { method: 'POST', body: JSON.stringify({ code, clientId, clientSecret, redirectUri, channel }) });
-    if (r && r.ok) {
-      document.getElementById('status').textContent = 'Connected as ' + (r.cfg && r.cfg.username ? r.cfg.username : 'unknown') + ' to #' + (r.cfg && r.cfg.channel ? r.cfg.channel : 'unknown') + '. You can return to the control panel.';
-    } else {
-      document.getElementById('status').textContent = 'Connection failed: ' + (r && r.error ? r.error : JSON.stringify(r));
-      document.getElementById('manual').style.display='block';
-    }
-  } catch (e) {
-    document.getElementById('status').textContent = 'Error: ' + e.message;
-    document.getElementById('manual').style.display='block';
-  }
-}
+      async function finishWith(clientId, clientSecret) {
+        const code = qs("code");
+        const redirectUri = `${location.origin}/twitch-callback.html`;
+        if (!code) {
+          document.getElementById("status").textContent = "No code present in the URL.";
+          document.getElementById("manual").style.display = "block";
+          return;
+        }
+        try {
+          document.getElementById("status").textContent = "Exchanging code for token...";
+          const channel = sessionStorage.getItem("twitch_channel") || undefined;
+          const r = await api("/api/twitch/exchange", {
+            method: "POST",
+            body: JSON.stringify({ code, clientId, clientSecret, redirectUri, channel }),
+          });
+          if (r && r.ok) {
+            document.getElementById("status").textContent =
+              "Connected as " +
+              (r.cfg && r.cfg.username ? r.cfg.username : "unknown") +
+              " to #" +
+              (r.cfg && r.cfg.channel ? r.cfg.channel : "unknown") +
+              ". You can return to the control panel.";
+          } else {
+            document.getElementById("status").textContent =
+              "Connection failed: " + (r && r.error ? r.error : JSON.stringify(r));
+            document.getElementById("manual").style.display = "block";
+          }
+        } catch (e) {
+          document.getElementById("status").textContent = "Error: " + e.message;
+          document.getElementById("manual").style.display = "block";
+        }
+      }
 
-window.addEventListener('load', async () => {
-  const clientId = sessionStorage.getItem('twitch_clientId');
-  const clientSecret = sessionStorage.getItem('twitch_clientSecret');
-  if (clientId && clientSecret) {
-    await finishWith(clientId, clientSecret);
-    // clear secrets from sessionStorage after use
-    sessionStorage.removeItem('twitch_clientSecret');
-    // leave clientId for convenience
-  } else {
-    document.getElementById('status').textContent = 'Client credentials not found in this browser session.';
-    document.getElementById('manual').style.display='block';
-  }
+      window.addEventListener("load", async () => {
+        const clientId = sessionStorage.getItem("twitch_clientId");
+        const clientSecret = sessionStorage.getItem("twitch_clientSecret");
+        if (clientId && clientSecret) {
+          await finishWith(clientId, clientSecret);
+          // clear secrets from sessionStorage after use
+          sessionStorage.removeItem("twitch_clientSecret");
+          // leave clientId for convenience
+        } else {
+          document.getElementById("status").textContent =
+            "Client credentials not found in this browser session.";
+          document.getElementById("manual").style.display = "block";
+        }
 
-  document.getElementById('finish').onclick = async () => {
-    const cid = document.getElementById('clientId').value.trim();
-    const csec = document.getElementById('clientSecret').value.trim();
-    if (!cid || !csec) return alert('Client ID and secret required');
-    await finishWith(cid, csec);
-  };
-});
-</script>
-</body>
+        document.getElementById("finish").onclick = async () => {
+          const cid = document.getElementById("clientId").value.trim();
+          const csec = document.getElementById("clientSecret").value.trim();
+          if (!cid || !csec) return alert("Client ID and secret required");
+          await finishWith(cid, csec);
+        };
+      });
+    </script>
+  </body>
 </html>

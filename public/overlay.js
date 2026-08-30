@@ -1,15 +1,20 @@
 // Overlay script: listens for server-sent events with the queue and updates the multi-line display.
-const $ = id => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 
-function escapeHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function escapeHtml(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 
-function formatNowPlaying(song){
-  if(!song) return '';
-  const title = escapeHtml(song.title || '(unknown)');
-  const subtitle = escapeHtml((song.subtitle || '').replace(/^\(+|\)+$/g, ''));
-  const artist = escapeHtml(song.artist || '(unknown artist)');
-  const pack = escapeHtml(song.pack || 'Unknown Pack');
-  const requester = escapeHtml(song.requested_display || song.requested_by || 'unknown');
+function formatNowPlaying(song) {
+  if (!song) return "";
+  const title = escapeHtml(song.title || "(unknown)");
+  const subtitle = escapeHtml((song.subtitle || "").replace(/^\(+|\)+$/g, ""));
+  const artist = escapeHtml(song.artist || "(unknown artist)");
+  const pack = escapeHtml(song.pack || "Unknown Pack");
+  const requester = escapeHtml(song.requested_display || song.requested_by || "unknown");
   const titleLine = subtitle ? `${title} (${subtitle})` : title;
   return `
     <div class="queue-lines">
@@ -21,8 +26,8 @@ function formatNowPlaying(song){
   `;
 }
 
-function formatQueue(queue){
-  if(!queue || !queue.length){
+function formatQueue(queue) {
+  if (!queue || !queue.length) {
     return `
       <div class="queue-empty-state">
         <div class="queue-empty-row"></div>
@@ -38,16 +43,22 @@ function formatQueue(queue){
 
   return `
     <div class="queue-stack">
-      ${visible.map((r, index) => {
-        const title = escapeHtml(r.title || '(unknown)');
-        const subtitle = escapeHtml((r.subtitle || '').replace(/^\(+|\)+$/g, ''));
-        const artist = escapeHtml(r.artist || '(unknown artist)');
-        const pack = escapeHtml(r.pack || 'Unknown Pack');
-        const requester = escapeHtml(r.requested_display || r.requested_by || 'unknown');
-        const titleLine = subtitle ? `${title} (${subtitle})` : `${title}`;
-        const entryClass = index === 0 ? 'queue-entry queue-entry--primary' : index === 1 ? 'queue-entry queue-entry--secondary' : 'queue-entry queue-entry--tertiary';
+      ${visible
+        .map((r, index) => {
+          const title = escapeHtml(r.title || "(unknown)");
+          const subtitle = escapeHtml((r.subtitle || "").replace(/^\(+|\)+$/g, ""));
+          const artist = escapeHtml(r.artist || "(unknown artist)");
+          const pack = escapeHtml(r.pack || "Unknown Pack");
+          const requester = escapeHtml(r.requested_display || r.requested_by || "unknown");
+          const titleLine = subtitle ? `${title} (${subtitle})` : `${title}`;
+          const entryClass =
+            index === 0
+              ? "queue-entry queue-entry--primary"
+              : index === 1
+                ? "queue-entry queue-entry--secondary"
+                : "queue-entry queue-entry--tertiary";
 
-        return `
+          return `
           <div class="${entryClass}">
             <div class="queue-lines">
               <div class="queue-line queue-line-title">${titleLine}</div>
@@ -55,12 +66,15 @@ function formatQueue(queue){
               <div class="queue-line queue-line-pack">${pack}</div>
               <div class="queue-line queue-line-requester">Requested by: @${requester}</div>
             </div>
-            ${index < visible.length - 1 ? '<div class="queue-divider" aria-hidden="true"></div>' : ''}
+            ${index < visible.length - 1 ? '<div class="queue-divider" aria-hidden="true"></div>' : ""}
           </div>
         `;
-      }).join('')}
+        })
+        .join("")}
 
-      ${remaining > 0 ? `
+      ${
+        remaining > 0
+          ? `
         <div class="queue-divider" aria-hidden="true"></div>
         <div class="queue-entry queue-entry--more">
           <div class="queue-lines">
@@ -70,67 +84,76 @@ function formatQueue(queue){
             <div class="queue-line">&nbsp;</div>
           </div>
         </div>
-      ` : ''}
+      `
+          : ""
+      }
     </div>
   `;
 }
 
-function updateQueue(queue){
+function updateQueue(queue) {
   const msgEl = $("message");
   const msg = formatQueue(queue);
   msgEl.innerHTML = msg;
-  msgEl.classList.remove('queue-animate');
+  msgEl.classList.remove("queue-animate");
   void msgEl.offsetWidth;
-  msgEl.classList.add('queue-animate');
+  msgEl.classList.add("queue-animate");
 }
 
-function updateNowPlaying(data){
+function updateNowPlaying(data) {
   const npEl = $("now-playing");
   const npSection = $("now-playing-section");
   const divider = $("section-divider");
-  if(data){
-    npSection.style.display = 'flex';
-    divider.style.display = 'block';
+  if (data) {
+    npSection.style.display = "flex";
+    divider.style.display = "block";
     npEl.innerHTML = formatNowPlaying(data);
   } else {
-    npSection.style.display = 'none';
-    divider.style.display = 'none';
+    npSection.style.display = "none";
+    divider.style.display = "none";
   }
 }
 
-function updateOverlay(nowPlaying, queue){
+function updateOverlay(nowPlaying, queue) {
   updateNowPlaying(nowPlaying);
   updateQueue(queue);
 }
 
 // Try EventSource first; fall back to polling if not available.
-function startSSE(){
-  try{
-    const s = new EventSource('/overlay/queue/stream');
-    s.addEventListener('message', (ev)=>{
-      try{ const data = JSON.parse(ev.data); updateQueue(data); } catch(e){ console.error('Failed to parse SSE data', e); }
+function startSSE() {
+  try {
+    const s = new EventSource("/overlay/queue/stream");
+    s.addEventListener("message", (ev) => {
+      try {
+        const data = JSON.parse(ev.data);
+        updateQueue(data);
+      } catch (e) {
+        console.error("Failed to parse SSE data", e);
+      }
     });
-    s.addEventListener('error', (e)=>{
+    s.addEventListener("error", (e) => {
       // On error, EventSource will retry automatically. If closed, fallback to polling.
-      console.warn('SSE error', e);
+      console.warn("SSE error", e);
     });
     return true;
-  }catch(e){
-    console.warn('SSE unavailable, falling back to polling', e);
+  } catch (e) {
+    console.warn("SSE unavailable, falling back to polling", e);
     return false;
   }
 }
 
-async function pollNowPlaying(){
-  try{
-    const resp = await fetch('/api/now-playing');
-    if(!resp.ok) throw new Error('Failed');
+async function pollNowPlaying() {
+  try {
+    const resp = await fetch("/api/now-playing");
+    if (!resp.ok) throw new Error("Failed");
     const data = await resp.json();
     updateNowPlaying(data);
-  }catch(e){ /* ignore polling errors */ }
+  } catch (e) {
+    /* ignore polling errors */
+  }
 }
 
-if(!startSSE()){
+if (!startSSE()) {
   poll();
   setInterval(poll, 1000);
 } else {

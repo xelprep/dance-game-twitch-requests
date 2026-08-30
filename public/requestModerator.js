@@ -1,9 +1,9 @@
-const $ = id => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 
 async function api(url, options = {}) {
   const res = await fetch(url, {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options
+    ...options,
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Request failed");
@@ -11,8 +11,10 @@ async function api(url, options = {}) {
 }
 
 function esc(v) {
-  return String(v ?? "").replace(/[&<>"']/g, c =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[c]);
+  return String(v ?? "").replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[c],
+  );
 }
 
 function toast(msg) {
@@ -24,15 +26,16 @@ function toast(msg) {
 }
 
 function formatCharts(charts) {
-  const groups = [...new Set((charts || []).map(c => c.chartType))]
+  const groups = [...new Set((charts || []).map((c) => c.chartType))]
     .sort((a, b) => b.localeCompare(a))
-    .map(style => {
+    .map((style) => {
       const entries = charts
-        .filter(c => c.chartType === style)
+        .filter((c) => c.chartType === style)
         .sort((a, b) => Number(a.meter) - Number(b.meter))
-        .map(c => `${c.difficulty || "?"} ${c.meter || ""}`.trim())
+        .map((c) => `${c.difficulty || "?"} ${c.meter || ""}`.trim())
         .join(", ");
-      const label = style === "dance-single" ? "Single" : style === "dance-double" ? "Double" : style;
+      const label =
+        style === "dance-single" ? "Single" : style === "dance-double" ? "Double" : style;
       return entries ? `${label}: ${entries}` : "";
     })
     .filter(Boolean);
@@ -65,15 +68,15 @@ let searchPage = 1;
 let searchTotalPages = 1;
 
 function updateSearchPager() {
-  ["search-prev", "search-prev-bottom"].forEach(id => {
+  ["search-prev", "search-prev-bottom"].forEach((id) => {
     const el = $(id);
     if (el) el.disabled = searchPage <= 1;
   });
-  ["search-next", "search-next-bottom"].forEach(id => {
+  ["search-next", "search-next-bottom"].forEach((id) => {
     const el = $(id);
     if (el) el.disabled = searchPage >= searchTotalPages;
   });
-  ["pageInfo", "pageInfo-bottom"].forEach(id => {
+  ["pageInfo", "pageInfo-bottom"].forEach((id) => {
     const el = $(id);
     if (el) el.textContent = `Page ${searchPage} of ${searchTotalPages}`;
   });
@@ -120,7 +123,7 @@ async function loadSongs(page = 1) {
       return;
     }
 
-    songs.forEach(song => results.appendChild(songCard(song)));
+    songs.forEach((song) => results.appendChild(songCard(song)));
     updateSearchPager();
   } catch (e) {
     results.textContent = e.message;
@@ -133,13 +136,14 @@ async function render() {
     api("/api/stats"),
     api("/api/now-playing"),
     api("/api/queue"),
-    api("/api/moderator/settings")
+    api("/api/moderator/settings"),
   ]);
   const [statsResult, nowResult, queueResult, settingsResult] = results;
 
   if (statsResult.status === "fulfilled") {
     const stats = statsResult.value;
-    $("stats").textContent = `${stats.songs.toLocaleString()} songs • ${stats.queued} queued • ${stats.playing} playing`;
+    $("stats").textContent =
+      `${stats.songs.toLocaleString()} songs • ${stats.queued} queued • ${stats.playing} playing`;
   }
 
   if (nowResult.status === "fulfilled") {
@@ -152,7 +156,8 @@ async function render() {
       window._nowPlayingId = null;
       if (completeBtn) completeBtn.disabled = true;
     }
-    $("now").innerHTML = now ? `
+    $("now").innerHTML = now
+      ? `
       <div class="now-card">
         <div>
           <strong>${esc(now.title)}</strong>
@@ -161,14 +166,18 @@ async function render() {
           <small>${esc(formatCharts(now.charts))}</small>
           <small>requested by ${esc(now.requested_display)}</small>
         </div>
-      </div>` : "Nothing playing.";
+      </div>`
+      : "Nothing playing.";
   } else {
     $("now").textContent = nowResult.reason.message;
   }
 
   if (queueResult.status === "fulfilled") {
     const queue = queueResult.value;
-    $("queue").innerHTML = queue.length ? queue.map((r, i) => `
+    $("queue").innerHTML = queue.length
+      ? queue
+          .map(
+            (r, i) => `
       <article class="request">
         <div class="rank">${i + 1}</div>
         <div class="info">
@@ -176,7 +185,7 @@ async function render() {
           ${r.subtitle ? `<span class="subtitle">${esc(r.subtitle)}</span>` : ""}
           <span>${esc(r.artist)}${r.pack ? " • " + esc(r.pack) : ""}</span>
           <small>${esc(formatCharts(r.charts))}</small>
-          <small>Requested by ${esc(r.requested_display)}${(String(r.requested_by || "").toLowerCase() === "streamer") ? " (Control Panel)" : ""}</small>
+          <small>Requested by ${esc(r.requested_display)}${String(r.requested_by || "").toLowerCase() === "streamer" ? " (Control Panel)" : ""}</small>
         </div>
         <div class="row-actions">
           <button onclick="move(${r.id},'up')">↑</button>
@@ -185,29 +194,32 @@ async function render() {
           <button onclick="skip(${r.id})">Skip</button>
         </div>
       </article>
-    `).join("") : '<p class="muted">Queue is empty.</p>';
+    `,
+          )
+          .join("")
+      : '<p class="muted">Queue is empty.</p>';
   } else {
     $("queue").textContent = queueResult.reason.message;
   }
 
   if (settingsResult.status === "fulfilled") {
     const settings = settingsResult.value;
-    ["prioritizeViewerRequests", "chatRequestsEnabled"].forEach(key => {
+    ["prioritizeViewerRequests", "chatRequestsEnabled"].forEach((key) => {
       const el = $(key);
       if (el) el.checked = !!settings[key];
     });
     const roleEl = $("chatRequestsRequireRole");
-    if (roleEl) roleEl.value = settings.chatRequestsRequireRole || '';
+    if (roleEl) roleEl.value = settings.chatRequestsRequireRole || "";
     const allowChat = !!settings.chatRequestsEnabled;
     if (roleEl) roleEl.disabled = !allowChat;
   }
 }
 
-window.addToQueue = async songId => {
+window.addToQueue = async (songId) => {
   try {
     const result = await api("/api/moderator/request", {
       method: "POST",
-      body: JSON.stringify({ songId })
+      body: JSON.stringify({ songId }),
     });
     toast(`Added ${result.request.song.title}.`);
     render();
@@ -217,7 +229,7 @@ window.addToQueue = async songId => {
   }
 };
 
-window.play = async id => {
+window.play = async (id) => {
   try {
     await api(`/api/moderator/queue/${id}/play`, { method: "POST" });
     toast("Playing request.");
@@ -227,7 +239,7 @@ window.play = async id => {
   }
 };
 
-window.skip = async id => {
+window.skip = async (id) => {
   try {
     await api(`/api/moderator/queue/${id}/skip`, { method: "POST" });
     toast("Skipped.");
@@ -241,7 +253,7 @@ window.move = async (id, direction) => {
   try {
     await api(`/api/moderator/queue/${id}/move`, {
       method: "POST",
-      body: JSON.stringify({ direction })
+      body: JSON.stringify({ direction }),
     });
     render();
   } catch (error) {
@@ -249,7 +261,7 @@ window.move = async (id, direction) => {
   }
 };
 
-window.complete = async id => {
+window.complete = async (id) => {
   try {
     await api(`/api/moderator/queue/${id}/complete`, { method: "POST" });
     toast("Marked complete.");
@@ -281,14 +293,20 @@ $("clear").onclick = async () => {
 
 $("refresh").onclick = render;
 
-["search-prev", "search-prev-bottom"].forEach(id => {
+["search-prev", "search-prev-bottom"].forEach((id) => {
   const el = $(id);
-  if (el) el.onclick = () => { if (searchPage > 1) loadSongs(searchPage - 1); };
+  if (el)
+    el.onclick = () => {
+      if (searchPage > 1) loadSongs(searchPage - 1);
+    };
 });
 
-["search-next", "search-next-bottom"].forEach(id => {
+["search-next", "search-next-bottom"].forEach((id) => {
   const el = $(id);
-  if (el) el.onclick = () => { if (searchPage < searchTotalPages) loadSongs(searchPage + 1); };
+  if (el)
+    el.onclick = () => {
+      if (searchPage < searchTotalPages) loadSongs(searchPage + 1);
+    };
 });
 
 $("search").oninput = () => {
@@ -298,27 +316,46 @@ $("search").oninput = () => {
 
 $("reset-search").onclick = () => {
   $("search").value = "";
-  ["filter-pack", "filter-genre", "filter-style", "filter-difficulty", "filter-meter-min", "filter-meter-max", "sort-field", "sort-order"].forEach(id => {
+  [
+    "filter-pack",
+    "filter-genre",
+    "filter-style",
+    "filter-difficulty",
+    "filter-meter-min",
+    "filter-meter-max",
+    "sort-field",
+    "sort-order",
+  ].forEach((id) => {
     const el = $(id);
     if (el) el.selectedIndex = 0;
   });
   loadSongs(1);
 };
 
-["filter-pack", "filter-genre", "filter-style", "filter-difficulty", "filter-meter-min", "filter-meter-max", "sort-field", "sort-order", "per-page"].forEach(id => {
+[
+  "filter-pack",
+  "filter-genre",
+  "filter-style",
+  "filter-difficulty",
+  "filter-meter-min",
+  "filter-meter-max",
+  "sort-field",
+  "sort-order",
+  "per-page",
+].forEach((id) => {
   const el = $(id);
   if (el) el.onchange = () => loadSongs(1);
 });
 
-["prioritizeViewerRequests", "chatRequestsEnabled", "chatRequestsRequireRole"].forEach(key => {
+["prioritizeViewerRequests", "chatRequestsEnabled", "chatRequestsRequireRole"].forEach((key) => {
   const el = $(key);
   if (el) {
     el.onchange = async () => {
       try {
-        const value = el.type === 'checkbox' ? el.checked : el.value;
+        const value = el.type === "checkbox" ? el.checked : el.value;
         await api("/api/moderator/settings", {
           method: "POST",
-          body: JSON.stringify({ [key]: value })
+          body: JSON.stringify({ [key]: value }),
         });
         toast("Settings saved");
       } catch (error) {
@@ -337,40 +374,48 @@ async function getFilters() {
     const meterMinSel = $("filter-meter-min");
     const meterMaxSel = $("filter-meter-max");
 
-    packSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
-    genreSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
-    diffSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
-    meterMinSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
-    meterMaxSel.querySelectorAll('option:not([value=""])').forEach(option => option.remove());
+    packSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    genreSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    diffSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    meterMinSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    meterMaxSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
 
-    const sortAlpha = (a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: "base" });
+    const sortAlpha = (a, b) =>
+      String(a).localeCompare(String(b), undefined, { sensitivity: "base" });
 
-    [...(filters.packs || [])].sort((a, b) => sortAlpha(a.pack, b.pack)).forEach(p => {
-      const option = document.createElement("option");
-      option.value = p.pack;
-      option.textContent = `${p.pack} (${p.count})`;
-      packSel.appendChild(option);
-    });
+    [...(filters.packs || [])]
+      .sort((a, b) => sortAlpha(a.pack, b.pack))
+      .forEach((p) => {
+        const option = document.createElement("option");
+        option.value = p.pack;
+        option.textContent = `${p.pack} (${p.count})`;
+        packSel.appendChild(option);
+      });
 
-    [...(filters.genres || [])].sort((a, b) => sortAlpha(a.genre, b.genre)).forEach(g => {
-      const option = document.createElement("option");
-      option.value = g.genre;
-      option.textContent = `${g.genre} (${g.count})`;
-      genreSel.appendChild(option);
-    });
+    [...(filters.genres || [])]
+      .sort((a, b) => sortAlpha(a.genre, b.genre))
+      .forEach((g) => {
+        const option = document.createElement("option");
+        option.value = g.genre;
+        option.textContent = `${g.genre} (${g.count})`;
+        genreSel.appendChild(option);
+      });
 
-    [...(filters.difficulties || [])].sort((a, b) => sortAlpha(a.difficulty, b.difficulty)).forEach(d => {
-      const option = document.createElement("option");
-      option.value = d.difficulty;
-      option.textContent = `${d.difficulty} (${d.count})`;
-      diffSel.appendChild(option);
-    });
+    [...(filters.difficulties || [])]
+      .sort((a, b) => sortAlpha(a.difficulty, b.difficulty))
+      .forEach((d) => {
+        const option = document.createElement("option");
+        option.value = d.difficulty;
+        option.textContent = `${d.difficulty} (${d.count})`;
+        diffSel.appendChild(option);
+      });
 
-    const meters = (filters.meters || []).map(m => ({ meter: Number(m.meter), count: m.count }))
-      .filter(m => !Number.isNaN(m.meter))
+    const meters = (filters.meters || [])
+      .map((m) => ({ meter: Number(m.meter), count: m.count }))
+      .filter((m) => !Number.isNaN(m.meter))
       .sort((a, b) => a.meter - b.meter);
 
-    meters.forEach(m => {
+    meters.forEach((m) => {
       const optMin = document.createElement("option");
       optMin.value = String(m.meter);
       optMin.textContent = String(m.meter);
@@ -386,6 +431,10 @@ async function getFilters() {
   }
 }
 
-getFilters().then(() => { loadSongs(); render(); }).catch(error => toast(error.message));
+getFilters()
+  .then(() => {
+    loadSongs();
+    render();
+  })
+  .catch((error) => toast(error.message));
 setInterval(render, 5000);
-

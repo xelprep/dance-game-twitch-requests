@@ -6,7 +6,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "scan": "node scanner.js"
+    "scan": "node scanner.js",
+    "format": "prettier --write \"**/*.{js,css,html,md}\" --ignore-path .prettierignore",
+    "format:check": "prettier --check \"**/*.{js,css,html,md}\" --ignore-path .prettierignore"
   },
   "engines": {
     "node": ">=20"
@@ -21,5 +23,8 @@
   },
   "allowScripts": {
     "better-sqlite3@13.0.3": true
+  },
+  "devDependencies": {
+    "prettier": "^3.9.6"
   }
 }
