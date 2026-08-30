@@ -17,12 +17,12 @@ A small local application that:
 - Node.js 20+
 - A local dance game Songs directory that contains .sm/.ssc simfiles
 - A Twitch app
-  - Go to dev.twitch.com and register an application 
+  - Go to dev.twitch.com and register an application
   - Give it any name
   - Set OAuth Redirect URL to https://localhost:3001/twitch-callback.html
   - Set Category to Chat Bot
   - Set Client Type to Confidential
-  - Make note of the Client ID and generate a Client Secret as these will be needed later to authoriza the tool to read and write to your chat 
+  - Make note of the Client ID and generate a Client Secret as these will be needed later to authoriza the tool to read and write to your chat
 
 ## Ports
 
@@ -85,6 +85,44 @@ When enabled, the page uses its own HTTP Basic Authentication credentials and pr
 
 The moderator username is used as the `Requested By` display name for requests made through this interface. The password is stored as a one-way hash in the local settings database.
 
+## Temporary moderator nomination
+
+When `PUBLIC_URL` is set to a publicly accessible URL (not localhost), the streamer control panel shows a **Temporary Moderator** section. This lets you nominate a viewer from your Twitch chat to moderate the request queue for a set period (1–60 minutes, default 15).
+
+**Flow:**
+
+1. The control panel shows a live list of users who have recently messaged in chat (5-minute timeout).
+2. Select a user, set the duration, and click **Nominate**.
+3. The bot sends a Twitch whisper to that user asking if they'd like to moderate. There's a 60-second cooldown between nominations.
+4. If the user replies **Y**, the bot generates temporary credentials and sends them via whisper, including the link to `/requestModerator.html`. A chat announcement is posted.
+5. If the user replies **N**, you can immediately nominate someone else.
+6. When the time expires, the user's credentials are invalidated and a chat announcement is posted.
+
+The temporary moderator has the same permissions as a permanent moderator (queue management, song search, unlimited requests, chat restriction settings). They cannot configure Twitch, rescan songs, or manage blacklists.
+
+This feature requires `PUBLIC_URL` to be set to a valid, publicly accessible URL so the nominated user can reach the moderator page.
+
+### Whisper reply handling
+
+The user's whisper reply is interpreted permissively: only the first word is inspected, and the following all count as a decision:
+
+- **Accept (yes):** `y`, `yes`, `yeah`, `yep`, `yup`, `sure`, `ok`, `okay`, `accept`, `accepted`, `accepting`
+- **Decline (no):** `n`, `no`, `nope`, `nah`, `not`, `decline`, `declined`, `declining`
+
+Anything else is treated as an unrecognized reply: the nomination stays pending and the bot sends a nudge reminding the user to reply **Y** or **N**.
+
+### Whisper limitations (important)
+
+This feature depends on Twitch whispers, which have restrictions that are **outside the bot's control**. A nominated user may not receive the whisper even though the bot reports success:
+
+- The **sending (bot) account must have a verified phone number** — otherwise it cannot send whispers at all.
+- The recipient may have enabled **"Block whispers from strangers"**, which prevents whispers from accounts they don't follow.
+- The recipient may have **blocked the sending account** specifically.
+- The recipient may have **Do Not Disturb (DND)** enabled, which suppresses whispers.
+- Users can only receive whispers from **40 unique individuals per day**; the bot counts toward that limit, so after 40 distinct recipients in a day further whispers may be dropped.
+
+Because these are enforced by Twitch at delivery time, a whisper can appear to "succeed" on the bot's side while the user never sees it. If nominations aren't reaching users, first confirm the bot account has a verified phone number, then check the recipient's whisper/DND settings.
+
 ## Install
 
 ```bash
@@ -110,7 +148,7 @@ The control panel then uses HTTP Basic Authentication. The browser will ask for:
 
 This page is now served with HTTPS using a locally generated self-signed certificate, so it stays private on your LAN while allowing Twitch OAuth redirects from a custom port.
 
-Set: 
+Set:
 
 ```text
 MAX_REQUESTS_PER_USER=2
@@ -118,7 +156,7 @@ MAX_REQUESTS_PER_USER=2
 
 This defines the maximum number of songs that one user may have in the request queue.
 
-Set: 
+Set:
 
 ```text
 QUEUE_LIMIT=25
@@ -126,7 +164,7 @@ QUEUE_LIMIT=25
 
 This defines the maximum number of songs in the queue before additional requests are rejected.
 
-Optionally Set: 
+Optionally Set:
 
 ```text
 PUBLIC_URL=https://my.cool.publicsite
@@ -134,7 +172,7 @@ PUBLIC_URL=https://my.cool.publicsite
 
 If this variable is set, the chat bot will inform users that they can visit this site to perform robust song searches and filters.
 
-Optionally Set: 
+Optionally Set:
 
 ```text
 INSTRUCTIONS_MINUTES=10
@@ -142,7 +180,7 @@ INSTRUCTIONS_MINUTES=10
 
 If this variable is set, the chat bot will post usage instructions in chat at the defined number of minutes. If left blank, it will never post instructions automatically; viewers can still use `!help` to request them (with a 30-second global cooldown).
 
-Optionally Set: 
+Optionally Set:
 
 ```text
 STREAMER_VANITY_NAME=Manblingo
