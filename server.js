@@ -1092,6 +1092,10 @@ function classifyWhisperReply(message) {
   return "none";
 }
 
+// Cache of Twitch login -> numeric user id, so repeated whispers to the same user
+// only call the Helix Users endpoint once.
+const twitchUserIds = new Map();
+
 // Resolve a Twitch login (username) to its numeric user id via the Helix Users
 // endpoint. Results are cached so repeated whispers to the same user only hit the
 // API once. Returns null if the user cannot be resolved.
