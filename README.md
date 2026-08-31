@@ -94,13 +94,20 @@ When `PUBLIC_URL` is set to a publicly accessible URL (not localhost), the strea
 1. The control panel shows a live list of users who have recently messaged in chat (5-minute timeout).
 2. Select a user, set the duration, and click **Nominate**.
 3. The bot sends a Twitch whisper to that user asking if they'd like to moderate. There's a 60-second cooldown between nominations.
-4. If the user replies **Y**, the bot generates temporary credentials and sends them via whisper, including the link to `/requestModerator.html`. A chat announcement is posted.
+4. If the user replies **Y**, the bot generates temporary credentials and sends them via whisper as a **one-click link** to `/requestModerator.html?token=…`. Tapping the link opens the queue and signs the user in automatically — no password prompt, which is especially handy on phones — and a chat announcement is posted. The username and password are also included in the whisper as a manual fallback.
+
 5. If the user replies **N**, you can immediately nominate someone else.
 6. When the time expires, the user's credentials are invalidated and a chat announcement is posted.
 
 The temporary moderator has the same permissions as a permanent moderator (queue management, song search, unlimited requests, chat restriction settings). They cannot configure Twitch, rescan songs, or manage blacklists.
 
 This feature requires `PUBLIC_URL` to be set to a valid, publicly accessible URL so the nominated user can reach the moderator page.
+
+### Whispers: sending via Helix, receiving via IRC
+
+The legacy IRC whisper (`/w`) command is no longer supported by Twitch, so the bot **sends** nomination whispers through the Helix `POST /helix/whispers` endpoint, which requires the **`user:manage:whispers`** scope on the bot's user access token. This scope is requested automatically by the control panel's OAuth flow. If you connect with a token that predates this change, reconnect from the control panel so the new scope is granted.
+
+Whisper **replies** (the Y/N that accepts or declines a nomination) are still received over the IRC chat connection. The bot does not send whispers over IRC anymore, so an existing IRC connection is sufficient for receiving replies.
 
 ### Whisper reply handling
 
