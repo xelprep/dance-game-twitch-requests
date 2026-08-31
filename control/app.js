@@ -590,7 +590,11 @@ $("connectTwitch").onclick = async () => {
     const redirectUri = `${location.origin}/twitch-callback.html`;
     const r = await api("/api/twitch/start-auth", {
       method: "POST",
-      body: JSON.stringify({ clientId, redirectUri, scopes: "chat:read chat:edit" }),
+      body: JSON.stringify({
+        clientId,
+        redirectUri,
+        scopes: "chat:read chat:edit user:manage:whispers",
+      }),
     });
     if (r && r.url) window.location = r.url;
   } catch (e) {

@@ -442,6 +442,76 @@ function verifyStreamerAuth(authHeader, expectedPassword) {
   }
 }
 
+// --- Temp moderator single-sign-on tokens (one-click auto-auth) ---
+// A short-lived, server-signed token embedded in the link we whisper to a
+// nominated user, so a single tap on their phone both opens the moderator page
+// and authenticates them without a password dialog. The token is an HMAC-SHA256
+// signed, URL-safe credential: base64url(payload) + "." + base64url(hmac).
+// payload = { u: <temp mod login>, exp: <epoch ms> }.
+const MODERATOR_TOKEN_SECRET = crypto.randomBytes(32);
+const MODERATOR_TOKEN_TTL_MS = 60 * 60 * 1000; // hard cap; also bounded by the session
+
+function createTempModeratorToken(username, expiresAtMs) {
+  const exp = Number.isFinite(expiresAtMs)
+    ? Number(expiresAtMs)
+    : Date.now() + MODERATOR_TOKEN_TTL_MS;
+  const payload = {
+    u: String(username || "")
+      .trim()
+      .toLowerCase(),
+    exp,
+  };
+  const payloadB64 = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  const sig = crypto
+    .createHmac("sha256", MODERATOR_TOKEN_SECRET)
+    .update(payloadB64)
+    .digest("base64url");
+  return `${payloadB64}.${sig}`;
+}
+
+// Returns the temp-mod login encoded in a valid, unexpired token, or null.
+function verifyTempModeratorToken(token) {
+  const raw = String(token || "").trim();
+  const dot = raw.indexOf(".");
+  if (dot <= 0 || dot === raw.length - 1) return null;
+  const payloadB64 = raw.slice(0, dot);
+  const sig = raw.slice(dot + 1);
+  const expectedSig = crypto
+    .createHmac("sha256", MODERATOR_TOKEN_SECRET)
+    .update(payloadB64)
+    .digest("base64url");
+  let sigOk = false;
+  try {
+    const a = Buffer.from(sig, "base64url");
+    const b = Buffer.from(expectedSig, "base64url");
+    if (a.length === b.length) sigOk = crypto.timingSafeEqual(a, b);
+  } catch (_error) {
+    sigOk = false;
+  }
+  if (!sigOk) return null;
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
+  } catch (_error) {
+    return null;
+  }
+  if (!payload || typeof payload.u !== "string" || !payload.u) return null;
+  if (Number.isFinite(payload.exp) && Date.now() > payload.exp) return null;
+  return payload.u.toLowerCase();
+}
+
+// Pull a single-sign-on token from either a Bearer auth header (API calls) or a
+// ?token= query parameter (top-level page navigation on mobile, where the
+// browser cannot attach an auth header).
+function extractModeratorToken(req) {
+  const auth = String(req.headers.authorization || "");
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (m && m[1]) return m[1];
+  const q = req.query && req.query.token;
+  if (typeof q === "string") return q;
+  return null;
+}
+
 function getModeratorCredentials() {
   const settings = getControlSettings();
   return {
@@ -493,6 +563,20 @@ function authenticateModerator(req, res, next) {
       req.moderatorUsername = activeTempMod.username;
       return next();
     }
+  }
+
+  // Check a signed single-sign-on token (one-click auto-auth from the whisper).
+  // The token encodes the temp-mod login and an expiry, so it authenticates both
+  // the page load and subsequent API calls without a password.
+  const tokenUsername = verifyTempModeratorToken(extractModeratorToken(req));
+  if (
+    tokenUsername &&
+    activeTempMod &&
+    tokenUsername === activeTempMod.username.toLowerCase() &&
+    Date.now() < activeTempMod.expiresAt
+  ) {
+    req.moderatorUsername = activeTempMod.username;
+    return next();
   }
 
   return res
@@ -1008,30 +1092,94 @@ function classifyWhisperReply(message) {
   return "none";
 }
 
-async function sendWhisper(username, message) {
-  if (!twitchClient) {
+// Resolve a Twitch login (username) to its numeric user id via the Helix Users
+// endpoint. Results are cached so repeated whispers to the same user only hit the
+// API once. Returns null if the user cannot be resolved.
+async function resolveTwitchUserId(login, cfg) {
+  const key = String(login || "")
+    .trim()
+    .toLowerCase();
+  if (!key) return null;
+  if (twitchUserIds.has(key)) return twitchUserIds.get(key);
+  const resp = await fetch(`https://api.twitch.tv/helix/users?logins=${encodeURIComponent(key)}`, {
+    headers: {
+      "Client-Id": cfg.clientId,
+      Authorization: `Bearer ${cfg.accessToken}`,
+    },
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
     console.error(
-      `[whisper] Attempt to send whisper to ${username} FAILED: Twitch client not connected`,
+      `[whisper] Failed to resolve user id for "${login}" (status ${resp.status}): ${body}`,
     );
-    throw new Error("Twitch client not connected");
+    return null;
   }
+  const json = await resp.json();
+  const id = json && json.data && json.data[0] && json.data[0].id;
+  if (!id) return null;
+  twitchUserIds.set(key, id);
+  return id;
+}
+
+// Send a Twitch whisper using the Helix API. The legacy IRC whisper (/w) is no
+// longer supported by Twitch, so whispers are sent via POST /helix/whispers,
+// which requires the "user:manage:whispers" scope on the user access token.
+// Receiving whisper replies (temp-mod Y/N) still uses the IRC client.
+async function sendWhisper(username, message) {
+  const cfg = twitchConfig || loadTwitchConfig();
+  if (!cfg || !cfg.accessToken || !cfg.clientId) {
+    console.error(
+      `[whisper] Attempt to send whisper to ${username} FAILED: Twitch not configured (missing access token or client id)`,
+    );
+    throw new Error("Twitch not configured");
+  }
+
+  const senderId = await resolveTwitchUserId(cfg.username, cfg);
+  if (!senderId) {
+    console.error(`[whisper] Could not resolve sender id for ${cfg.username}; aborting whisper.`);
+    throw new Error("Could not resolve sender user id");
+  }
+  const recipientId = await resolveTwitchUserId(username, cfg);
+  if (!recipientId) {
+    console.error(`[whisper] Could not resolve recipient id for ${username}; aborting whisper.`);
+    throw new Error(`Could not resolve recipient user id for ${username}`);
+  }
+
   const preview = String(message).replace(/\s+/g, " ").trim().slice(0, 60);
   console.log(
-    `[whisper] Sending whisper to ${username}: "${preview}${message.length > 60 ? "…" : ""}"`,
+    `[whisper] Sending whisper to ${username} (id ${recipientId}) via Helix: "${preview}${
+      message.length > 60 ? "…" : ""
+    }"`,
   );
+
   try {
-    const result = await twitchClient.whisper(username, message);
-    // tmi.js resolves on a "no error within timeout" basis, which is NOT a
-    // guarantee of delivery. Log the resolution so we can correlate with the
-    // client 'error' handler below when a whisper silently fails.
-    console.log(
-      `[whisper] Whisper to ${username} resolved by tmi.js (result: ${JSON.stringify(result)}). Note: this only means no error was emitted within the timeout window; it does NOT confirm delivery.`,
+    const resp = await fetch(
+      `https://api.twitch.tv/helix/whispers?from_user_id=${encodeURIComponent(senderId)}&to_user_id=${encodeURIComponent(recipientId)}`,
+      {
+        method: "POST",
+        headers: {
+          "Client-Id": cfg.clientId,
+          Authorization: `Bearer ${cfg.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: String(message) }),
+      },
     );
-    return result;
-  } catch (e) {
+    // 204 = accepted (or silently dropped by Twitch). 204 has no body.
+    if (resp.status === 204) {
+      console.log(
+        `[whisper] Whisper to ${username} accepted by Helix (status 204). Note: a 204 does not confirm delivery; Twitch can silently drop whispers that violate its policies.`,
+      );
+      return { status: 204, ok: true };
+    }
+    const body = await resp.text().catch(() => "");
     console.error(
-      `[whisper] Whisper to ${username} REJECTED by tmi.js: ${e && e.message ? e.message : e}`,
+      `[whisper] Whisper to ${username} REJECTED by Helix (status ${resp.status}): ${body}`,
     );
+    throw new Error(`Twitch whisper rejected (status ${resp.status})`);
+  } catch (e) {
+    // Re-throw so callers (which set pendingNomination = null on failure) behave
+    // as before. Network errors are already logged above.
     throw e;
   }
 }
@@ -1181,7 +1329,12 @@ function createApi(app, options = {}) {
     app.post("/api/moderator/queue/next", async (_req, res) => {
       const next = db
         .prepare(
-          "SELECT id FROM requests WHERE status='queued' ORDER BY created_at ASC, id ASC LIMIT 1",
+          `
+        SELECT r.id FROM requests r
+        WHERE r.status='queued'
+        ORDER BY r.created_at ASC, r.id ASC
+        LIMIT 1
+      `,
         )
         .get();
       if (!next) return res.json({ ok: true, nowPlaying: null });
@@ -1675,19 +1828,13 @@ function createApi(app, options = {}) {
       const tx = db.transaction(() => {
         const queued = db
           .prepare(
-            `
-          SELECT r.id, r.created_at
-          FROM requests r
-          WHERE r.status='queued'
-          ORDER BY r.created_at ASC, r.id ASC
-        `,
+            "SELECT id, created_at FROM requests WHERE status='queued' ORDER BY created_at ASC, id ASC",
           )
           .all();
         const index = queued.findIndex((request) => request.id === id);
         const neighborIndex = index + direction;
         if (index < 0) return false;
         if (neighborIndex < 0 || neighborIndex >= queued.length) return true;
-
         [queued[index], queued[neighborIndex]] = [queued[neighborIndex], queued[index]];
         const baseTimestamp = Math.min(...queued.map((request) => request.created_at));
         const update = db.prepare("UPDATE requests SET created_at=? WHERE id=?");
@@ -1778,7 +1925,7 @@ function createApi(app, options = {}) {
           req.body.redirect ||
           `https://localhost:${CONTROL_PORT}/twitch-callback.html`,
       ).trim();
-      const scopes = String(req.body.scopes || "chat:read chat:edit");
+      const scopes = String(req.body.scopes || "chat:read chat:edit user:manage:whispers");
       if (!clientId || !redirectUri)
         return res.status(400).json({ error: "clientId and redirectUri are required" });
       const state = Math.random().toString(36).slice(2);
@@ -2079,7 +2226,7 @@ function scheduleInstructions() {
     postInstructionsOnce().catch(() => {});
     return;
   }
-  // Post immediately once, then schedule repeating posts every N minutes.
+  // Post immediately once, then schedule recurring posts every N minutes.
   postInstructionsOnce().catch(() => {});
   instructionsTimer = setInterval(
     () => {
@@ -2130,29 +2277,12 @@ async function startTmiClient(cfg) {
       console.error(`[tmi] Client error${context ? ` (${context})` : ""}: ${text}`);
     });
 
-    // CRITICAL for whisper debugging: tmi.js reports whisper delivery failures
-    // as "notice" events (whisper_invalid_login, whisper_restricted,
-    // whisper_restricted_recipient, whisper_limit_per_min, whisper_limit_per_sec)
-    // -- NOT as errors. And crucially, client.whisper() treats these notices as
-    // "no error" and RESOLVES the promise, so the HTTP endpoint returns 200 /
-    // shows success even though the whisper was NOT delivered. This handler is
-    // the only reliable way to detect that silent failure.
-    const WHISPER_NOTICES = [
-      "whisper_invalid_login",
-      "whisper_invalid_self",
-      "whisper_limit_per_min",
-      "whisper_limit_per_sec",
-      "whisper_restricted",
-      "whisper_restricted_recipient",
-    ];
+    // We no longer SEND whispers over IRC (legacy /w is deprecated); sends go
+    // through the Helix API. This notice handler stays purely as a diagnostic
+    // log for any remaining IRC notices on the receiving connection. Incoming
+    // whisper replies (temp-mod Y/N) are still handled via client.on("whisper").
     client.on("notice", (channel, msgid, msg) => {
-      if (WHISPER_NOTICES.includes(msgid)) {
-        console.error(
-          `[whisper] DELIVERY FAILED: notice "${msgid}" on ${channel}. Message: ${msg}. The HTTP layer will still report success because tmi.js treats this as non-fatal.`,
-        );
-      } else {
-        console.log(`[tmi] Notice ${msgid} on ${channel}: ${msg}`);
-      }
+      console.log(`[tmi] Notice ${msgid} on ${channel}: ${msg}`);
     });
     console.log(`Twitch bot connected to #${cfg.channel}`);
     // Post instructions once at startup and schedule recurring posts if configured
@@ -2300,11 +2430,16 @@ async function startTmiClient(cfg) {
       // Store original password hash so we can restore it on expiration
       originalModeratorPasswordHash = String(getSetting("moderatorPasswordHash", ""));
 
+      // One-click single-sign-on token so the whisper link auto-authenticates on
+      // both page load and API calls (no password prompt, phone-friendly).
+      const ssoToken = createTempModeratorToken(wasPending.username, expiresAt);
+
       activeTempMod = {
         username: wasPending.username,
         displayname: wasPending.displayname,
         passwordHash,
         expiresAt,
+        token: ssoToken,
       };
 
       // Enable moderator access if not already enabled
@@ -2313,12 +2448,11 @@ async function startTmiClient(cfg) {
       }
 
       try {
-        // Send credentials via whisper
+        const moderatorLink = `${PUBLIC_URL}/requestModerator.html?token=${encodeURIComponent(ssoToken)}`;
         await sendWhisper(
           wasPending.username,
-          `Welcome! Your temp moderator credentials:\nUsername: ${wasPending.username}\nPassword: ${password}\nLink: ${PUBLIC_URL}/requestModerator.html\nYou have ${wasPending.tempModTime} minutes.`,
+          `Welcome! You're now a temporary moderator for ${wasPending.tempModTime} minutes. Tap the link to open the queue:\n\n${moderatorLink}\n\n(If the link doesn't work, open ${PUBLIC_URL}/requestModerator.html and log in with:\nUsername: ${wasPending.username}\nPassword: ${password})`,
         );
-
         // Announce to chat
         await sendChatMessage(
           twitchClient,
