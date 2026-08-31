@@ -1105,7 +1105,11 @@ async function resolveTwitchUserId(login, cfg) {
     .toLowerCase();
   if (!key) return null;
   if (twitchUserIds.has(key)) return twitchUserIds.get(key);
-  const resp = await fetch(`https://api.twitch.tv/helix/users?logins=${encodeURIComponent(key)}`, {
+  // NOTE: the Get Users endpoint uses the singular `login` query parameter.
+  // Using `logins` (an unrecognized param) makes Twitch fall back to returning
+  // the user in the access token (the bot itself), so every lookup resolved to
+  // the bot's id and triggered "a user cannot whisper themself".
+  const resp = await fetch(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(key)}`, {
     headers: {
       "Client-Id": cfg.clientId,
       Authorization: `Bearer ${cfg.accessToken}`,
