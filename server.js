@@ -1149,12 +1149,17 @@ async function sendWhisper(username, message) {
     throw new Error(`Could not resolve recipient user id for ${username}`);
   }
 
+  // Helix rejects a self-whisper with 400; guard against nominating the bot's own
+  // account (it also posts chat announcements, so it could appear in the list).
+  if (String(senderId) === String(recipientId)) {
+    console.error(
+      `[whisper] Refusing to whisper ${username}: it resolves to the bot's own user id (${recipientId}).`,
+    );
+    throw new Error("Cannot whisper the bot's own account.");
+  }
+
   const preview = String(message).replace(/\s+/g, " ").trim().slice(0, 60);
-  console.log(
-    `[whisper] Sending whisper to ${username} (id ${recipientId}) via Helix: "${preview}${
-      message.length > 60 ? "…" : ""
-    }"`,
-  );
+  console.log(`[whisper] Sending whisper to ${username} (id ${recipientId}) via Helix: ${preview}`);
 
   try {
     const resp = await fetch(
@@ -1750,6 +1755,14 @@ function createApi(app, options = {}) {
       }
 
       const userKey = username.trim().toLowerCase();
+      const botLogin = String(twitchConfig.username || "")
+        .trim()
+        .toLowerCase();
+      if (!botLogin || userKey === botLogin) {
+        return res
+          .status(400)
+          .json({ error: "Cannot nominate the bot's own account as a temp moderator." });
+      }
       const chatUser = chatUsers.get(userKey);
       const displayname = chatUser ? chatUser.displayName : username.trim();
 
@@ -2300,12 +2313,17 @@ async function startTmiClient(cfg) {
   }
 
   client.on("message", async (_channel, tags, message, self) => {
-    // Track all chat users for temp mod nomination (including self for completeness)
-    const display = tags["display-name"] || tags.username;
-    updateChatUser(tags.username, display);
+    // Track real chatters for temp mod nomination. Skip the bot's own messages
+    // (self): the bot logs in as the channel account, so including self would list
+    // the bot itself and a nomination would resolve to a self-whisper (Helix 400).
+    if (self) {
+      if (!message.startsWith(PREFIX)) return;
+    } else {
+      const display = tags["display-name"] || tags.username;
+      updateChatUser(tags.username, display);
+    }
 
-    if (self || !message.startsWith(PREFIX)) return;
-
+    if (!message.startsWith(PREFIX)) return;
     const body = message.slice(PREFIX.length).trim();
     const space = body.indexOf(" ");
     const command = (space === -1 ? body : body.slice(0, space)).toLowerCase();
