@@ -1169,10 +1169,10 @@ async function resolveTwitchUserId(login, cfg) {
   return id;
 }
 
-// Send a Twitch whisper using the Helix API. The legacy IRC whisper (/w) is no
-// longer supported by Twitch, so whispers are sent via POST /helix/whispers,
+// Send a Twitch whisper using the Helix API. Twitch no longer supports sending
+// nomination whispers over IRC, so outbound whispers use POST /helix/whispers,
 // which requires the "user:manage:whispers" scope on the user access token.
-// Receiving whisper replies (temp-mod Y/N) still uses the IRC client.
+// Incoming temp-mod Y/N responses arrive through EventSub user.whisper.message.
 async function sendWhisper(username, message) {
   const cfg = twitchConfig || loadTwitchConfig();
   if (!cfg || !cfg.accessToken || !cfg.clientId) {
@@ -2442,11 +2442,10 @@ async function deleteWhisperSubscription(cfg) {
   }
 }
 
-// Shared temp-mod whisper decision logic. Fed by the EventSub
-// user.whisper.message notification (primary path) and the legacy IRC
-// whisper listener (fallback). At-least-once delivery is safe: the pending
-// nomination is cleared before any async work, so a duplicate notification
-// is ignored.
+// Shared temp-mod whisper decision logic. Fed only by the EventSub
+// user.whisper.message notification. At-least-once delivery is safe: the
+// pending nomination is cleared before any async work, so a duplicate
+// notification is ignored.
 async function handleTempModWhisper(fromUsername, message) {
   if (!pendingNomination) return;
   const fromKey = String(fromUsername || "").toLowerCase();
@@ -2808,10 +2807,8 @@ async function startTmiClient(cfg) {
       console.error(`[tmi] Client error${context ? ` (${context})` : ""}: ${text}`);
     });
 
-    // We no longer SEND whispers over IRC (legacy /w is deprecated); sends go
-    // through the Helix API. This notice handler stays purely as a diagnostic
-    // log for any remaining IRC notices on the receiving connection. Incoming
-    // whisper replies (temp-mod Y/N) are still handled via client.on("whisper").
+    // We no longer send whispers over IRC; outbound whispers use the Helix API.
+    // This notice handler remains only as a diagnostic log for IRC notices.
     client.on("notice", (channel, msgid, msg) => {
       console.log(`[tmi] Notice ${msgid} on ${channel}: ${msg}`);
     });
@@ -2946,21 +2943,14 @@ async function startTmiClient(cfg) {
     });
   });
 
-  // Handle whispers for temp mod nomination responses. IRC whisper delivery
-  // is deprecated by Twitch, so this listener is only a fallback — the
-  // primary path is the EventSub user.whisper.message subscription.
-  client.on("whisper", (from, _tags, message, self) => {
-    if (self) return;
-    handleTempModWhisper(from, message).catch((e) => {
-      console.error(`[temp-mod] Whisper handler error: ${e && e.message ? e.message : e}`);
-    });
-  });
+  // Incoming temp-mod nomination replies are handled exclusively through the
+  // EventSub user.whisper.message subscription; IRC whisper delivery is no
+  // longer used by Twitch.
 
   // Start the EventSub WebSocket client so incoming whisper replies
-  // (temp-mod Y/N) keep arriving now that IRC whisper delivery is deprecated.
-  // Non-blocking: the client reconnects independently of the chat client, and
-  // it is restarted automatically on token refresh (which re-runs this
-  // function).
+  // (temp-mod Y/N) keep arriving. Non-blocking: the client reconnects
+  // independently of the chat client, and it is restarted automatically on
+  // token refresh (which re-runs this function).
   startEventSubClient(cfg).catch((e) => {
     console.error("Failed to start EventSub client:", e && e.message ? e.message : e);
   });
