@@ -102,6 +102,31 @@ button:hover {
   margin: 14px 0;
   flex-wrap: wrap;
 }
+.twitch-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.twitch-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.twitch-field label {
+  font-weight: 600;
+  color: #dfe5ec;
+}
+.twitch-field input {
+  width: 100%;
+  min-width: 0;
+}
+.twitch-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
 .search-row {
   display: flex;
   gap: 8px;
