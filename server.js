@@ -197,6 +197,13 @@ if (secureModeResult.secureMode) {
   );
 }
 
+// Temp-mod sessions are never persisted across restarts. Clear any in-memory
+// temporary moderator state unconditionally so a fresh startup always starts
+// from a clean slate regardless of SECURE_MODE.
+activeTempMod = null;
+originalModeratorPasswordHash = null;
+pendingNomination = null;
+
 const result = refreshDatabase();
 
 if (result.songs === 0) {
