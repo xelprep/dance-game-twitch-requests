@@ -190,6 +190,12 @@ function refreshDatabase() {
   return result;
 }
 
+// Temp-mod sessions are not persisted across restarts; initialize the state here
+// so startup cleanup can clear it unconditionally without hitting TDZ.
+let pendingNomination = null;
+let activeTempMod = null;
+let originalModeratorPasswordHash = null;
+
 const secureModeResult = applySecureModeDefaults(db, { secureMode: SECURE_MODE });
 if (secureModeResult.secureMode) {
   console.warn(
@@ -2242,15 +2248,12 @@ const chatUsers = new Map();
 const CHAT_USER_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 // Temp mod nomination state
-let pendingNomination = null; // { username, displayname, nominatedAt, tempModTime }
+// { username, displayname, nominatedAt, tempModTime }
 const NOMINATION_COOLDOWN_MS = 60 * 1000; // 60 seconds
 
 // Active temp mod session
-let activeTempMod = null; // { username, displayname, passwordHash, expiresAt }
+// { username, displayname, passwordHash, expiresAt }
 let tempModExpirationTimer = null;
-
-// Store the original moderator password hash so we can restore it after temp mod expires
-let originalModeratorPasswordHash = null;
 
 function clearTwitchRefreshTimer() {
   if (twitchRefreshTimer) {
@@ -2754,12 +2757,14 @@ async function connectEventSub(cfg, opts = {}) {
         // this is purely defensive.
         return;
       }
+      const rawWhisperMessage = event.message ?? event.text ?? event.content ?? "";
+      const whisperText = extractWhisperText(rawWhisperMessage);
       console.log(
         `[eventsub] Whisper received from ${event.from_user_login || "unknown"}: ${String(
-          event.message || "",
+          whisperText,
         ).slice(0, 80)}`,
       );
-      handleTempModWhisper(event.from_user_login, event.message).catch((e) => {
+      handleTempModWhisper(event.from_user_login, whisperText).catch((e) => {
         console.error("[eventsub] Whisper handler error:", e && e.message ? e.message : e);
       });
       return;
