@@ -172,13 +172,9 @@ PUBLIC_URL=https://my.cool.publicsite
 
 If this variable is set, the chat bot will inform users that they can visit this site to perform robust song searches and filters.
 
-Optionally Set:
+THERE USED TO BE A VARIABLE CALLED `INSTRUCTIONS_MINUTES` BUT THIS HAS BEEN REMOVED AND REPLACED WITH A MUCH MORE CONVENIENT RUNTIME OPTION!
 
-```text
-INSTRUCTIONS_MINUTES=10
-```
-
-If this variable is set, the chat bot will post usage instructions in chat at the defined number of minutes. If left blank, it will never post instructions automatically; viewers can still use `!help` to request them (with a 30-second global cooldown).
+The streamer can set the automatic instruction reminder from the Twitch control panel in the Twitch section. The default is 10 minutes. Set it to 0 to disable the automatic reminder; viewers can still use `!help` at any time to display the instructions in chat (with a 30-second global cooldown).
 
 Optionally Set:
 

@@ -301,6 +301,13 @@ async function render() {
           chatRequestsEnabled.checked = !!(settings && settings.chatRequestsEnabled);
         if (chatRequestsRequireRole)
           chatRequestsRequireRole.value = (settings && settings.chatRequestsRequireRole) || "";
+        const instructionsMinutesEl = $("twitchInstructionsMinutes");
+        if (instructionsMinutesEl && document.activeElement !== instructionsMinutesEl) {
+          instructionsMinutesEl.value =
+            settings && Number.isFinite(Number(settings.instructionsMinutes))
+              ? Number(settings.instructionsMinutes)
+              : 10;
+        }
         const moderatorEnabled = $("moderatorEnabled");
         const moderatorUsername = $("moderatorUsername");
         if (moderatorEnabled) moderatorEnabled.checked = !!(settings && settings.moderatorEnabled);
@@ -351,6 +358,19 @@ if (chatRequestsRequireRoleEl) {
   chatRequestsRequireRoleEl.addEventListener("change", () =>
     saveControlSettings({ chatRequestsRequireRole: chatRequestsRequireRoleEl.value }),
   );
+}
+
+const instructionsMinutesEl = $("twitchInstructionsMinutes");
+if (instructionsMinutesEl) {
+  instructionsMinutesEl.addEventListener("change", () => {
+    const value = Number(instructionsMinutesEl.value);
+    if (!Number.isFinite(value) || value < 0) {
+      toast("Instructions timeout must be 0 or greater.");
+      instructionsMinutesEl.value = 10;
+      return;
+    }
+    saveControlSettings({ instructionsMinutes: value });
+  });
 }
 
 const moderatorEnabledEl = $("moderatorEnabled");
