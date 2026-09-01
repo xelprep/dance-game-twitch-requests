@@ -151,6 +151,15 @@
             <label for="twitchChannel">Channel (optional):</label>
             <input id="twitchChannel" placeholder="Twitch channel name" />
           </div>
+          <div class="twitch-field">
+            <label for="twitchInstructionsMinutes">Instructions interval (minutes):</label>
+            <input id="twitchInstructionsMinutes" type="number" min="0" step="1" placeholder="10" />
+            <small class="muted">
+              The bot posts usage instructions in chat every N minutes. Set this
+              to 0 to disable automatic reminders; viewers can still use <code>!help</code> at any
+              time.
+            </small>
+          </div>
           <div class="twitch-actions">
             <button id="checkTwitch">Check Status</button>
             <button id="connectTwitch">Connect Twitch</button>
