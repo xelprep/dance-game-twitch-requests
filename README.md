@@ -85,6 +85,18 @@ When enabled, the page uses its own HTTP Basic Authentication credentials and pr
 
 The moderator username is used as the `Requested By` display name for requests made through this interface. The password is stored as a one-way hash in the local settings database.
 
+### Secure startup mode
+
+Set this in `.env`:
+
+```text
+SECURE_MODE=true
+```
+
+When enabled, the app starts with moderator access disabled and clears any previously stored moderator username/password data before the app begins accepting requests. This prevents moderator access from a prior session from being silently re-enabled after a restart unless the streamer explicitly configures and enables moderator access again in the current session.
+
+This is a startup reset, not a permanent runtime lock. If the streamer later sets a new moderator username and password and enables the moderator feature in the same run, the feature works normally for that session. The next restart with `SECURE_MODE=true` will again reset the moderator state back to the default disabled state.
+
 ## Temporary moderator nomination
 
 When `PUBLIC_URL` is set to a publicly accessible URL (not localhost), the streamer control panel shows a **Temporary Moderator** section. This lets you nominate a viewer from your Twitch chat to moderate the request queue for a set period (1–60 minutes, default 15).
@@ -179,13 +191,9 @@ PUBLIC_URL=https://my.cool.publicsite
 
 If this variable is set, the chat bot will inform users that they can visit this site to perform robust song searches and filters.
 
-Optionally Set:
+THERE USED TO BE A VARIABLE CALLED `INSTRUCTIONS_MINUTES` BUT THIS HAS BEEN REMOVED AND REPLACED WITH A MUCH MORE CONVENIENT RUNTIME OPTION!
 
-```text
-INSTRUCTIONS_MINUTES=10
-```
-
-If this variable is set, the chat bot will post usage instructions in chat at the defined number of minutes. If left blank, it will never post instructions automatically; viewers can still use `!help` to request them (with a 30-second global cooldown).
+The streamer can set the automatic instruction reminder from the Twitch control panel in the Twitch section. The default is 10 minutes. Set it to 0 to disable the automatic reminder; viewers can still use `!help` at any time to display the instructions in chat (with a 30-second global cooldown).
 
 Optionally Set:
 
