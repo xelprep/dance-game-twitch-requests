@@ -9,6 +9,7 @@ const Database = require("better-sqlite3");
 const selfsigned = require("selfsigned");
 const tmi = require("tmi.js");
 const WebSocket = require("ws");
+const { parseSecureMode, applySecureModeDefaults } = require("./secureMode");
 const { scanSongs } = require("./scanner");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -24,26 +25,36 @@ const QUEUE_LIMIT = Number(process.env.QUEUE_LIMIT || 25);
 const TWITCH_MAX_MESSAGE_LENGTH = 500;
 const HELP_COOLDOWN_MS = 30 * 1000;
 const ALLOW_WEB_REQUESTS = String(process.env.ALLOW_WEB_REQUESTS).toLowerCase() === "true";
+const SECURE_MODE = parseSecureMode(process.env.SECURE_MODE);
 const PUBLIC_URL = (process.env.PUBLIC_URL || "").trim();
 // Streamer vanity name shown when adding requests from the control panel. Defaults to "Streamer".
 const STREAMER_VANITY_NAME = String(process.env.STREAMER_VANITY_NAME || "Streamer").slice(0, 50);
-// INSTRUCTIONS_MINUTES controls posting of usage instructions to Twitch chat.
-// If INSTRUCTIONS_MINUTES is not defined -> default to 10 minutes.
-// If INSTRUCTIONS_MINUTES is defined but blank (empty string) -> never post instructions.
+const DEFAULT_INSTRUCTIONS_MINUTES = 10;
+
+// Legacy env support: if a value is set in .env it acts as the startup default value.
+// The runtime value can be overridden via the control panel and stored in the settings DB.
 const _INSTRUCTIONS_MINUTES_RAW = Object.prototype.hasOwnProperty.call(
   process.env,
   "INSTRUCTIONS_MINUTES",
 )
   ? process.env.INSTRUCTIONS_MINUTES
   : undefined;
-const INSTRUCTIONS_MINUTES =
-  typeof _INSTRUCTIONS_MINUTES_RAW === "undefined"
-    ? 10
-    : _INSTRUCTIONS_MINUTES_RAW === ""
-      ? null
-      : Number.isFinite(Number(_INSTRUCTIONS_MINUTES_RAW))
-        ? Number(_INSTRUCTIONS_MINUTES_RAW)
-        : 10;
+
+function parseInstructionsMinutes(rawValue) {
+  if (typeof rawValue === "undefined") return DEFAULT_INSTRUCTIONS_MINUTES;
+  if (rawValue === "") return 0;
+  const value = Number(rawValue);
+  return Number.isFinite(value) ? value : DEFAULT_INSTRUCTIONS_MINUTES;
+}
+
+function getRuntimeInstructionsMinutes() {
+  const saved = getSetting("instructionsMinutes", null);
+  if (saved !== null && saved !== undefined && saved !== "") {
+    const value = Number(saved);
+    return Number.isFinite(value) && value >= 0 ? value : DEFAULT_INSTRUCTIONS_MINUTES;
+  }
+  return parseInstructionsMinutes(_INSTRUCTIONS_MINUTES_RAW);
+}
 
 const CONTROL_PASSWORD = String(process.env.CONTROL_PASSWORD || "").trim();
 
@@ -177,6 +188,13 @@ function refreshDatabase() {
   const result = scanSongs(SONGS_DIR, db);
   console.log(`Scan complete: ${result.songs} songs, ${result.charts} charts.`);
   return result;
+}
+
+const secureModeResult = applySecureModeDefaults(db, { secureMode: SECURE_MODE });
+if (secureModeResult.secureMode) {
+  console.warn(
+    "SECURE_MODE is enabled: moderator access has been disabled and any stored moderator credentials were cleared for this startup.",
+  );
 }
 
 const result = refreshDatabase();
@@ -397,6 +415,7 @@ function getControlSettings() {
     moderatorEnabled: !!getSetting("moderatorEnabled", false),
     moderatorUsername: String(getSetting("moderatorUsername", "")),
     moderatorPasswordConfigured: !!getSetting("moderatorPasswordHash", ""),
+    instructionsMinutes: Number(getRuntimeInstructionsMinutes()),
   };
 }
 
@@ -1608,6 +1627,7 @@ function createApi(app, options = {}) {
         moderatorUsername: String(req.body.moderatorUsername || "")
           .trim()
           .slice(0, 50),
+        instructionsMinutes: Number(req.body.instructionsMinutes),
       };
 
       const settings = {
@@ -1633,6 +1653,12 @@ function createApi(app, options = {}) {
           ? next.moderatorUsername
           : current.moderatorUsername,
         moderatorPasswordConfigured: current.moderatorPasswordConfigured,
+        instructionsMinutes: Object.prototype.hasOwnProperty.call(req.body, "instructionsMinutes")
+          ? Number.isFinite(Number(req.body.instructionsMinutes)) &&
+            Number(req.body.instructionsMinutes) >= 0
+            ? Number(req.body.instructionsMinutes)
+            : current.instructionsMinutes
+          : current.instructionsMinutes,
       };
 
       const password = Object.prototype.hasOwnProperty.call(req.body, "moderatorPassword")
@@ -1654,9 +1680,15 @@ function createApi(app, options = {}) {
       setSetting("chatRequestsRequireRole", settings.chatRequestsRequireRole);
       setSetting("moderatorEnabled", settings.moderatorEnabled);
       setSetting("moderatorUsername", settings.moderatorUsername);
+      setSetting("instructionsMinutes", settings.instructionsMinutes);
       if (password) {
         setSetting("moderatorPasswordHash", hashModeratorPassword(password));
         settings.moderatorPasswordConfigured = true;
+      }
+
+      if (current.instructionsMinutes !== settings.instructionsMinutes) {
+        clearInstructionsTimer();
+        scheduleInstructions();
       }
 
       if (
@@ -2206,8 +2238,7 @@ function clearInstructionsTimer() {
 }
 
 function getInstructionsEnabled() {
-  // INSTRUCTIONS_MINUTES === null indicates the env var was defined but blank -> disable posting
-  return INSTRUCTIONS_MINUTES !== null;
+  return getRuntimeInstructionsMinutes() > 0;
 }
 
 function getInstructionsMessage() {
@@ -2241,14 +2272,10 @@ async function postHelpMessage(client, channel) {
 
 function scheduleInstructions() {
   clearInstructionsTimer();
-  if (!getInstructionsEnabled()) return;
-  const minutes = Number(INSTRUCTIONS_MINUTES);
-  // If minutes is not a positive finite number, just post once and don't schedule.
-  if (!Number.isFinite(minutes) || minutes <= 0) {
-    postInstructionsOnce().catch(() => {});
-    return;
-  }
-  // Post immediately once, then schedule recurring posts every N minutes.
+  const minutes = getRuntimeInstructionsMinutes();
+  if (!Number.isFinite(minutes) || minutes <= 0) return;
+
+  // Post immediately once, then schedule repeating posts every N minutes.
   postInstructionsOnce().catch(() => {});
   instructionsTimer = setInterval(
     () => {

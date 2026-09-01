@@ -194,10 +194,16 @@ async function render() {
     const completeBtn = $("complete-now");
     if (now) {
       window._nowPlayingId = now.id;
-      if (completeBtn) completeBtn.disabled = false;
+      if (completeBtn) {
+        completeBtn.hidden = false;
+        completeBtn.disabled = false;
+      }
     } else {
       window._nowPlayingId = null;
-      if (completeBtn) completeBtn.disabled = true;
+      if (completeBtn) {
+        completeBtn.hidden = true;
+        completeBtn.disabled = true;
+      }
     }
     $("now").innerHTML = now
       ? `
