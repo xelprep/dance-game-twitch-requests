@@ -1046,6 +1046,15 @@ async function announceRequestAction(action, request) {
 function cleanupChatUsers() {
   const now = Date.now();
   for (const [username, data] of chatUsers.entries()) {
+    const isActiveTempMod =
+      activeTempMod && username.toLowerCase() === activeTempMod.username.toLowerCase();
+    if (isActiveTempMod) {
+      const keepUntil = Math.max(activeTempMod.expiresAt, data.lastSeen + CHAT_USER_TIMEOUT_MS);
+      if (now >= keepUntil) {
+        chatUsers.delete(username);
+      }
+      continue;
+    }
     if (now - data.lastSeen > CHAT_USER_TIMEOUT_MS) {
       chatUsers.delete(username);
     }
@@ -1062,6 +1071,15 @@ function getOnlineUsers() {
   const users = [];
   for (const [username, data] of chatUsers.entries()) {
     users.push({ username, displayName: data.displayName });
+  }
+  if (activeTempMod) {
+    const activeKey = activeTempMod.username.toLowerCase();
+    const activeEntry = users.find((u) => u.username === activeKey);
+    const lastSeen = chatUsers.get(activeKey)?.lastSeen ?? Date.now();
+    const keepUntil = Math.max(activeTempMod.expiresAt, lastSeen + CHAT_USER_TIMEOUT_MS);
+    if (!activeEntry && Date.now() < keepUntil) {
+      users.push({ username: activeKey, displayName: activeTempMod.displayname });
+    }
   }
   users.sort((a, b) => a.displayName.localeCompare(b.displayName));
   return users;
@@ -1260,11 +1278,13 @@ function scheduleTempModExpiration() {
   if (tempModExpirationTimer.unref) tempModExpirationTimer.unref();
 }
 
-async function expireTempMod() {
+async function expireTempMod(options = {}) {
+  const { manual = false } = options;
   clearTempModExpirationTimer();
   if (!activeTempMod) return;
 
   const displayname = activeTempMod.displayname;
+  const username = activeTempMod.username;
   activeTempMod = null;
 
   // Restore the original moderator password to invalidate the temp mod's credentials
@@ -1276,7 +1296,9 @@ async function expireTempMod() {
     await sendChatMessage(
       twitchClient,
       twitchConfig.channel,
-      `@${displayname} is no longer moderating the request queue.`,
+      manual
+        ? `@${displayname}'s temporary moderator session has ended early.`
+        : `@${displayname} is no longer moderating the request queue.`,
     );
   } catch (e) {
     console.error("Failed to announce temp mod expiration:", e && e.message ? e.message : e);
@@ -1285,7 +1307,11 @@ async function expireTempMod() {
     if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
   } catch (e) {}
 
-  console.log(`[temp-mod] ${displayname}'s temporary moderator session has expired.`);
+  console.log(
+    `[temp-mod] ${displayname}'s temporary moderator session ${manual ? "ended early" : "has expired"}.`,
+  );
+
+  return { username, displayname, manual };
 }
 
 // Clear pending nomination if it's past the cooldown window
@@ -1765,6 +1791,30 @@ function createApi(app, options = {}) {
     app.get("/api/control/chat-users", (_req, res) => {
       const users = getOnlineUsers();
       res.json(users);
+    });
+
+    app.post("/api/control/temp-mod/end-early", async (req, res) => {
+      const username = String(req.body && req.body.username ? req.body.username : "")
+        .trim()
+        .toLowerCase();
+
+      if (!activeTempMod) {
+        return res.status(409).json({ error: "No active temporary moderator to end early." });
+      }
+
+      if (username && username !== activeTempMod.username.toLowerCase()) {
+        return res.status(409).json({
+          error: `Active temp mod is ${activeTempMod.displayname}; cannot end ${username} early.`,
+        });
+      }
+
+      try {
+        const result = await expireTempMod({ manual: true });
+        res.json({ ok: true, ...result });
+      } catch (e) {
+        console.error("[temp-mod] Failed to end temp mod early:", e && e.message ? e.message : e);
+        res.status(500).json({ error: "Failed to end temp moderator session." });
+      }
     });
 
     app.post("/api/control/temp-mod/nominate", async (req, res) => {
