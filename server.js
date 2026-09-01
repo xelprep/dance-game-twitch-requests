@@ -8,6 +8,7 @@ const https = require("https");
 const Database = require("better-sqlite3");
 const selfsigned = require("selfsigned");
 const tmi = require("tmi.js");
+const { parseSecureMode, applySecureModeDefaults } = require("./secureMode");
 const { scanSongs } = require("./scanner");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -23,6 +24,7 @@ const QUEUE_LIMIT = Number(process.env.QUEUE_LIMIT || 25);
 const TWITCH_MAX_MESSAGE_LENGTH = 500;
 const HELP_COOLDOWN_MS = 30 * 1000;
 const ALLOW_WEB_REQUESTS = String(process.env.ALLOW_WEB_REQUESTS).toLowerCase() === "true";
+const SECURE_MODE = parseSecureMode(process.env.SECURE_MODE);
 const PUBLIC_URL = (process.env.PUBLIC_URL || "").trim();
 // Streamer vanity name shown when adding requests from the control panel. Defaults to "Streamer".
 const STREAMER_VANITY_NAME = String(process.env.STREAMER_VANITY_NAME || "Streamer").slice(0, 50);
@@ -185,6 +187,13 @@ function refreshDatabase() {
   const result = scanSongs(SONGS_DIR, db);
   console.log(`Scan complete: ${result.songs} songs, ${result.charts} charts.`);
   return result;
+}
+
+const secureModeResult = applySecureModeDefaults(db, { secureMode: SECURE_MODE });
+if (secureModeResult.secureMode) {
+  console.warn(
+    "SECURE_MODE is enabled: moderator access has been disabled and any stored moderator credentials were cleared for this startup.",
+  );
 }
 
 const result = refreshDatabase();
