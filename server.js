@@ -1083,8 +1083,28 @@ function generateRandomPassword(length = 12) {
 //   'none'  - unrecognized / no decision (leave the nomination pending)
 // The first meaningful token of the message is used, so "yes please",
 // "yep", "n no", etc. all resolve correctly.
+function extractWhisperText(message) {
+  if (typeof message === "string") return message;
+  if (message == null) return "";
+  if (typeof message === "object") {
+    if (typeof message.text === "string") return message.text;
+    if (typeof message.message === "string") return message.message;
+    if (typeof message.content === "string") return message.content;
+    if (Array.isArray(message.fragments)) {
+      return message.fragments
+        .map((fragment) => {
+          if (typeof fragment === "string") return fragment;
+          if (fragment && typeof fragment.text === "string") return fragment.text;
+          return "";
+        })
+        .join("");
+    }
+  }
+  return String(message || "");
+}
+
 function classifyWhisperReply(message) {
-  const text = String(message || "")
+  const text = extractWhisperText(message)
     .trim()
     .toLowerCase();
   const token = text.split(/\s+/)[0];
