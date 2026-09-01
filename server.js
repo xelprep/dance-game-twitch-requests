@@ -1609,6 +1609,15 @@ function createApi(app, options = {}) {
 
   app.get("/api/queue", (_req, res) => res.json(getQueue()));
   app.get("/api/now-playing", (_req, res) => res.json(getNowPlaying()));
+  app.get("/api/overlay/temp-mod-status", (_req, res) => {
+    if (activeTempMod && Date.now() < activeTempMod.expiresAt) {
+      return res.json({ displayName: activeTempMod.displayname });
+    }
+    if (activeTempMod && Date.now() >= activeTempMod.expiresAt) {
+      expireTempMod().catch((e) => console.error("[temp-mod] Error expiring:", e));
+    }
+    return res.json({ displayName: null });
+  });
 
   app.post("/api/request", (req, res) => {
     if (!ALLOW_WEB_REQUESTS && !options.control) {
