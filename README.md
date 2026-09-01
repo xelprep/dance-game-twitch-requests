@@ -85,6 +85,18 @@ When enabled, the page uses its own HTTP Basic Authentication credentials and pr
 
 The moderator username is used as the `Requested By` display name for requests made through this interface. The password is stored as a one-way hash in the local settings database.
 
+### Secure startup mode
+
+Set this in `.env`:
+
+```text
+SECURE_MODE=true
+```
+
+When enabled, the app starts with moderator access disabled and clears any previously stored moderator username/password data before the app begins accepting requests. This prevents moderator access from a prior session from being silently re-enabled after a restart unless the streamer explicitly configures and enables moderator access again in the current session.
+
+This is a startup reset, not a permanent runtime lock. If the streamer later sets a new moderator username and password and enables the moderator feature in the same run, the feature works normally for that session. The next restart with `SECURE_MODE=true` will again reset the moderator state back to the default disabled state.
+
 ## Temporary moderator nomination
 
 When `PUBLIC_URL` is set to a publicly accessible URL (not localhost), the streamer control panel shows a **Temporary Moderator** section. This lets you nominate a viewer from your Twitch chat to moderate the request queue for a set period (1–60 minutes, default 15).
