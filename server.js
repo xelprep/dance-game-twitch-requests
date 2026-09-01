@@ -8,6 +8,7 @@ const https = require("https");
 const Database = require("better-sqlite3");
 const selfsigned = require("selfsigned");
 const tmi = require("tmi.js");
+const WebSocket = require("ws");
 const { scanSongs } = require("./scanner");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -2257,6 +2258,468 @@ function scheduleInstructions() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// EventSub WebSocket client (user.whisper.message v1)
+// ---------------------------------------------------------------------------
+// Twitch deprecated whisper delivery over IRC, so incoming temp-mod Y/N
+// replies now arrive over the EventSub WebSocket. The client connects to
+// wss://eventsub.wss.twitch.tv/ws (no token in the URL), receives a
+// session_welcome, then creates the whisper subscription over REST
+// (POST /helix/eventsub/subscriptions, transport method "websocket"). The
+// server prohibits any inbound traffic other than RFC6455 pong frames
+// (close code 4001), so all control (subscribe/unsubscribe) goes over REST
+// with the user access token.
+//
+// Delivery is at-least-once: handleTempModWhisper is idempotent because it
+// clears pendingNomination before doing any async work.
+
+let eventSubSocket = null;
+let eventSubSessionId = null;
+let eventSubSubscriptionId = null;
+let eventSubKeepaliveTimer = null;
+let eventSubReconnectTimer = null;
+let eventSubKeepaliveTimeoutSeconds = null;
+let eventSubReconnectAttempts = 0;
+let eventSubBotUserId = null; // numeric id of the account owning the whisper inbox
+let eventSubStopping = false;
+
+function clearEventSubTimers() {
+  if (eventSubKeepaliveTimer) {
+    clearTimeout(eventSubKeepaliveTimer);
+    eventSubKeepaliveTimer = null;
+  }
+  if (eventSubReconnectTimer) {
+    clearTimeout(eventSubReconnectTimer);
+    eventSubReconnectTimer = null;
+  }
+}
+
+// Watchdog: if no message (keepalive or event) arrives within the timeout
+// advertised at session_welcome, the session is dead — terminate the socket
+// so its close handler triggers a full reconnect. Re-armed on every inbound
+// message.
+function armEventSubKeepalive(socket) {
+  if (eventSubKeepaliveTimer) {
+    clearTimeout(eventSubKeepaliveTimer);
+    eventSubKeepaliveTimer = null;
+  }
+  const seconds = Number(eventSubKeepaliveTimeoutSeconds);
+  if (!Number.isFinite(seconds) || seconds <= 0) return;
+  eventSubKeepaliveTimer = setTimeout(() => {
+    console.error(
+      "[eventsub] Keepalive timeout: no messages received, terminating socket and reconnecting.",
+    );
+    try {
+      socket.terminate();
+    } catch (e) {}
+  }, seconds * 1000);
+}
+
+// Create the user.whisper.message subscription over REST, bound to the given
+// EventSub WebSocket session. Returns true on success (202, or a benign 409
+// when an identical subscription already exists).
+async function createWhisperSubscription(cfg, sessionId) {
+  const userId = await resolveTwitchUserId(cfg.username, cfg);
+  if (!userId) {
+    console.error("[eventsub] Could not resolve the bot's user id; whisper subscription skipped.");
+    return false;
+  }
+  eventSubBotUserId = String(userId);
+  const resp = await fetch("https://api.twitch.tv/helix/eventsub/subscriptions", {
+    method: "POST",
+    headers: {
+      "Client-Id": cfg.clientId,
+      Authorization: `Bearer ${cfg.accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      type: "user.whisper.message",
+      version: "1",
+      condition: { user_id: String(userId) },
+      transport: { method: "websocket", session_id: String(sessionId) },
+    }),
+  });
+  const body = await resp.text().catch(() => "");
+  if (resp.status === 202) {
+    let json = null;
+    try {
+      json = JSON.parse(body);
+    } catch (e) {}
+    eventSubSubscriptionId = json && json.data && json.data[0] ? String(json.data[0].id) : null;
+    console.log(
+      `[eventsub] Whisper subscription active for user ${userId} (subscription ${
+        eventSubSubscriptionId || "id unknown"
+      }).`,
+    );
+    return true;
+  }
+  if (resp.status === 409) {
+    // An identical subscription already exists (e.g. a leftover that outlived
+    // the previous socket). Harmless for delivery.
+    console.warn("[eventsub] Whisper subscription already exists (409); continuing.");
+    return true;
+  }
+  console.error(
+    `[eventsub] Failed to create whisper subscription (status ${resp.status}): ${body}`,
+  );
+  return false;
+}
+
+// Best-effort deletion of the tracked subscription (used on teardown so a
+// restart doesn't hit 409 or leave a subscription bound to a dead session).
+async function deleteWhisperSubscription(cfg) {
+  if (!eventSubSubscriptionId) return;
+  const id = eventSubSubscriptionId;
+  eventSubSubscriptionId = null;
+  try {
+    const resp = await fetch(
+      `https://api.twitch.tv/helix/eventsub/subscriptions?id=${encodeURIComponent(id)}`,
+      {
+        method: "DELETE",
+        headers: {
+          "Client-Id": cfg.clientId,
+          Authorization: `Bearer ${cfg.accessToken}`,
+        },
+      },
+    );
+    const body = await resp.text().catch(() => "");
+    if (!resp.ok) {
+      console.warn(
+        `[eventsub] Could not delete whisper subscription ${id} (status ${resp.status}): ${body}`,
+      );
+    }
+  } catch (e) {
+    console.warn(
+      `[eventsub] Could not delete whisper subscription ${id}: ${e && e.message ? e.message : e}`,
+    );
+  }
+}
+
+// Shared temp-mod whisper decision logic. Fed by the EventSub
+// user.whisper.message notification (primary path) and the legacy IRC
+// whisper listener (fallback). At-least-once delivery is safe: the pending
+// nomination is cleared before any async work, so a duplicate notification
+// is ignored.
+async function handleTempModWhisper(fromUsername, message) {
+  if (!pendingNomination) return;
+  const fromKey = String(fromUsername || "").toLowerCase();
+  if (fromKey !== pendingNomination.username) return;
+
+  const decision = classifyWhisperReply(message);
+
+  if (decision === "yes") {
+    const wasPending = pendingNomination;
+    pendingNomination = null;
+
+    // Generate temp credentials
+    const password = generateRandomPassword(12);
+    const passwordHash = hashModeratorPassword(password);
+    const expiresAt = Date.now() + wasPending.tempModTime * 60 * 1000;
+
+    // Store original password hash so we can restore it on expiration
+    originalModeratorPasswordHash = String(getSetting("moderatorPasswordHash", ""));
+
+    // One-click single-sign-on token so the whisper link auto-authenticates on
+    // both page load and API calls (no password prompt, phone-friendly).
+    const ssoToken = createTempModeratorToken(wasPending.username, expiresAt);
+
+    activeTempMod = {
+      username: wasPending.username,
+      displayname: wasPending.displayname,
+      passwordHash,
+      expiresAt,
+      token: ssoToken,
+    };
+
+    // Enable moderator access if not already enabled
+    if (!getControlSettings().moderatorEnabled) {
+      setSetting("moderatorEnabled", true);
+    }
+
+    try {
+      const moderatorLink = `${PUBLIC_URL}/requestModerator.html?token=${encodeURIComponent(ssoToken)}`;
+      await sendWhisper(
+        wasPending.username,
+        `Welcome! You're now a temporary moderator for ${wasPending.tempModTime} minutes. Tap the link to open the queue:\n\n${moderatorLink}\n\n(If the link doesn't work, open ${PUBLIC_URL}/requestModerator.html and log in with:\nUsername: ${wasPending.username}\nPassword: ${password})`,
+      );
+      // Announce to chat
+      await sendChatMessage(
+        twitchClient,
+        twitchConfig.channel,
+        `@${wasPending.displayname} is now moderating the request queue for ${wasPending.tempModTime} minutes!`,
+      );
+    } catch (e) {
+      console.error(
+        `[temp-mod] Failed to send credentials to ${wasPending.username}:`,
+        e && e.message ? e.message : e,
+      );
+      // Rollback on failure
+      activeTempMod = null;
+      if (originalModeratorPasswordHash) {
+        setSetting("moderatorPasswordHash", originalModeratorPasswordHash);
+        originalModeratorPasswordHash = null;
+      }
+      return;
+    }
+
+    // Schedule expiration
+    scheduleTempModExpiration();
+
+    console.log(
+      `[temp-mod] ${wasPending.displayname} accepted temp mod nomination for ${wasPending.tempModTime} minutes.`,
+    );
+  } else if (decision === "no") {
+    const wasPending = pendingNomination;
+    pendingNomination = null;
+    try {
+      await sendWhisper(wasPending.username, `No problem!`);
+    } catch (e) {
+      console.error(
+        `[temp-mod] Failed to send rejection reply to ${wasPending.username}:`,
+        e && e.message ? e.message : e,
+      );
+    }
+    console.log(`[temp-mod] ${wasPending.displayname} declined temp mod nomination.`);
+  } else {
+    // Unrecognized reply: keep the nomination pending and nudge the user.
+    console.log(
+      `[temp-mod] ${pendingNomination.displayname} sent an unrecognized whisper reply: "${message}" (nomination kept pending).`,
+    );
+    try {
+      await sendWhisper(
+        pendingNomination.username,
+        `Please reply **Y** to accept or **N** to decline.`,
+      );
+    } catch (e) {
+      console.error(
+        `[temp-mod] Failed to send nudge to ${pendingNomination.username}:`,
+        e && e.message ? e.message : e,
+      );
+    }
+  }
+}
+
+// Connect to the EventSub WebSocket endpoint. Reconnects transparently:
+// server-requested reconnects use the provided reconnect_url (subscriptions
+// carry over), and unexpected closes fall back to a fresh session with
+// exponential backoff.
+async function connectEventSub(cfg, opts = {}) {
+  if (eventSubStopping) return;
+  const url = opts.reconnectUrl || "wss://eventsub.wss.twitch.tv/ws";
+  const socket = new WebSocket(url);
+  eventSubSocket = socket;
+
+  socket.on("open", () => {
+    console.log(
+      `[eventsub] Socket open (${
+        opts.reconnectUrl ? "server-provided reconnect URL" : "fresh session"
+      }); awaiting session_welcome.`,
+    );
+  });
+
+  socket.on("message", async (raw) => {
+    let data;
+    try {
+      data = JSON.parse(raw.toString());
+    } catch (e) {
+      console.error(
+        "[eventsub] Failed to parse inbound message:",
+        raw && raw.toString ? raw.toString().slice(0, 200) : raw,
+      );
+      return;
+    }
+    const messageType = data && data.metadata ? data.metadata.message_type : null;
+    const payload = data && data.payload ? data.payload : {};
+
+    if (messageType === "session_welcome") {
+      const session = payload.session || {};
+      eventSubSessionId = String(session.id || "");
+      eventSubKeepaliveTimeoutSeconds = session.keepalive_timeout_seconds;
+      eventSubReconnectAttempts = 0;
+      armEventSubKeepalive(socket);
+      if (opts.isReconnect) {
+        // Subscriptions carry over automatically on a reconnect URL — do NOT
+        // re-subscribe. The old socket can now be closed; delivery continues
+        // on this one.
+        console.log(
+          `[eventsub] Reconnected (session ${eventSubSessionId}); existing subscriptions carried over.`,
+        );
+        if (opts.fromSocket && opts.fromSocket !== socket) {
+          if (eventSubSocket === opts.fromSocket) eventSubSocket = socket;
+          try {
+            opts.fromSocket.removeAllListeners();
+            opts.fromSocket.close();
+          } catch (e) {}
+        }
+      } else {
+        console.log(
+          `[eventsub] Session welcome received (session ${eventSubSessionId}); creating whisper subscription.`,
+        );
+        try {
+          await createWhisperSubscription(cfg, eventSubSessionId);
+        } catch (e) {
+          console.error("[eventsub] Whisper subscription error:", e && e.message ? e.message : e);
+        }
+      }
+      // Re-arm the watchdog now that the welcome handling has completed.
+      armEventSubKeepalive(socket);
+      return;
+    }
+
+    if (messageType === "session_keepalive") {
+      // Proves the session is alive; re-arm the watchdog.
+      armEventSubKeepalive(socket);
+      return;
+    }
+
+    if (messageType === "session_reconnect") {
+      // The server is migrating us to a new endpoint. Open the replacement
+      // socket immediately; the old one stays open until the new session
+      // welcomes (30s grace, subscriptions carry over). If the new socket
+      // never welcomes, the old one is closed with 4004 and we fall back to
+      // a fresh reconnect via its close handler.
+      const session = payload.session || {};
+      console.log(
+        `[eventsub] Server requested reconnect to a new endpoint (status: ${
+          session.status || "unknown"
+        }).`,
+      );
+      if (!session.reconnect_url) {
+        try {
+          socket.terminate();
+        } catch (e) {}
+        return;
+      }
+      connectEventSub(cfg, {
+        isReconnect: true,
+        fromSocket: socket,
+        reconnectUrl: session.reconnect_url,
+      }).catch((e) => {
+        console.error(
+          "[eventsub] Server-requested reconnect failed:",
+          e && e.message ? e.message : e,
+        );
+      });
+      return;
+    }
+
+    if (messageType === "revocation") {
+      const revoked = payload.subscription || {};
+      console.warn(`[eventsub] Subscription ${revoked.id} revoked (status: ${revoked.status}).`);
+      if (String(revoked.id || "") === String(eventSubSubscriptionId || "")) {
+        eventSubSubscriptionId = null;
+      }
+      if (revoked.status === "authorization_revoked") {
+        // The token no longer authorizes this subscription; retrying is
+        // pointless. The token refresh / re-authorization flow re-runs
+        // startTmiClient, which restarts this client.
+        console.warn(
+          "[eventsub] Authorization revoked; stopping EventSub client until the token flow re-establishes it.",
+        );
+        stopEventSubClient().catch((e) => {
+          console.error("[eventsub] Teardown error:", e && e.message ? e.message : e);
+        });
+        return;
+      }
+      // The subscription was removed server-side (user_removed /
+      // version_removed); re-subscribe once on the live session.
+      if (eventSubSessionId) {
+        createWhisperSubscription(cfg, eventSubSessionId).catch((e) => {
+          console.error("[eventsub] Re-subscription error:", e && e.message ? e.message : e);
+        });
+      }
+      return;
+    }
+
+    if (messageType === "notification") {
+      // Any inbound message proves the session is alive; re-arm the watchdog.
+      armEventSubKeepalive(socket);
+      const subscription = payload.subscription || {};
+      if (subscription.type !== "user.whisper.message") return;
+      const event = payload.event || {};
+      if (eventSubBotUserId && String(event.from_user_id) === eventSubBotUserId) {
+        // The account whispering itself — we never send self-whispers, so
+        // this is purely defensive.
+        return;
+      }
+      console.log(
+        `[eventsub] Whisper received from ${event.from_user_login || "unknown"}: ${String(
+          event.message || "",
+        ).slice(0, 80)}`,
+      );
+      handleTempModWhisper(event.from_user_login, event.message).catch((e) => {
+        console.error("[eventsub] Whisper handler error:", e && e.message ? e.message : e);
+      });
+      return;
+    }
+  });
+
+  socket.on("error", (err) => {
+    console.error(`[eventsub] Socket error: ${err && err.message ? err.message : err}`);
+  });
+
+  socket.on("close", (code, reason) => {
+    const why = reason && reason.toString().trim() ? `: ${reason.toString().trim()}` : "";
+    console.log(`[eventsub] Socket closed (code ${code}${why}).`);
+    // A stale socket (already replaced by a server-requested reconnect
+    // handover) must not touch shared state.
+    if (socket !== eventSubSocket) return;
+    eventSubSocket = null;
+    eventSubSessionId = null;
+    clearEventSubTimers();
+    if (eventSubStopping) return;
+    scheduleEventSubReconnect(cfg);
+  });
+}
+
+// Schedule a fresh-session reconnect with exponential backoff (1s base, 30s cap).
+function scheduleEventSubReconnect(cfg) {
+  if (eventSubStopping || eventSubReconnectTimer) return;
+  eventSubReconnectAttempts += 1;
+  const backoffMs = Math.min(30000, 1000 * 2 ** Math.min(eventSubReconnectAttempts - 1, 5));
+  console.log(
+    `[eventsub] Scheduling fresh reconnect in ${(backoffMs / 1000).toFixed(0)}s (attempt ${eventSubReconnectAttempts}).`,
+  );
+  eventSubReconnectTimer = setTimeout(() => {
+    eventSubReconnectTimer = null;
+    connectEventSub(twitchConfig || cfg).catch((e) => {
+      console.error("[eventsub] Reconnect failed:", e && e.message ? e.message : e);
+    });
+  }, backoffMs);
+}
+
+// (Re)start the EventSub client, tearing down any previous instance first.
+async function startEventSubClient(cfg) {
+  if (!cfg || !cfg.accessToken || !cfg.clientId) {
+    console.warn("[eventsub] Not started: missing access token or client id.");
+    return;
+  }
+  await stopEventSubClient();
+  eventSubReconnectAttempts = 0;
+  await connectEventSub(cfg);
+}
+
+// Tear down the EventSub client: stop timers, close the socket, and delete
+// the tracked subscription so a restart can re-subscribe cleanly.
+async function stopEventSubClient() {
+  eventSubStopping = true;
+  clearEventSubTimers();
+  const socket = eventSubSocket;
+  eventSubSocket = null;
+  eventSubSessionId = null;
+  const cfg = twitchConfig;
+  if (cfg && cfg.clientId && cfg.accessToken) {
+    await deleteWhisperSubscription(cfg);
+  }
+  eventSubStopping = false;
+  if (socket) {
+    try {
+      socket.removeAllListeners();
+      socket.terminate();
+    } catch (e) {}
+  }
+}
+
 async function startTmiClient(cfg) {
   if (!cfg || !cfg.accessToken || !cfg.channel) {
     console.warn("Twitch client not started: missing config.");
@@ -2436,104 +2899,23 @@ async function startTmiClient(cfg) {
     });
   });
 
-  // Handle whispers for temp mod nomination responses
-  client.on("whisper", async (from, _tags, message, self) => {
-    if (self || !pendingNomination) return;
-    const fromUsername = from.toLowerCase();
-    if (fromUsername !== pendingNomination.username) return;
+  // Handle whispers for temp mod nomination responses. IRC whisper delivery
+  // is deprecated by Twitch, so this listener is only a fallback — the
+  // primary path is the EventSub user.whisper.message subscription.
+  client.on("whisper", (from, _tags, message, self) => {
+    if (self) return;
+    handleTempModWhisper(from, message).catch((e) => {
+      console.error(`[temp-mod] Whisper handler error: ${e && e.message ? e.message : e}`);
+    });
+  });
 
-    const decision = classifyWhisperReply(message);
-
-    if (decision === "yes") {
-      const wasPending = pendingNomination;
-      pendingNomination = null;
-
-      // Generate temp credentials
-      const password = generateRandomPassword(12);
-      const passwordHash = hashModeratorPassword(password);
-      const expiresAt = Date.now() + wasPending.tempModTime * 60 * 1000;
-
-      // Store original password hash so we can restore it on expiration
-      originalModeratorPasswordHash = String(getSetting("moderatorPasswordHash", ""));
-
-      // One-click single-sign-on token so the whisper link auto-authenticates on
-      // both page load and API calls (no password prompt, phone-friendly).
-      const ssoToken = createTempModeratorToken(wasPending.username, expiresAt);
-
-      activeTempMod = {
-        username: wasPending.username,
-        displayname: wasPending.displayname,
-        passwordHash,
-        expiresAt,
-        token: ssoToken,
-      };
-
-      // Enable moderator access if not already enabled
-      if (!getControlSettings().moderatorEnabled) {
-        setSetting("moderatorEnabled", true);
-      }
-
-      try {
-        const moderatorLink = `${PUBLIC_URL}/requestModerator.html?token=${encodeURIComponent(ssoToken)}`;
-        await sendWhisper(
-          wasPending.username,
-          `Welcome! You're now a temporary moderator for ${wasPending.tempModTime} minutes. Tap the link to open the queue:\n\n${moderatorLink}\n\n(If the link doesn't work, open ${PUBLIC_URL}/requestModerator.html and log in with:\nUsername: ${wasPending.username}\nPassword: ${password})`,
-        );
-        // Announce to chat
-        await sendChatMessage(
-          twitchClient,
-          twitchConfig.channel,
-          `@${wasPending.displayname} is now moderating the request queue for ${wasPending.tempModTime} minutes!`,
-        );
-      } catch (e) {
-        console.error(
-          `[temp-mod] Failed to send credentials to ${wasPending.username}:`,
-          e && e.message ? e.message : e,
-        );
-        // Rollback on failure
-        activeTempMod = null;
-        if (originalModeratorPasswordHash) {
-          setSetting("moderatorPasswordHash", originalModeratorPasswordHash);
-          originalModeratorPasswordHash = null;
-        }
-        return;
-      }
-
-      // Schedule expiration
-      scheduleTempModExpiration();
-
-      console.log(
-        `[temp-mod] ${wasPending.displayname} accepted temp mod nomination for ${wasPending.tempModTime} minutes.`,
-      );
-    } else if (decision === "no") {
-      const wasPending = pendingNomination;
-      pendingNomination = null;
-      try {
-        await sendWhisper(wasPending.username, `No problem!`);
-      } catch (e) {
-        console.error(
-          `[temp-mod] Failed to send rejection reply to ${wasPending.username}:`,
-          e && e.message ? e.message : e,
-        );
-      }
-      console.log(`[temp-mod] ${wasPending.displayname} declined temp mod nomination.`);
-    } else {
-      // Unrecognized reply: keep the nomination pending and nudge the user.
-      console.log(
-        `[temp-mod] ${pendingNomination.displayname} sent an unrecognized whisper reply: "${message}" (nomination kept pending).`,
-      );
-      try {
-        await sendWhisper(
-          pendingNomination.username,
-          `Please reply **Y** to accept or **N** to decline.`,
-        );
-      } catch (e) {
-        console.error(
-          `[temp-mod] Failed to send nudge to ${pendingNomination.username}:`,
-          e && e.message ? e.message : e,
-        );
-      }
-    }
+  // Start the EventSub WebSocket client so incoming whisper replies
+  // (temp-mod Y/N) keep arriving now that IRC whisper delivery is deprecated.
+  // Non-blocking: the client reconnects independently of the chat client, and
+  // it is restarted automatically on token refresh (which re-runs this
+  // function).
+  startEventSubClient(cfg).catch((e) => {
+    console.error("Failed to start EventSub client:", e && e.message ? e.message : e);
   });
 
   // Start periodic cleanup of chat users and pending nominations
@@ -2544,6 +2926,11 @@ async function startTmiClient(cfg) {
 }
 
 async function stopTmiClient() {
+  try {
+    await stopEventSubClient();
+  } catch (e) {
+    console.error("Failed to stop EventSub client:", e && e.message ? e.message : e);
+  }
   if (twitchClient) {
     try {
       await twitchClient.disconnect();
