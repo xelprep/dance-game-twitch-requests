@@ -26,12 +26,14 @@ body {
     sans-serif;
 }
 .overlay {
+  --shadow-breathing: 0.2em;
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
   flex-direction: column;
   height: 100%;
-  padding: 8px 12px 20px 12px;
+  padding: 8px calc(12px + var(--shadow-breathing)) 20px calc(12px + var(--shadow-breathing));
+  margin-inline: calc(-1 * var(--shadow-breathing));
   overflow: hidden;
   gap: 4px;
 }
@@ -41,6 +43,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  align-self: flex-start;
 }
 .now-playing-label {
   color: #ffffff;
@@ -53,6 +56,7 @@ body {
     0 1px 0 rgba(0, 0, 0, 0.6);
 }
 .now-playing {
+  --shadow-breathing: 0.18em;
   color: #ffffff;
   font-weight: 700;
   font-size: 48px;
@@ -61,6 +65,12 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Keep the shadow inside the clipped box while preserving the original layout position. */
+  padding-inline: var(--shadow-breathing);
+  margin-inline: calc(-1 * var(--shadow-breathing));
+  /* padding-bottom gives descenders (g, p, q, y…) room inside the
+     overflow:hidden boundary so they aren't clipped on the last line */
+  padding-bottom: 0.15em;
   text-shadow:
     0 0 6px rgba(0, 0, 0, 0.9),
     0 1px 0 rgba(0, 0, 0, 0.6);
@@ -90,11 +100,11 @@ body {
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
   border-radius: 999px;
-  margin: 4px 0;
 }
 
 /* Queue display (existing styles) */
 #message {
+  --shadow-breathing: 0.18em;
   display: flex;
   align-items: stretch;
   color: #ffffff;
@@ -106,6 +116,8 @@ body {
   white-space: nowrap;
   overflow: hidden;
   max-width: 100%;
+  padding-inline: var(--shadow-breathing);
+  margin-inline: calc(-1 * var(--shadow-breathing));
 }
 #message.queue-animate {
   animation: queue-slide-left 0.28s ease;
@@ -151,16 +163,24 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 4em;
+  /* min-height (not height) so the container can grow when queue-line
+     padding-bottom pushes total content past 4em */
+  min-height: 4em;
   min-width: 0;
   max-width: 100%;
 }
 #message .queue-line {
+  --shadow-breathing: 0.18em;
   line-height: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  padding-inline: var(--shadow-breathing);
+  margin-inline: calc(-1 * var(--shadow-breathing));
+  /* padding-bottom gives descenders (g, p, q, y…) room inside each
+     line's own overflow:hidden boundary */
+  padding-bottom: 0.15em;
 }
 #message .queue-line-title,
 #message .queue-line-pack,
@@ -184,9 +204,12 @@ body {
   height: 4em;
 }
 #message .queue-empty-row {
+  --shadow-breathing: 0.18em;
   line-height: 1;
   white-space: nowrap;
   min-height: 1em;
+  padding-inline: var(--shadow-breathing);
+  margin-inline: calc(-1 * var(--shadow-breathing));
 }
 #message .queue-empty-row--message {
   padding-top: 0.04em;
