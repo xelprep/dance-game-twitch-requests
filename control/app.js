@@ -134,6 +134,7 @@ async function getFilters() {
 let searchTimer = null;
 let searchPage = 1;
 let searchTotalPages = 1;
+let moderatorDraftRows = [];
 
 function updateSearchPager() {
   ["search-prev", "search-prev-bottom"].forEach((id) => {
@@ -309,10 +310,8 @@ async function render() {
               : 10;
         }
         const moderatorEnabled = $("moderatorEnabled");
-        const moderatorUsername = $("moderatorUsername");
         if (moderatorEnabled) moderatorEnabled.checked = !!(settings && settings.moderatorEnabled);
-        if (moderatorUsername && document.activeElement !== moderatorUsername)
-          moderatorUsername.value = (settings && settings.moderatorUsername) || "";
+        renderModeratorCredentials(settings);
       }
 
       const allowChat = !!(chatRequestsEnabled && chatRequestsEnabled.checked);
@@ -325,10 +324,200 @@ async function render() {
   }
 }
 
+function getModeratorDraftRowsFromSettings(settings) {
+  if (Array.isArray(settings && settings.moderatorCredentials) && settings.moderatorCredentials.length) {
+    return settings.moderatorCredentials.map((entry) => ({
+      username: String(entry.username || ""),
+      password: "",
+    }));
+  }
+  if (settings && settings.moderatorUsername) {
+    return [{ username: String(settings.moderatorUsername || ""), password: "" }];
+  }
+  return [{ username: "", password: "" }];
+}
+
+function syncModeratorDraft(settings) {
+  moderatorDraftRows = getModeratorDraftRowsFromSettings(settings);
+  return moderatorDraftRows;
+}
+
+function normalizeModeratorRows(rows) {
+  const nonEmptyRows = (rows || [])
+    .filter((row) => row && (String(row.username || "").trim() || String(row.password || "")))
+    .map((row) => ({ username: String(row.username || "").trim(), password: String(row.password || "") }));
+
+  if (!nonEmptyRows.length) {
+    return [{ username: "", password: "" }];
+  }
+
+  const withTrailingBlank = [...nonEmptyRows, { username: "", password: "" }];
+  return withTrailingBlank;
+}
+
+function updateModeratorDraftFromUI() {
+  const list = $("moderatorCredentialsList");
+  if (!list) return;
+
+  const rows = Array.from(list.querySelectorAll(".moderator-credential-row"));
+  const nextRows = rows.map((row) => {
+    const usernameInput = row.querySelector(".moderator-username-input");
+    const passwordInput = row.querySelector(".moderator-password-input");
+    return {
+      username: usernameInput ? usernameInput.value.trim() : "",
+      password: passwordInput ? passwordInput.value : "",
+    };
+  });
+
+  moderatorDraftRows = normalizeModeratorRows(nextRows);
+}
+
+function createModeratorCredentialRow(entry = {}, index = 0) {
+  const row = document.createElement("div");
+  row.className = "moderator-credential-row";
+
+  const usernameInput = document.createElement("input");
+  usernameInput.type = "text";
+  usernameInput.autocomplete = "off";
+  usernameInput.placeholder = "Trusted username";
+  usernameInput.value = String(entry.username || "");
+  usernameInput.dataset.index = String(index);
+  usernameInput.className = "moderator-username-input";
+  usernameInput.addEventListener("input", () => updateModeratorDraftFromUI());
+  usernameInput.addEventListener("change", () => saveModeratorCredentialDraft());
+
+  const passwordInput = document.createElement("input");
+  passwordInput.type = "password";
+  passwordInput.autocomplete = "new-password";
+  passwordInput.placeholder = "Password";
+  passwordInput.value = String(entry.password || "");
+  passwordInput.className = "moderator-password-input";
+  passwordInput.addEventListener("input", () => updateModeratorDraftFromUI());
+  passwordInput.addEventListener("change", () => saveModeratorCredentialDraft());
+
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.textContent = "+";
+  addBtn.title = "Add moderator";
+  addBtn.className = "moderator-add-button";
+  addBtn.addEventListener("click", () => {
+    const list = $("moderatorCredentialsList");
+    if (!list) return;
+    const rows = Array.from(list.querySelectorAll(".moderator-credential-row"));
+    const lastRow = rows[rows.length - 1];
+    const lastUsername = lastRow
+      ? lastRow.querySelector(".moderator-username-input")?.value.trim() || ""
+      : "";
+    const lastPassword = lastRow
+      ? lastRow.querySelector(".moderator-password-input")?.value || ""
+      : "";
+    if (lastUsername || lastPassword) {
+      list.appendChild(createModeratorCredentialRow({}, rows.length));
+      updateModeratorDraftFromUI();
+      saveModeratorCredentialDraft();
+    } else {
+      toast("Fill in the current moderator row before adding another.");
+      const focused =
+        lastRow?.querySelector(".moderator-username-input") ||
+        lastRow?.querySelector(".moderator-password-input");
+      if (focused) focused.focus();
+    }
+  });
+
+  const removeBtn = document.createElement("button");
+  removeBtn.type = "button";
+  removeBtn.textContent = "-";
+  removeBtn.title = "Remove moderator";
+  removeBtn.className = "moderator-remove-button";
+  removeBtn.disabled = rowCount() <= 1;
+  removeBtn.addEventListener("click", () => {
+    const list = $("moderatorCredentialsList");
+    if (!list) return;
+    const rows = Array.from(list.querySelectorAll(".moderator-credential-row"));
+    if (rows.length <= 1) return;
+    const target = rows[rows.findIndex((item) => item === row)];
+    if (target) target.remove();
+    updateModeratorDraftFromUI();
+    updateModeratorRowButtons();
+    saveModeratorCredentialDraft();
+  });
+
+  row.append(usernameInput, passwordInput, addBtn, removeBtn);
+  return row;
+}
+
+function rowCount() {
+  const list = $("moderatorCredentialsList");
+  if (!list) return 1;
+  return list.querySelectorAll(".moderator-credential-row").length || 1;
+}
+
+function updateModeratorRowButtons() {
+  const list = $("moderatorCredentialsList");
+  if (!list) return;
+  const rows = Array.from(list.querySelectorAll(".moderator-credential-row"));
+  rows.forEach((item) => {
+    const removeBtn = item.querySelector(".moderator-remove-button");
+    if (removeBtn) removeBtn.disabled = rows.length <= 1;
+  });
+}
+
+function renderModeratorCredentials(settings) {
+  const list = $("moderatorCredentialsList");
+  if (!list) return;
+
+  const activeInsideList = list.contains(document.activeElement);
+  if (activeInsideList) {
+    updateModeratorDraftFromUI();
+    return;
+  }
+
+  const rows = moderatorDraftRows.length ? moderatorDraftRows : syncModeratorDraft(settings);
+  const normalizedRows = normalizeModeratorRows(rows);
+  list.innerHTML = "";
+  normalizedRows.forEach((entry, index) => list.appendChild(createModeratorCredentialRow(entry, index)));
+  updateModeratorRowButtons();
+}
+
+function getModeratorCredentialsFromUI() {
+  const list = $("moderatorCredentialsList");
+  if (!list) return [];
+  const rows = Array.from(list.querySelectorAll(".moderator-credential-row"));
+  const credentials = [];
+  for (const row of rows) {
+    const usernameInput = row.querySelector(".moderator-username-input");
+    const passwordInput = row.querySelector(".moderator-password-input");
+    const username = String(usernameInput ? usernameInput.value.trim() : "");
+    const password = String(passwordInput ? passwordInput.value : "");
+    if (!username && !password) continue;
+    credentials.push({ username, password });
+  }
+  return credentials;
+}
+
+function saveModeratorCredentialDraft() {
+  const list = $("moderatorCredentialsList");
+  if (!list) return;
+  const moderatorEnabled = $("moderatorEnabled");
+  const nextDraft = getModeratorCredentialsFromUI();
+  if (moderatorEnabled) {
+    saveControlSettings({
+      moderatorEnabled: moderatorEnabled.checked,
+      moderatorCredentials: nextDraft,
+    });
+    return;
+  }
+  saveControlSettings({ moderatorCredentials: nextDraft });
+}
+
 async function saveControlSettings(patch) {
   try {
     const current = await api("/api/control/settings");
     const next = { ...current, ...patch };
+    if (Object.prototype.hasOwnProperty.call(patch, "moderatorCredentials")) {
+      delete next.moderatorUsername;
+      delete next.moderatorPasswordConfigured;
+    }
     await api("/api/control/settings", { method: "POST", body: JSON.stringify(next) });
     toast("Settings saved");
     render();
@@ -374,48 +563,35 @@ if (instructionsMinutesEl) {
 }
 
 const moderatorEnabledEl = $("moderatorEnabled");
-const moderatorUsernameEl = $("moderatorUsername");
-const moderatorPasswordEl = $("moderatorPassword");
 if (moderatorEnabledEl) {
   moderatorEnabledEl.addEventListener("change", async () => {
     if (moderatorEnabledEl.checked) {
-      const username = moderatorUsernameEl.value.trim();
-      const password = moderatorPasswordEl.value;
+      const moderatorRows = getModeratorCredentialsFromUI();
+      const validRows = moderatorRows.filter(
+        (row) => String(row.username || "").trim() && (String(row.password || "").length > 0 || row.username),
+      );
       try {
         const current = await api("/api/control/settings");
-        if (!username) {
+        if (!validRows.length) {
           moderatorEnabledEl.checked = false;
-          toast("Please enter a moderator username before enabling access.");
-          moderatorUsernameEl.focus();
+          toast("Please enter at least one moderator username before enabling access.");
+          const firstRow = $("moderatorCredentialsList")?.querySelector(".moderator-username-input");
+          if (firstRow) firstRow.focus();
           return;
         }
-        if (!current.moderatorPasswordConfigured && !password) {
+        const hasAnyPasswordInput = moderatorRows.some((row) => String(row.password || "").length > 0);
+        if (!current.moderatorPasswordConfigured && !hasAnyPasswordInput) {
           moderatorEnabledEl.checked = false;
           toast("Please set a moderator password before enabling access for the first time.");
-          moderatorPasswordEl.focus();
+          const firstPassword = $("moderatorCredentialsList")?.querySelector(".moderator-password-input");
+          if (firstPassword) firstPassword.focus();
           return;
         }
       } catch (_e) {}
     }
     saveControlSettings({
       moderatorEnabled: moderatorEnabledEl.checked,
-      moderatorUsername: moderatorUsernameEl.value.trim(),
-      moderatorPassword: moderatorPasswordEl.value,
-    }).then(() => {
-      moderatorPasswordEl.value = "";
-    });
-  });
-}
-if (moderatorUsernameEl) {
-  moderatorUsernameEl.addEventListener("change", () =>
-    saveControlSettings({ moderatorUsername: moderatorUsernameEl.value.trim() }),
-  );
-}
-if (moderatorPasswordEl) {
-  moderatorPasswordEl.addEventListener("change", () => {
-    if (!moderatorPasswordEl.value) return;
-    saveControlSettings({ moderatorPassword: moderatorPasswordEl.value }).then(() => {
-      moderatorPasswordEl.value = "";
+      moderatorCredentials: getModeratorCredentialsFromUI(),
     });
   });
 }
@@ -680,9 +856,8 @@ async function renderTempMod() {
       const mins = Math.floor(remaining / 60);
       const secs = remaining % 60;
       activeDiv.textContent = `🟢 ${status.tempMod.displayName} is moderating (${mins}:${secs.toString().padStart(2, "0")} remaining)`;
-      // Disable nominate buttons
       document.querySelectorAll(".temp-mod-nominate-btn").forEach((btn) => {
-        btn.closest(".temp-mod-user-item").classList.add("disabled");
+        btn.disabled = true;
       });
     } else if (status.hasPendingNomination) {
       activeTempModUsername = null;
@@ -691,14 +866,15 @@ async function renderTempMod() {
       cooldownDiv.style.display = "";
       const secs = Math.ceil(status.nominationCooldown / 1000);
       cooldownDiv.textContent = `⏳ Awaiting response… (${secs}s cooldown)`;
-      // Disable nominate buttons
       document.querySelectorAll(".temp-mod-nominate-btn").forEach((btn) => {
-        btn.closest(".temp-mod-user-item").classList.add("disabled");
+        btn.disabled = true;
       });
     } else {
       activeTempModUsername = null;
       statusDiv.style.display = "none";
-      // Enable nominate buttons
+      document.querySelectorAll(".temp-mod-nominate-btn").forEach((btn) => {
+        btn.disabled = false;
+      });
       document.querySelectorAll(".temp-mod-user-item.disabled").forEach((item) => {
         item.classList.remove("disabled");
       });

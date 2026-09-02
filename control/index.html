@@ -182,21 +182,16 @@
             <input type="checkbox" id="moderatorEnabled" />
             Enable public moderator control at PUBLIC_URL/requestModerator.html
           </label>
-          <label
-            >Moderator username:
-            <input id="moderatorUsername" autocomplete="off" placeholder="Trusted user's username"
-          /></label>
-          <label
-            >Moderator password:
-            <input
-              id="moderatorPassword"
-              type="password"
-              autocomplete="new-password"
-              placeholder="Set or replace password"
-          /></label>
+          <div class="moderator-credentials-wrap">
+            <div class="moderator-credentials-header">
+              <span>Username</span>
+              <span>Password</span>
+            </div>
+            <div id="moderatorCredentialsList" class="moderator-credentials-list"></div>
+          </div>
           <p class="small muted">
-            Disabling access revokes existing moderator sessions immediately. The password is stored
-            as a one-way hash.
+            Disabling access revokes existing moderator sessions immediately. Moderator passwords are
+            stored as one-way hashes.
           </p>
           <label>
             <input type="checkbox" id="prioritizeViewerRequests" checked />
