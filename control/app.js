@@ -325,7 +325,10 @@ async function render() {
 }
 
 function getModeratorDraftRowsFromSettings(settings) {
-  if (Array.isArray(settings && settings.moderatorCredentials) && settings.moderatorCredentials.length) {
+  if (
+    Array.isArray(settings && settings.moderatorCredentials) &&
+    settings.moderatorCredentials.length
+  ) {
     return settings.moderatorCredentials.map((entry) => ({
       username: String(entry.username || ""),
       password: "",
@@ -345,7 +348,10 @@ function syncModeratorDraft(settings) {
 function normalizeModeratorRows(rows) {
   const nonEmptyRows = (rows || [])
     .filter((row) => row && (String(row.username || "").trim() || String(row.password || "")))
-    .map((row) => ({ username: String(row.username || "").trim(), password: String(row.password || "") }));
+    .map((row) => ({
+      username: String(row.username || "").trim(),
+      password: String(row.password || ""),
+    }));
 
   if (!nonEmptyRows.length) {
     return [{ username: "", password: "" }];
@@ -475,7 +481,9 @@ function renderModeratorCredentials(settings) {
   const rows = moderatorDraftRows.length ? moderatorDraftRows : syncModeratorDraft(settings);
   const normalizedRows = normalizeModeratorRows(rows);
   list.innerHTML = "";
-  normalizedRows.forEach((entry, index) => list.appendChild(createModeratorCredentialRow(entry, index)));
+  normalizedRows.forEach((entry, index) =>
+    list.appendChild(createModeratorCredentialRow(entry, index)),
+  );
   updateModeratorRowButtons();
 }
 
@@ -568,22 +576,30 @@ if (moderatorEnabledEl) {
     if (moderatorEnabledEl.checked) {
       const moderatorRows = getModeratorCredentialsFromUI();
       const validRows = moderatorRows.filter(
-        (row) => String(row.username || "").trim() && (String(row.password || "").length > 0 || row.username),
+        (row) =>
+          String(row.username || "").trim() &&
+          (String(row.password || "").length > 0 || row.username),
       );
       try {
         const current = await api("/api/control/settings");
         if (!validRows.length) {
           moderatorEnabledEl.checked = false;
           toast("Please enter at least one moderator username before enabling access.");
-          const firstRow = $("moderatorCredentialsList")?.querySelector(".moderator-username-input");
+          const firstRow = $("moderatorCredentialsList")?.querySelector(
+            ".moderator-username-input",
+          );
           if (firstRow) firstRow.focus();
           return;
         }
-        const hasAnyPasswordInput = moderatorRows.some((row) => String(row.password || "").length > 0);
+        const hasAnyPasswordInput = moderatorRows.some(
+          (row) => String(row.password || "").length > 0,
+        );
         if (!current.moderatorPasswordConfigured && !hasAnyPasswordInput) {
           moderatorEnabledEl.checked = false;
           toast("Please set a moderator password before enabling access for the first time.");
-          const firstPassword = $("moderatorCredentialsList")?.querySelector(".moderator-password-input");
+          const firstPassword = $("moderatorCredentialsList")?.querySelector(
+            ".moderator-password-input",
+          );
           if (firstPassword) firstPassword.focus();
           return;
         }
@@ -918,7 +934,8 @@ function renderTempModUserList(filter = "") {
 
   userList.innerHTML = filtered
     .map((u) => {
-      const isActive = activeTempModUsername && u.username.toLowerCase() === activeTempModUsername.toLowerCase();
+      const isActive =
+        activeTempModUsername && u.username.toLowerCase() === activeTempModUsername.toLowerCase();
       const endEarlyButton = isActive
         ? `<button class="temp-mod-end-early-btn" onclick="endTempModEarly('${esc(u.username)}')">End Early</button>`
         : "";
