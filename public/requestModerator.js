@@ -1,15 +1,58 @@
 const $ = (id) => document.getElementById(id);
 
+// One-click auth: a whisper link carries a signed token (?token=…). Cache it so
+// every subsequent /api/moderator call is authorized without a password dialog,
+// which is essential on phones where Basic auth prompts are unreliable.
+const TOKEN_KEY = "moderatorToken";
+function readUrlToken() {
+  const t = new URLSearchParams(window.location.search).get("token");
+  return t && t.length > 0 ? t : null;
+}
+function getModeratorToken() {
+  let t = readUrlToken();
+  if (t) {
+    try {
+      localStorage.setItem(TOKEN_KEY, t);
+    } catch (_e) {}
+    return t;
+  }
+  try {
+    const cached = localStorage.getItem(TOKEN_KEY);
+    return cached && cached.length > 0 ? cached : null;
+  } catch (_e) {
+    return null;
+  }
+}
+function clearModeratorToken() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch (_e) {}
+}
+// Capture the token from the URL once on load (also leaves it in the bar so it
+// survives reloads during the short session).
+getModeratorToken();
+
 async function api(url, options = {}) {
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  // Authorize moderator calls with the cached one-click token when present.
+  if (typeof url === "string" && url.indexOf("/api/moderator/") === 0) {
+    const token = getModeratorToken();
+    if (token) headers["Authorization"] = "Bearer " + token;
+  }
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers,
     ...options,
   });
+  // If the token was rejected/expired, drop it so a subsequent action falls back
+  // to the username/password (Basic auth) prompt.
+  if (res.status === 401 && typeof url === "string" && url.indexOf("/api/moderator/") === 0) {
+    clearModeratorToken();
+  }
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Request failed");
+
   return data;
 }
-
 function esc(v) {
   return String(v ?? "").replace(
     /[&<>"']/g,
