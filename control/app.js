@@ -309,10 +309,8 @@ async function render() {
               : 10;
         }
         const moderatorEnabled = $("moderatorEnabled");
-        const moderatorUsername = $("moderatorUsername");
         if (moderatorEnabled) moderatorEnabled.checked = !!(settings && settings.moderatorEnabled);
-        if (moderatorUsername && document.activeElement !== moderatorUsername)
-          moderatorUsername.value = (settings && settings.moderatorUsername) || "";
+        renderModeratorCredentials(settings);
       }
 
       const allowChat = !!(chatRequestsEnabled && chatRequestsEnabled.checked);
@@ -323,6 +321,118 @@ async function render() {
   } catch (e) {
     toast(e.message);
   }
+}
+
+function createModeratorCredentialRow(entry = {}, index = 0) {
+  const row = document.createElement("div");
+  row.className = "moderator-credential-row";
+
+  const usernameInput = document.createElement("input");
+  usernameInput.type = "text";
+  usernameInput.autocomplete = "off";
+  usernameInput.placeholder = "Trusted username";
+  usernameInput.value = String(entry.username || "");
+  usernameInput.dataset.index = String(index);
+  usernameInput.className = "moderator-username-input";
+
+  const passwordInput = document.createElement("input");
+  passwordInput.type = "password";
+  passwordInput.autocomplete = "new-password";
+  passwordInput.placeholder = "Password";
+  passwordInput.value = "";
+  passwordInput.className = "moderator-password-input";
+
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.textContent = "+";
+  addBtn.title = "Add moderator";
+  addBtn.className = "moderator-add-button";
+  addBtn.addEventListener("click", () => {
+    const list = $("moderatorCredentialsList");
+    if (!list) return;
+    const rows = Array.from(list.querySelectorAll(".moderator-credential-row"));
+    const lastRow = rows[rows.length - 1];
+    const lastUsername = lastRow
+      ? lastRow.querySelector(".moderator-username-input")?.value.trim() || ""
+      : "";
+    const lastPassword = lastRow
+      ? lastRow.querySelector(".moderator-password-input")?.value || ""
+      : "";
+    if (lastUsername || lastPassword) {
+      list.appendChild(createModeratorCredentialRow({}, rows.length));
+    } else {
+      toast("Fill in the current moderator row before adding another.");
+      const focused = lastRow?.querySelector(".moderator-username-input") || lastRow?.querySelector(".moderator-password-input");
+      if (focused) focused.focus();
+    }
+  });
+
+  const removeBtn = document.createElement("button");
+  removeBtn.type = "button";
+  removeBtn.textContent = "-";
+  removeBtn.title = "Remove moderator";
+  removeBtn.className = "moderator-remove-button";
+  removeBtn.disabled = rowCount() <= 1;
+  removeBtn.addEventListener("click", () => {
+    const list = $("moderatorCredentialsList");
+    if (!list) return;
+    const rows = Array.from(list.querySelectorAll(".moderator-credential-row"));
+    if (rows.length <= 1) return;
+    const target = rows[rows.findIndex((item) => item === row)];
+    if (target) target.remove();
+    updateModeratorRowButtons();
+  });
+
+  row.append(usernameInput, passwordInput, addBtn, removeBtn);
+  return row;
+}
+
+function rowCount() {
+  const list = $("moderatorCredentialsList");
+  if (!list) return 1;
+  return list.querySelectorAll(".moderator-credential-row").length || 1;
+}
+
+function updateModeratorRowButtons() {
+  const list = $("moderatorCredentialsList");
+  if (!list) return;
+  const rows = Array.from(list.querySelectorAll(".moderator-credential-row"));
+  rows.forEach((item) => {
+    const removeBtn = item.querySelector(".moderator-remove-button");
+    if (removeBtn) removeBtn.disabled = rows.length <= 1;
+  });
+}
+
+function renderModeratorCredentials(settings) {
+  const list = $("moderatorCredentialsList");
+  if (!list) return;
+
+  const storedRows = Array.isArray(settings && settings.moderatorCredentials) && settings.moderatorCredentials.length
+    ? settings.moderatorCredentials.map((entry) => ({ username: String(entry.username || "") }))
+    : settings && settings.moderatorUsername
+      ? [{ username: String(settings.moderatorUsername || "") }]
+      : [];
+
+  list.innerHTML = "";
+  storedRows.forEach((entry, index) => list.appendChild(createModeratorCredentialRow(entry, index)));
+  list.appendChild(createModeratorCredentialRow({}, storedRows.length));
+  updateModeratorRowButtons();
+}
+
+function getModeratorCredentialsFromUI() {
+  const list = $("moderatorCredentialsList");
+  if (!list) return [];
+  const rows = Array.from(list.querySelectorAll(".moderator-credential-row"));
+  const credentials = [];
+  for (const row of rows) {
+    const usernameInput = row.querySelector(".moderator-username-input");
+    const passwordInput = row.querySelector(".moderator-password-input");
+    const username = String(usernameInput ? usernameInput.value.trim() : "");
+    const password = String(passwordInput ? passwordInput.value : "");
+    if (!username && !password) continue;
+    credentials.push({ username, password });
+  }
+  return credentials;
 }
 
 async function saveControlSettings(patch) {
@@ -374,48 +484,35 @@ if (instructionsMinutesEl) {
 }
 
 const moderatorEnabledEl = $("moderatorEnabled");
-const moderatorUsernameEl = $("moderatorUsername");
-const moderatorPasswordEl = $("moderatorPassword");
 if (moderatorEnabledEl) {
   moderatorEnabledEl.addEventListener("change", async () => {
     if (moderatorEnabledEl.checked) {
-      const username = moderatorUsernameEl.value.trim();
-      const password = moderatorPasswordEl.value;
+      const moderatorRows = getModeratorCredentialsFromUI();
+      const validRows = moderatorRows.filter(
+        (row) => String(row.username || "").trim() && (String(row.password || "").length > 0 || row.username),
+      );
       try {
         const current = await api("/api/control/settings");
-        if (!username) {
+        if (!validRows.length) {
           moderatorEnabledEl.checked = false;
-          toast("Please enter a moderator username before enabling access.");
-          moderatorUsernameEl.focus();
+          toast("Please enter at least one moderator username before enabling access.");
+          const firstRow = $("moderatorCredentialsList")?.querySelector(".moderator-username-input");
+          if (firstRow) firstRow.focus();
           return;
         }
-        if (!current.moderatorPasswordConfigured && !password) {
+        const hasAnyPasswordInput = moderatorRows.some((row) => String(row.password || "").length > 0);
+        if (!current.moderatorPasswordConfigured && !hasAnyPasswordInput) {
           moderatorEnabledEl.checked = false;
           toast("Please set a moderator password before enabling access for the first time.");
-          moderatorPasswordEl.focus();
+          const firstPassword = $("moderatorCredentialsList")?.querySelector(".moderator-password-input");
+          if (firstPassword) firstPassword.focus();
           return;
         }
       } catch (_e) {}
     }
     saveControlSettings({
       moderatorEnabled: moderatorEnabledEl.checked,
-      moderatorUsername: moderatorUsernameEl.value.trim(),
-      moderatorPassword: moderatorPasswordEl.value,
-    }).then(() => {
-      moderatorPasswordEl.value = "";
-    });
-  });
-}
-if (moderatorUsernameEl) {
-  moderatorUsernameEl.addEventListener("change", () =>
-    saveControlSettings({ moderatorUsername: moderatorUsernameEl.value.trim() }),
-  );
-}
-if (moderatorPasswordEl) {
-  moderatorPasswordEl.addEventListener("change", () => {
-    if (!moderatorPasswordEl.value) return;
-    saveControlSettings({ moderatorPassword: moderatorPasswordEl.value }).then(() => {
-      moderatorPasswordEl.value = "";
+      moderatorCredentials: getModeratorCredentialsFromUI(),
     });
   });
 }
