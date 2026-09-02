@@ -1307,6 +1307,24 @@ async function resolveTwitchUserId(login, cfg) {
 // nomination whispers over IRC, so outbound whispers use POST /helix/whispers,
 // which requires the "user:manage:whispers" scope on the user access token.
 // Incoming temp-mod Y/N responses arrive through EventSub user.whisper.message.
+async function announceTempModNomination({
+  username,
+  displayName,
+  tempModTime,
+  client = twitchClient,
+  channel = twitchConfig && twitchConfig.channel,
+} = {}) {
+  if (!client || !channel || !username || !Number.isFinite(Number(tempModTime))) {
+    return;
+  }
+
+  const effectiveUsername = String(displayName || username || "").trim();
+  const mention = effectiveUsername ? `@${effectiveUsername}` : "@user";
+  const message = `${mention}, you have been nominated to moderate the request queue for ${Number(tempModTime)} minutes. Please check your Twitch whispers for details!`;
+
+  await sendChatMessage(client, String(channel).replace(/^#/, ""), message);
+}
+
 async function sendWhisper(username, message) {
   const cfg = twitchConfig || loadTwitchConfig();
   if (!cfg || !cfg.accessToken || !cfg.clientId) {
@@ -2064,6 +2082,13 @@ function createApi(app, options = {}) {
           userKey,
           `${twitchConfig.username} wants to know if you would like to moderate the request queue. Please reply Y or N`,
         );
+        await announceTempModNomination({
+          username: userKey,
+          displayName: displayname,
+          tempModTime: modTime,
+          client: twitchClient,
+          channel: twitchConfig && twitchConfig.channel,
+        });
         res.json({ ok: true, username: userKey, displayname, tempModTime: modTime });
       } catch (e) {
         pendingNomination = null;
@@ -2453,6 +2478,7 @@ module.exports = {
   verifyStreamerAuth,
   parseSecureMode,
   applySecureModeDefaults,
+  announceTempModNomination,
   scanSongs,
 };
 

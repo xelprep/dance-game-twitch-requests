@@ -6,7 +6,13 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const express = require("express");
 
-const { createApi, db, hashModeratorPassword, setSetting } = require("../../server.js");
+const {
+  announceTempModNomination,
+  createApi,
+  db,
+  hashModeratorPassword,
+  setSetting,
+} = require("../../server.js");
 
 function resetSettings() {
   db.prepare("DELETE FROM settings").run();
@@ -109,4 +115,25 @@ test("control settings API stores valid streamer credentials and updates setting
   } finally {
     server.close();
   }
+});
+
+test("announceTempModNomination sends a chat reminder with the username and duration", async () => {
+  const calls = [];
+
+  await announceTempModNomination({
+    username: "alice",
+    displayName: "Alice",
+    tempModTime: 12,
+    client: {
+      say: async (channel, message) => {
+        calls.push({ channel, message });
+      },
+    },
+    channel: "#testchannel",
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].channel, "testchannel");
+  assert.match(calls[0].message, /^!\s*@Alice, you have been nominated to moderate the request queue for 12 minutes/i);
+  assert.match(calls[0].message, /please check your Twitch whispers for details/i);
 });
