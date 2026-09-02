@@ -22,6 +22,7 @@ function applySecureModeDefaults(db, { secureMode = false } = {}) {
     { key: "moderatorEnabled", value: false },
     { key: "moderatorUsername", value: "" },
     { key: "moderatorPasswordHash", value: null, remove: true },
+    { key: "moderatorCredentials", value: [] },
   ];
 
   let changed = false;

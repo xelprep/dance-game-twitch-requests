@@ -400,6 +400,76 @@ function setSetting(key, value) {
   db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)").run(key, val);
 }
 
+function getModeratorCredentialsList() {
+  const stored = getSetting("moderatorCredentials", null);
+  const legacyEntries = [];
+  const legacyUsername = String(getSetting("moderatorUsername", "")).trim();
+  const legacyPasswordHash = String(getSetting("moderatorPasswordHash", "")).trim();
+
+  if (Array.isArray(stored)) {
+    legacyEntries.push(...stored);
+  }
+  if (legacyUsername && legacyPasswordHash && !legacyEntries.some((entry) => String(entry.username || "").toLowerCase() === legacyUsername.toLowerCase())) {
+    legacyEntries.push({ username: legacyUsername, passwordHash: legacyPasswordHash });
+  }
+
+  const unique = [];
+  const seen = new Set();
+
+  for (const entry of legacyEntries) {
+    if (!entry || typeof entry !== "object") continue;
+    const username = String(entry.username || entry.user || "").trim();
+    const passwordHash = String(entry.passwordHash || entry.hash || "").trim();
+    if (!username || !passwordHash) continue;
+    const key = username.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push({ username, passwordHash });
+  }
+
+  if (unique.length > 0 && !Array.isArray(stored)) {
+    setSetting("moderatorCredentials", unique);
+  }
+
+  return unique;
+}
+
+function persistModeratorCredentials(entries) {
+  const current = getModeratorCredentialsList();
+  const uniqueEntries = [];
+  const seen = new Set();
+
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (!entry || typeof entry !== "object") continue;
+    const username = String(entry.username || "").trim();
+    if (!username) continue;
+    const key = username.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const existing = current.find((item) => item.username.toLowerCase() === key);
+    const passwordHash = String(entry.password || "").trim()
+      ? hashModeratorPassword(String(entry.password || ""))
+      : existing && existing.passwordHash
+        ? existing.passwordHash
+        : "";
+
+    if (!passwordHash) continue;
+    uniqueEntries.push({ username, passwordHash });
+  }
+
+  setSetting("moderatorCredentials", uniqueEntries);
+  if (uniqueEntries.length === 1) {
+    setSetting("moderatorUsername", uniqueEntries[0].username);
+    setSetting("moderatorPasswordHash", uniqueEntries[0].passwordHash);
+  } else {
+    setSetting("moderatorUsername", "");
+    setSetting("moderatorPasswordHash", "");
+  }
+
+  return uniqueEntries;
+}
+
 function getControlSettings() {
   // Migrate legacy boolean settings to the new single role setting
   const legacyFollowers = getSetting("chatRequestsRequireFollowers", false);
@@ -421,13 +491,18 @@ function getControlSettings() {
       )
       .run();
   }
+
+  const moderatorCredentials = getModeratorCredentialsList();
+  const primaryModerator = moderatorCredentials[0] || { username: "", passwordHash: "" };
+
   return {
     prioritizeViewerRequests: !!getSetting("prioritizeViewerRequests", true),
     chatRequestsEnabled: !!getSetting("chatRequestsEnabled", true),
     chatRequestsRequireRole: role,
     moderatorEnabled: !!getSetting("moderatorEnabled", false),
-    moderatorUsername: String(getSetting("moderatorUsername", "")),
-    moderatorPasswordConfigured: !!getSetting("moderatorPasswordHash", ""),
+    moderatorUsername: primaryModerator.username,
+    moderatorPasswordConfigured: moderatorCredentials.some((entry) => !!entry.passwordHash),
+    moderatorCredentials,
     instructionsMinutes: Number(getRuntimeInstructionsMinutes()),
   };
 }
@@ -551,6 +626,12 @@ function getModeratorCredentials() {
     enabled: settings.moderatorEnabled,
     username: settings.moderatorUsername,
     passwordHash: String(getSetting("moderatorPasswordHash", "")),
+    credentials: (Array.isArray(settings.moderatorCredentials) ? settings.moderatorCredentials : [])
+      .map((entry) => ({
+        username: String(entry && entry.username ? entry.username : "").trim(),
+        passwordHash: String(entry && entry.passwordHash ? entry.passwordHash : "").trim(),
+      }))
+      .filter((entry) => entry.username && entry.passwordHash),
   };
 }
 
@@ -574,13 +655,16 @@ function authenticateModerator(req, res, next) {
   }
 
   // Check permanent moderator credentials
-  if (
-    credentials.enabled &&
-    username === credentials.username &&
-    verifyModeratorPassword(password, credentials.passwordHash)
-  ) {
-    req.moderatorUsername = credentials.username;
-    return next();
+  if (credentials.enabled) {
+    const matchedCred = credentials.credentials.find(
+      (entry) =>
+        entry.username.toLowerCase() === username.toLowerCase() &&
+        verifyModeratorPassword(password, entry.passwordHash),
+    );
+    if (matchedCred) {
+      req.moderatorUsername = matchedCred.username;
+      return next();
+    }
   }
 
   // Check active temp mod credentials
@@ -1703,8 +1787,31 @@ function createApi(app, options = {}) {
         moderatorUsername: String(req.body.moderatorUsername || "")
           .trim()
           .slice(0, 50),
+        moderatorCredentials: Array.isArray(req.body.moderatorCredentials)
+          ? req.body.moderatorCredentials
+          : [],
         instructionsMinutes: Number(req.body.instructionsMinutes),
       };
+
+      const requestedCredentials = Array.isArray(next.moderatorCredentials)
+        ? next.moderatorCredentials
+            .map((entry) => ({
+              username: String(entry && entry.username ? entry.username : "").trim().slice(0, 50),
+              password: String(entry && entry.password ? entry.password : ""),
+            }))
+            .filter((entry) => entry.username || entry.password)
+        : [];
+
+      const existingCredentials = getModeratorCredentialsList();
+      const normalizedCredentials = requestedCredentials.map((entry) => {
+        const matching = existingCredentials.find(
+          (existing) => existing.username.toLowerCase() === entry.username.toLowerCase(),
+        );
+        return {
+          username: entry.username,
+          passwordHash: entry.password ? hashModeratorPassword(entry.password) : matching?.passwordHash || "",
+        };
+      });
 
       const settings = {
         prioritizeViewerRequests: Object.prototype.hasOwnProperty.call(
@@ -1728,6 +1835,9 @@ function createApi(app, options = {}) {
         moderatorUsername: Object.prototype.hasOwnProperty.call(req.body, "moderatorUsername")
           ? next.moderatorUsername
           : current.moderatorUsername,
+        moderatorCredentials: Object.prototype.hasOwnProperty.call(req.body, "moderatorCredentials")
+          ? normalizedCredentials
+          : current.moderatorCredentials,
         moderatorPasswordConfigured: current.moderatorPasswordConfigured,
         instructionsMinutes: Object.prototype.hasOwnProperty.call(req.body, "instructionsMinutes")
           ? Number.isFinite(Number(req.body.instructionsMinutes)) &&
@@ -1737,18 +1847,13 @@ function createApi(app, options = {}) {
           : current.instructionsMinutes,
       };
 
-      const password = Object.prototype.hasOwnProperty.call(req.body, "moderatorPassword")
-        ? String(req.body.moderatorPassword || "")
-        : "";
-      if (settings.moderatorEnabled && !settings.moderatorUsername) {
+      const validModeratorCredentials = settings.moderatorCredentials.filter(
+        (entry) => entry && entry.username && entry.passwordHash,
+      );
+      if (settings.moderatorEnabled && !validModeratorCredentials.length) {
         return res
           .status(400)
-          .json({ error: "Moderator username is required before enabling access." });
-      }
-      if (settings.moderatorEnabled && !settings.moderatorPasswordConfigured && !password) {
-        return res.status(400).json({
-          error: "Moderator password must be set before enabling access for the first time.",
-        });
+          .json({ error: "At least one moderator username and password is required before enabling access." });
       }
 
       setSetting("prioritizeViewerRequests", settings.prioritizeViewerRequests);
@@ -1756,10 +1861,16 @@ function createApi(app, options = {}) {
       setSetting("chatRequestsRequireRole", settings.chatRequestsRequireRole);
       setSetting("moderatorEnabled", settings.moderatorEnabled);
       setSetting("moderatorUsername", settings.moderatorUsername);
+      setSetting("moderatorCredentials", settings.moderatorCredentials);
       setSetting("instructionsMinutes", settings.instructionsMinutes);
-      if (password) {
-        setSetting("moderatorPasswordHash", hashModeratorPassword(password));
+      if (validModeratorCredentials.length > 0) {
+        const primaryMember = validModeratorCredentials[0];
+        setSetting("moderatorUsername", primaryMember.username);
+        setSetting("moderatorPasswordHash", primaryMember.passwordHash);
         settings.moderatorPasswordConfigured = true;
+      } else {
+        setSetting("moderatorPasswordHash", "");
+        settings.moderatorPasswordConfigured = false;
       }
 
       if (current.instructionsMinutes !== settings.instructionsMinutes) {
