@@ -81,7 +81,7 @@ test("scanSongs prefers .ssc files when both .sm and .ssc exist", () => {
       started_at INTEGER,
       completed_at INTEGER
     );
-    CREATE TABLE blacklist (
+    CREATE TABLE blocked (
       id INTEGER PRIMARY KEY,
       song_id INTEGER REFERENCES songs(id),
       username TEXT,
@@ -145,7 +145,7 @@ test("scanSongs deletes stale songs and their related records", () => {
       started_at INTEGER,
       completed_at INTEGER
     );
-    CREATE TABLE blacklist (
+    CREATE TABLE blocked (
       id INTEGER PRIMARY KEY,
       song_id INTEGER REFERENCES songs(id),
       username TEXT,

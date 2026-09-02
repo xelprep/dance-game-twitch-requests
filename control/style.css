@@ -23,6 +23,30 @@ header,
   justify-content: space-between;
   gap: 16px;
 }
+.header-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.category-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.category-button {
+  min-width: 140px;
+}
+.category-button.active {
+  background: #354052;
+  border-color: #5e738d;
+}
+.category-group[hidden] {
+  display: none;
+}
+.category-action[hidden] {
+  display: none;
+}
 h1,
 h2 {
   margin: 0;
@@ -96,7 +120,7 @@ button:hover {
 .black-item small {
   color: #8e97a5;
 }
-.blacklist-form {
+.blocked-form {
   display: flex;
   gap: 8px;
   margin: 14px 0;

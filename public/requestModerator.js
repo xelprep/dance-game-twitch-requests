@@ -185,8 +185,7 @@ async function render() {
 
   if (statsResult.status === "fulfilled") {
     const stats = statsResult.value;
-    $("stats").textContent =
-      `${stats.songs.toLocaleString()} songs • ${stats.queued} queued • ${stats.playing} playing`;
+    $("stats").textContent = `${stats.songs.toLocaleString()} songs • ${stats.queued} queued`;
   }
 
   if (nowResult.status === "fulfilled") {

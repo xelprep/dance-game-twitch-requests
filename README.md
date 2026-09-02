@@ -82,7 +82,7 @@ The control panel provides:
 - Clear the queue
 - Block a song
 - Block a Twitch user
-- Remove blacklist entries
+- Remove blocked entries
 - Rescan the Songs folder
 - Live queue/stat updates
 - Search songs and make unlimited requests as the streamer
@@ -96,7 +96,7 @@ The streamer can enable a separate, restricted moderator interface from the cont
 https://localhost:3000/requestModerator.html
 ```
 
-When enabled, the page uses its own HTTP Basic Authentication credentials and provides queue management, song search, unlimited requests, and the request/chat restriction settings. It cannot configure Twitch, rescan songs, or manage blacklists. Disabling the page immediately invalidates the credentials on every subsequent request.
+When enabled, the page uses its own HTTP Basic Authentication credentials and provides queue management, song search, unlimited requests, and the request/chat restriction settings. It cannot configure Twitch, rescan songs, or manage blocked entries. Disabling the page immediately invalidates the credentials on every subsequent request.
 
 The username that successfully authenticates is used as the `Requested By` display name for requests made through this interface. Passwords are stored as one-way hashes in the local settings database.
 
@@ -126,7 +126,7 @@ When `PUBLIC_URL` is set to a publicly accessible URL (not localhost), the strea
 5. If the user replies **N**, you can immediately nominate someone else.
 6. When the time expires, the user's credentials are invalidated and a chat announcement is posted.
 
-The temporary moderator has the same permissions as a permanent moderator (queue management, song search, unlimited requests, chat restriction settings). They cannot configure Twitch, rescan songs, or manage blacklists.
+The temporary moderator has the same permissions as a permanent moderator (queue management, song search, unlimited requests, chat restriction settings). They cannot configure Twitch, rescan songs, or manage blocked entries.
 
 This feature requires `PUBLIC_URL` to be set to a valid, publicly accessible URL so the nominated user can reach the moderator page.
 

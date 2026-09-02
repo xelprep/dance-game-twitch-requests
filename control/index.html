@@ -9,256 +9,274 @@
   <body>
     <main>
       <header>
-        <div>
+        <div class="header-main">
           <h1>Streamer Control Panel</h1>
           <p id="stats">Loading…</p>
         </div>
+        <nav class="category-tabs" aria-label="Control categories">
+          <button type="button" class="category-button active" data-category="songs">Songs &amp; Queue</button>
+          <button type="button" class="category-button" data-category="moderation">Moderation</button>
+          <button type="button" class="category-button" data-category="configuration">Configuration</button>
+        </nav>
         <div class="actions">
-          <button id="next">Play Next</button>
-          <button id="rescan">Rescan Songs</button>
-          <button id="clear">Clear Queue</button>
+          <button id="next" class="category-action" data-visible-category="songs" type="button">Play Next</button>
+          <button id="clear" class="category-action" data-visible-category="songs" type="button">Clear Queue</button>
+          <button id="rescan" class="category-action" data-visible-category="configuration" type="button" hidden>Rescan Songs</button>
         </div>
       </header>
 
-      <section class="now panel">
-        <div class="section-head"><h2>Now Playing</h2></div>
-        <div id="now">Nothing playing.</div>
-      </section>
+      <div class="category-group" data-category="songs">
+        <section class="now panel">
+          <div class="section-head"><h2>Now Playing</h2></div>
+          <div id="now">Nothing playing.</div>
+        </section>
 
-      <section class="panel">
-        <div class="section-head">
-          <h2>Request Queue</h2>
-          <button id="refresh">Refresh</button>
-        </div>
-        <div id="queue"></div>
-      </section>
+        <section class="panel">
+          <div class="section-head">
+            <h2>Request Queue</h2>
+            <button id="refresh" type="button">Refresh</button>
+          </div>
+          <div id="queue"></div>
+        </section>
 
-      <section class="panel">
-        <div class="section-head"><h2>Song Search</h2></div>
-        <label for="search">Search by title or browse songs</label>
-        <div class="search-row">
-          <input id="search" autocomplete="off" placeholder="Title" />
-          <button id="reset-search" type="button">Reset Search</button>
-        </div>
-        <div class="filters">
-          <label
-            >Pack
-            <select id="filter-pack">
-              <option value="">All packs</option>
-            </select>
-          </label>
-          <label
-            >Genre
-            <select id="filter-genre">
-              <option value="">All genres</option>
-            </select>
-          </label>
-          <label
-            >Style
-            <select id="filter-style">
-              <option value="">Any</option>
-              <option value="dance-single">Single</option>
-              <option value="dance-double">Doubles</option>
-            </select>
-          </label>
-          <label
-            >Difficulty
-            <select id="filter-difficulty">
-              <option value="">All difficulties</option>
-            </select>
-          </label>
-          <label
-            >Meter
-            <select id="filter-meter-min">
-              <option value="">Min</option>
-            </select>
-            <select id="filter-meter-max">
-              <option value="">Max</option>
-            </select>
-          </label>
-          <label
-            >Sort
-            <select id="sort-field">
-              <option value="title">Title</option>
-              <option value="artist">Artist</option>
-              <option value="pack">Pack</option>
-              <option value="last_modified">Last modified</option>
-            </select>
-          </label>
-          <label
-            >Order
-            <select id="sort-order">
-              <option value="asc">Asc</option>
-              <option value="desc">Desc</option>
-            </select>
-          </label>
-          <label
-            >Per page
-            <select id="per-page">
-              <option value="10">10</option>
-              <option value="25" selected>25</option>
-              <option value="50">50</option>
-              <option value="100">100</option>
-            </select>
-          </label>
-          <div class="pager">
-            <button id="search-prev" type="button" disabled>Prev</button>
-            <span id="pageInfo">Page 1</span>
-            <button id="search-next" type="button" disabled>Next</button>
+        <section class="panel">
+          <div class="section-head"><h2>Song Search</h2></div>
+          <label for="search">Search by title or browse songs</label>
+          <div class="search-row">
+            <input id="search" autocomplete="off" placeholder="Title" />
+            <button id="reset-search" type="button">Reset Search</button>
           </div>
-        </div>
-        <div id="results" class="results"></div>
-        <div class="pager">
-          <button id="search-prev-bottom" type="button" disabled>Prev</button>
-          <span id="pageInfo-bottom">Page 1</span>
-          <button id="search-next-bottom" type="button" disabled>Next</button>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="section-head"><h2>Twitch</h2></div>
-        <div class="twitch-form">
-          <p class="muted">
-            Quick guide: You may authorize either the streamer&apos;s account (messages will appear
-            as the streamer) or a separate bot account (messages appear from the bot). See the note
-            below before connecting.
-          </p>
-          <div class="twitch-note">
-            <strong>Streamer vs Bot account</strong>
-            <ul>
-              <li>
-                <strong>Streamer account</strong>: Authorize the streamer to make the bot send
-                messages as the streamer (useful if you want requests to appear from the streamer).
-                This requires the streamer to sign in.
-              </li>
-              <li>
-                <strong>Bot account</strong>: Create a dedicated bot account, authorize it, and it
-                will send messages as the bot. This is recommended for production since it separates
-                broadcaster credentials from bot activity.
-              </li>
-            </ul>
-          </div>
-
-          <div class="twitch-field">
-            <label for="twitchClientId">Client ID:</label>
-            <input id="twitchClientId" placeholder="Twitch app client ID" />
-          </div>
-          <div class="twitch-field">
-            <label for="twitchClientSecret">Client Secret:</label>
-            <input id="twitchClientSecret" placeholder="Twitch app client secret" type="password" />
-          </div>
-          <div class="twitch-field">
-            <label for="twitchChannel">Channel (optional):</label>
-            <input id="twitchChannel" placeholder="Twitch channel name" />
-          </div>
-          <div class="twitch-field">
-            <label for="twitchInstructionsMinutes">Instructions interval (minutes):</label>
-            <input id="twitchInstructionsMinutes" type="number" min="0" step="1" placeholder="10" />
-            <small class="muted">
-              The bot posts usage instructions in chat every N minutes. Set this to 0 to disable
-              automatic reminders; viewers can still use <code>!help</code> at any time.
-            </small>
-          </div>
-          <div class="twitch-actions">
-            <button id="checkTwitch">Check Status</button>
-            <button id="connectTwitch">Connect Twitch</button>
-            <button id="disconnectTwitch">Disconnect</button>
-          </div>
-          <div id="twitchStatus" class="muted">Not connected</div>
-          <p class="small muted">
-            Note: The Client Secret is temporarily stored in your browser during authorization and
-            then persisted to the server in <code>data/twitch.json</code> so the server can
-            automatically refresh tokens. Keep that file secure or use the Disconnect button to
-            remove stored credentials.
-          </p>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="section-head"><h2>Settings</h2></div>
-        <div class="settings-form">
-          <label class="moderator-toggle">
-            <input type="checkbox" id="moderatorEnabled" />
-            Enable public moderator control at PUBLIC_URL/requestModerator.html
-          </label>
-          <div class="moderator-credentials-wrap">
-            <div class="moderator-credentials-header">
-              <span>Username</span>
-              <span>Password</span>
+          <div class="filters">
+            <label
+              >Pack
+              <select id="filter-pack">
+                <option value="">All packs</option>
+              </select>
+            </label>
+            <label
+              >Genre
+              <select id="filter-genre">
+                <option value="">All genres</option>
+              </select>
+            </label>
+            <label
+              >Style
+              <select id="filter-style">
+                <option value="">Any</option>
+                <option value="dance-single">Single</option>
+                <option value="dance-double">Doubles</option>
+              </select>
+            </label>
+            <label
+              >Difficulty
+              <select id="filter-difficulty">
+                <option value="">All difficulties</option>
+              </select>
+            </label>
+            <label
+              >Meter
+              <select id="filter-meter-min">
+                <option value="">Min</option>
+              </select>
+              <select id="filter-meter-max">
+                <option value="">Max</option>
+              </select>
+            </label>
+            <label
+              >Sort
+              <select id="sort-field">
+                <option value="title">Title</option>
+                <option value="artist">Artist</option>
+                <option value="pack">Pack</option>
+                <option value="last_modified">Last modified</option>
+              </select>
+            </label>
+            <label
+              >Order
+              <select id="sort-order">
+                <option value="asc">Asc</option>
+                <option value="desc">Desc</option>
+              </select>
+            </label>
+            <label
+              >Per page
+              <select id="per-page">
+                <option value="10">10</option>
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </label>
+            <div class="pager">
+              <button id="search-prev" type="button" disabled>Prev</button>
+              <span id="pageInfo">Page 1</span>
+              <button id="search-next" type="button" disabled>Next</button>
             </div>
-            <div id="moderatorCredentialsList" class="moderator-credentials-list"></div>
           </div>
-          <p class="small muted">
-            Disabling access revokes existing moderator sessions immediately. Moderator passwords
-            are stored as one-way hashes.
-          </p>
-          <label>
-            <input type="checkbox" id="prioritizeViewerRequests" checked />
-            Prioritize viewer requests above streamer requests (chat requests > streamer requests)
-          </label>
-          <p class="small muted">
-            When enabled (default), requests made via Twitch chat will be placed ahead of any
-            requests added from the control panel (streamer), but behind other viewer requests.
-          </p>
-
-          <label>
-            <input type="checkbox" id="chatRequestsEnabled" checked />
-            Allow requests via chat
-          </label>
-          <p class="small muted">
-            When disabled, chat users cannot add songs to the queue. The streamer can still add
-            requests from the control panel.
-          </p>
-
-          <label>
-            Chat request restrictions
-            <select id="chatRequestsRequireRole">
-              <option value="">Anyone</option>
-              <option value="moderator">Moderators only</option>
-              <option value="subscriber">Subscribers &amp; moderators only</option>
-              <option value="follower">Followers, subscribers &amp; moderators only</option>
-            </select>
-          </label>
-          <p class="small muted">
-            Controls who can request songs through Twitch chat. Disabled when chat requests are
-            turned off.
-          </p>
-        </div>
-      </section>
-
-      <section class="panel" id="tempModSection" style="display: none">
-        <div class="section-head"><h2>Temporary Moderator</h2></div>
-        <div class="temp-mod-form">
-          <p class="small muted">
-            Nominate a viewer from chat to moderate the request queue temporarily. They'll receive a
-            Twitch whisper with credentials.
-          </p>
-          <div id="tempModStatus" style="display: none">
-            <div id="tempModActive" class="temp-mod-active"></div>
-            <div id="tempModCooldown" class="temp-mod-cooldown" style="display: none"></div>
+          <div id="results" class="results"></div>
+          <div class="pager">
+            <button id="search-prev-bottom" type="button" disabled>Prev</button>
+            <span id="pageInfo-bottom">Page 1</span>
+            <button id="search-next-bottom" type="button" disabled>Next</button>
           </div>
-          <label
-            >Duration (minutes): <input id="tempModTime" type="number" min="1" max="60" value="15"
-          /></label>
-          <label
-            >Search chat users:
-            <input id="tempModSearch" autocomplete="off" placeholder="Type username..." />
-          </label>
-          <div id="tempModUserList" class="temp-mod-user-list"></div>
-          <p id="tempModNoUsers" class="small muted">
-            No chat users detected yet. Users appear as they message in chat.
-          </p>
-        </div>
-      </section>
+        </section>
+      </div>
 
-      <section class="panel">
-        <div class="blacklist-form">
-          <input id="blackUser" placeholder="Twitch username" />
-          <input id="blackReason" placeholder="Reason (optional)" />
-          <button id="addUser">Blacklist User</button>
-        </div>
-        <div id="blacklist"></div>
-      </section>
+      <div class="category-group" data-category="moderation" hidden>
+        <section class="panel">
+          <div class="section-head"><h2>Remote Moderation</h2></div>
+          <div class="settings-form">
+            <label class="moderator-toggle">
+              <input type="checkbox" id="moderatorEnabled" />
+              Enable public moderator control at PUBLIC_URL/requestModerator.html
+            </label>
+            <div class="moderator-credentials-wrap">
+              <div class="moderator-credentials-header">
+                <span>Username</span>
+                <span>Password</span>
+              </div>
+              <div id="moderatorCredentialsList" class="moderator-credentials-list"></div>
+            </div>
+            <p class="small muted">
+              Disabling access revokes existing moderator sessions immediately. Moderator passwords
+              are stored as one-way hashes.
+            </p>
+          </div>
+        </section>
+
+        <section class="panel" id="tempModSection" style="display: none">
+          <div class="section-head"><h2>Temporary Moderator</h2></div>
+          <div class="temp-mod-form">
+            <p class="small muted">
+              Nominate a viewer from chat to moderate the request queue temporarily. They'll receive a
+              Twitch whisper with credentials.
+            </p>
+            <div id="tempModStatus" style="display: none">
+              <div id="tempModActive" class="temp-mod-active"></div>
+              <div id="tempModCooldown" class="temp-mod-cooldown" style="display: none"></div>
+            </div>
+            <label
+              >Duration (minutes): <input id="tempModTime" type="number" min="1" max="60" value="15"
+            /></label>
+            <label
+              >Search chat users:
+              <input id="tempModSearch" autocomplete="off" placeholder="Type username..." />
+            </label>
+            <div id="tempModUserList" class="temp-mod-user-list"></div>
+            <p id="tempModNoUsers" class="small muted">
+              No chat users detected yet. Users appear as they message in chat.
+            </p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-head"><h2>Blocked Entity Management</h2></div>
+          <div class="blocked-form">
+            <input id="blockUser" placeholder="Twitch username" />
+            <input id="blockReason" placeholder="Reason (optional)" />
+            <button id="addUser" type="button">Block User</button>
+          </div>
+          <div id="blocked"></div>
+        </section>
+      </div>
+
+      <div class="category-group" data-category="configuration" hidden>
+        <section class="panel">
+          <div class="section-head"><h2>Settings</h2></div>
+          <div class="settings-form">
+            <label>
+              <input type="checkbox" id="prioritizeViewerRequests" checked />
+              Prioritize viewer requests above streamer requests (chat requests &gt; streamer requests)
+            </label>
+            <p class="small muted">
+              When enabled (default), requests made via Twitch chat will be placed ahead of any
+              requests added from the control panel (streamer), but behind other viewer requests.
+            </p>
+
+            <label>
+              <input type="checkbox" id="chatRequestsEnabled" checked />
+              Allow requests via chat
+            </label>
+            <p class="small muted">
+              When disabled, chat users cannot add songs to the queue. The streamer can still add
+              requests from the control panel.
+            </p>
+
+            <label>
+              Chat request restrictions
+              <select id="chatRequestsRequireRole">
+                <option value="">Anyone</option>
+                <option value="moderator">Moderators only</option>
+                <option value="subscriber">Subscribers &amp; moderators only</option>
+                <option value="follower">Followers, subscribers &amp; moderators only</option>
+              </select>
+            </label>
+            <p class="small muted">
+              Controls who can request songs through Twitch chat. Disabled when chat requests are
+              turned off.
+            </p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-head"><h2>Twitch</h2></div>
+          <div class="twitch-form">
+            <p class="muted">
+              Quick guide: You may authorize either the streamer&apos;s account (messages will appear
+              as the streamer) or a separate bot account (messages appear from the bot). See the note
+              below before connecting.
+            </p>
+            <div class="twitch-note">
+              <strong>Streamer vs Bot account</strong>
+              <ul>
+                <li>
+                  <strong>Streamer account</strong>: Authorize the streamer to make the bot send
+                  messages as the streamer (useful if you want requests to appear from the streamer).
+                  This requires the streamer to sign in.
+                </li>
+                <li>
+                  <strong>Bot account</strong>: Create a dedicated bot account, authorize it, and it
+                  will send messages as the bot. This is recommended for production since it separates
+                  broadcaster credentials from bot activity.
+                </li>
+              </ul>
+            </div>
+
+            <div class="twitch-field">
+              <label for="twitchClientId">Client ID:</label>
+              <input id="twitchClientId" placeholder="Twitch app client ID" />
+            </div>
+            <div class="twitch-field">
+              <label for="twitchClientSecret">Client Secret:</label>
+              <input id="twitchClientSecret" placeholder="Twitch app client secret" type="password" />
+            </div>
+            <div class="twitch-field">
+              <label for="twitchChannel">Channel (optional):</label>
+              <input id="twitchChannel" placeholder="Twitch channel name" />
+            </div>
+            <div class="twitch-field">
+              <label for="twitchInstructionsMinutes">Instructions interval (minutes):</label>
+              <input id="twitchInstructionsMinutes" type="number" min="0" step="1" placeholder="10" />
+              <small class="muted">
+                The bot posts usage instructions in chat every N minutes. Set this to 0 to disable
+                automatic reminders; viewers can still use <code>!help</code> at any time.
+              </small>
+            </div>
+            <div class="twitch-actions">
+              <button id="checkTwitch" type="button">Check Status</button>
+              <button id="connectTwitch" type="button">Connect Twitch</button>
+              <button id="disconnectTwitch" type="button">Disconnect</button>
+            </div>
+            <div id="twitchStatus" class="muted">Not connected</div>
+            <p class="small muted">
+              Note: The Client Secret is temporarily stored in your browser during authorization and
+              then persisted to the server in <code>data/twitch.json</code> so the server can
+              automatically refresh tokens. Keep that file secure or use the Disconnect button to
+              remove stored credentials.
+            </p>
+          </div>
+        </section>
+      </div>
 
       <div id="toast"></div>
     </main>

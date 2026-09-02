@@ -217,11 +217,11 @@ window.addToQueue = async (songId) => {
 
 async function render() {
   try {
-    const [stats, now, queue, blacklist, settings] = await Promise.all([
+    const [stats, now, queue, blocked, settings] = await Promise.all([
       api("/api/stats"),
       api("/api/now-playing"),
       api("/api/queue"),
-      api("/api/blacklist"),
+      api("/api/blocked"),
       // Control settings endpoint
       (async () => {
         try {
@@ -232,8 +232,7 @@ async function render() {
       })(),
     ]);
 
-    $("stats").textContent =
-      `${stats.songs.toLocaleString()} songs • ${stats.queued} queued • ${stats.playing} playing`;
+    $("stats").textContent = `${stats.songs.toLocaleString()} songs • ${stats.queued} queued`;
 
     $("now").innerHTML = now
       ? `
@@ -267,8 +266,8 @@ async function render() {
           <button onclick="move(${r.id},'down')">↓</button>
           <button onclick="play(${r.id})">Play</button>
           <button onclick="skip(${r.id})">Skip</button>
-          <button onclick="blackSong(${r.song_id})">Block Song</button>
-          <button onclick="blackUser('${esc(r.requested_by)}')">Block User</button>
+          <button onclick="blockSong(${r.song_id})">Block Song</button>
+          <button onclick="blockUser('${esc(r.requested_by)}')">Block User</button>
         </div>
       </article>
     `,
@@ -276,19 +275,19 @@ async function render() {
           .join("")
       : `<p class="muted">Queue is empty.</p>`;
 
-    $("blacklist").innerHTML = blacklist.length
-      ? blacklist
+    $("blocked").innerHTML = blocked.length
+      ? blocked
           .map(
             (b) => `
       <div class="black-item">
         <span>${b.username ? "User: " + esc(b.username) : "Song #" + b.songId}</span>
         <small>${esc(b.reason)}</small>
-        <button onclick="removeBlacklist(${b.id})">Remove</button>
+        <button onclick="removeBlocked(${b.id})">Remove</button>
       </div>
     `,
           )
           .join("")
-      : `<p class="muted">Nothing blacklisted.</p>`;
+      : `<p class="muted">No blocked songs or users.</p>`;
 
     // Apply settings (if present) to UI
     try {
@@ -652,27 +651,27 @@ window.move = async (id, direction) => {
     movingRequests.delete(id);
   }
 };
-window.blackSong = async (songId) => {
+window.blockSong = async (songId) => {
   try {
-    await api("/api/blacklist/song", { method: "POST", body: JSON.stringify({ songId }) });
-    toast("Song blacklisted.");
+    await api("/api/blocked/song", { method: "POST", body: JSON.stringify({ songId }) });
+    toast("Song blocked.");
     render();
   } catch (e) {
     toast(e.message);
   }
 };
-window.blackUser = async (username) => {
+window.blockUser = async (username) => {
   try {
-    await api("/api/blacklist/user", { method: "POST", body: JSON.stringify({ username }) });
-    toast("User blacklisted.");
+    await api("/api/blocked/user", { method: "POST", body: JSON.stringify({ username }) });
+    toast("User blocked.");
     render();
   } catch (e) {
     toast(e.message);
   }
 };
-window.removeBlacklist = async (id) => {
+window.removeBlocked = async (id) => {
   try {
-    await api(`/api/blacklist/${id}`, { method: "DELETE" });
+    await api(`/api/blocked/${id}`, { method: "DELETE" });
     render();
   } catch (e) {
     toast(e.message);
@@ -710,7 +709,7 @@ $("rescan").onclick = async () => {
   }
 };
 
-$("addUser").onclick = () => blackUser($("blackUser").value.trim());
+$("addUser").onclick = () => blockUser($("blockUser").value.trim());
 $("refresh").onclick = render;
 
 $("search").addEventListener("input", () => {
@@ -996,6 +995,32 @@ if (tempModSearch) {
     renderTempModUserList(tempModSearch.value.trim());
   });
 }
+
+// --- Category navigation ---
+
+const categoryButtons = document.querySelectorAll(".category-button");
+const categoryGroups = document.querySelectorAll(".category-group");
+const categoryActions = document.querySelectorAll(".category-action");
+
+function setActiveCategory(category) {
+  categoryButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.category === category);
+  });
+  categoryGroups.forEach((group) => {
+    const isVisible = group.dataset.category === category;
+    group.hidden = !isVisible;
+  });
+  categoryActions.forEach((button) => {
+    const visible = button.dataset.visibleCategory === category;
+    button.hidden = !visible;
+  });
+}
+
+categoryButtons.forEach((button) => {
+  button.addEventListener("click", () => setActiveCategory(button.dataset.category));
+});
+
+setActiveCategory("songs");
 
 // --- Initialization ---
 
