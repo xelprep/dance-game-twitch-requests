@@ -168,7 +168,7 @@ CREATE TABLE IF NOT EXISTS requests (
   completed_at INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS blacklist (
+CREATE TABLE IF NOT EXISTS blocked (
   id INTEGER PRIMARY KEY,
   song_id INTEGER REFERENCES songs(id) ON DELETE CASCADE,
   username TEXT,
@@ -363,11 +363,11 @@ function getStats() {
   };
 }
 
-function isBlacklisted(songId, username) {
+function isBlocked(songId, username) {
   return !!db
     .prepare(
       `
-    SELECT id FROM blacklist
+    SELECT id FROM blocked
     WHERE (song_id = ? AND song_id IS NOT NULL)
        OR (username = ? AND username IS NOT NULL)
     LIMIT 1
@@ -913,8 +913,8 @@ function addRequest(songId, username, displayName, options = {}) {
   const song = db.prepare("SELECT * FROM songs WHERE id=?").get(songId);
   if (!song) throw new Error("Song not found.");
 
-  if (isBlacklisted(songId, username)) {
-    throw new Error("That song or viewer is currently blacklisted.");
+  if (isBlocked(songId, username)) {
+    throw new Error("That song or viewer is currently blocked.");
   }
 
   const totalQueued = db.prepare("SELECT COUNT(*) n FROM requests WHERE status='queued'").get().n;
@@ -1138,8 +1138,8 @@ async function announceRequestAction(action, request) {
     message = `@${requester}, your request for ${label} is playing next.`;
   } else if (action === "skipped") {
     message = `The request for ${label} was skipped.`;
-  } else if (action === "blacklisted") {
-    message = `The song ${label} has been blacklisted.`;
+  } else if (action === "blocked") {
+    message = `The song ${label} has been blocked.`;
   }
 
   if (!message) return;
@@ -2151,50 +2151,97 @@ function createApi(app, options = {}) {
       res.json({ ok: true });
     });
 
-    app.post("/api/blacklist/song", async (req, res) => {
+    app.post("/api/blocked/song", async (req, res) => {
       const songId = Number(req.body.songId);
-      const reason = String(req.body.reason || "Streamer blacklist").slice(0, 200);
+      const reason = String(req.body.reason || "Streamer block").slice(0, 200);
       const request = getRequestBySongId(songId);
       db.prepare(
         `
-        INSERT OR IGNORE INTO blacklist(song_id, username, reason, created_at)
+        INSERT OR IGNORE INTO blocked(song_id, username, reason, created_at)
         VALUES (?, NULL, ?, ?)
       `,
       ).run(songId, reason, Date.now());
-      if (request) await announceRequestAction("blacklisted", request);
+      if (request) await announceRequestAction("blocked", request);
       res.json({ ok: true });
     });
 
-    app.post("/api/blacklist/user", (req, res) => {
+    app.post("/api/blocked/user", (req, res) => {
       const username = String(req.body.username || "")
         .trim()
         .toLowerCase();
       if (!username) return res.status(400).json({ error: "Username required." });
-      const reason = String(req.body.reason || "Streamer blacklist").slice(0, 200);
+      const reason = String(req.body.reason || "Streamer block").slice(0, 200);
       db.prepare(
         `
-        INSERT OR IGNORE INTO blacklist(song_id, username, reason, created_at)
+        INSERT OR IGNORE INTO blocked(song_id, username, reason, created_at)
         VALUES (NULL, ?, ?, ?)
       `,
       ).run(username, reason, Date.now());
       res.json({ ok: true });
     });
 
-    app.get("/api/blacklist", (_req, res) => {
+    app.get("/api/blocked", (_req, res) => {
       res.json(
         db
           .prepare(
             `
         SELECT id, song_id songId, username, reason, created_at createdAt
-        FROM blacklist ORDER BY created_at DESC
+        FROM blocked ORDER BY created_at DESC
       `,
           )
           .all(),
       );
     });
 
-    app.delete("/api/blacklist/:id", (req, res) => {
-      const info = db.prepare("DELETE FROM blacklist WHERE id=?").run(Number(req.params.id));
+    app.delete("/api/blocked/:id", (req, res) => {
+      const info = db.prepare("DELETE FROM blocked WHERE id=?").run(Number(req.params.id));
+      res.json({ ok: info.changes > 0 });
+    });
+
+    app.post("/api/blocked/song", async (req, res) => {
+      const songId = Number(req.body.songId);
+      const reason = String(req.body.reason || "Streamer block").slice(0, 200);
+      const request = getRequestBySongId(songId);
+      db.prepare(
+        `
+        INSERT OR IGNORE INTO blocked(song_id, username, reason, created_at)
+        VALUES (?, NULL, ?, ?)
+      `,
+      ).run(songId, reason, Date.now());
+      if (request) await announceRequestAction("blocked", request);
+      res.json({ ok: true });
+    });
+
+    app.post("/api/blocked/user", (req, res) => {
+      const username = String(req.body.username || "")
+        .trim()
+        .toLowerCase();
+      if (!username) return res.status(400).json({ error: "Username required." });
+      const reason = String(req.body.reason || "Streamer block").slice(0, 200);
+      db.prepare(
+        `
+        INSERT OR IGNORE INTO blocked(song_id, username, reason, created_at)
+        VALUES (NULL, ?, ?, ?)
+      `,
+      ).run(username, reason, Date.now());
+      res.json({ ok: true });
+    });
+
+    app.get("/api/blocked", (_req, res) => {
+      res.json(
+        db
+          .prepare(
+            `
+        SELECT id, song_id songId, username, reason, created_at createdAt
+        FROM blocked ORDER BY created_at DESC
+      `,
+          )
+          .all(),
+      );
+    });
+
+    app.delete("/api/blocked/:id", (req, res) => {
+      const info = db.prepare("DELETE FROM blocked WHERE id=?").run(Number(req.params.id));
       res.json({ ok: info.changes > 0 });
     });
 

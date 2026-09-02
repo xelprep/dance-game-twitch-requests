@@ -183,13 +183,13 @@ function scanSongs(songsDir, db) {
     const existing = db.prepare("SELECT id, file_path FROM songs").all();
     const removeRequests = db.prepare("DELETE FROM requests WHERE song_id = ?");
     const removeCharts = db.prepare("DELETE FROM charts WHERE song_id = ?");
-    const removeBlacklist = db.prepare("DELETE FROM blacklist WHERE song_id = ?");
+    const removeBlocked = db.prepare("DELETE FROM blocked WHERE song_id = ?");
     const removeSong = db.prepare("DELETE FROM songs WHERE id = ?");
     for (const row of existing) {
       if (!seen.has(path.resolve(row.file_path))) {
         removeRequests.run(row.id);
         removeCharts.run(row.id);
-        removeBlacklist.run(row.id);
+        removeBlocked.run(row.id);
         removeSong.run(row.id);
       }
     }
