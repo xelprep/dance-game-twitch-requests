@@ -384,6 +384,7 @@ function createModeratorCredentialRow(entry = {}, index = 0) {
   usernameInput.dataset.index = String(index);
   usernameInput.className = "moderator-username-input";
   usernameInput.addEventListener("input", () => updateModeratorDraftFromUI());
+  usernameInput.addEventListener("change", () => saveModeratorCredentialDraft());
 
   const passwordInput = document.createElement("input");
   passwordInput.type = "password";
@@ -392,6 +393,7 @@ function createModeratorCredentialRow(entry = {}, index = 0) {
   passwordInput.value = String(entry.password || "");
   passwordInput.className = "moderator-password-input";
   passwordInput.addEventListener("input", () => updateModeratorDraftFromUI());
+  passwordInput.addEventListener("change", () => saveModeratorCredentialDraft());
 
   const addBtn = document.createElement("button");
   addBtn.type = "button";
@@ -412,6 +414,7 @@ function createModeratorCredentialRow(entry = {}, index = 0) {
     if (lastUsername || lastPassword) {
       list.appendChild(createModeratorCredentialRow({}, rows.length));
       updateModeratorDraftFromUI();
+      saveModeratorCredentialDraft();
     } else {
       toast("Fill in the current moderator row before adding another.");
       const focused =
@@ -436,6 +439,7 @@ function createModeratorCredentialRow(entry = {}, index = 0) {
     if (target) target.remove();
     updateModeratorDraftFromUI();
     updateModeratorRowButtons();
+    saveModeratorCredentialDraft();
   });
 
   row.append(usernameInput, passwordInput, addBtn, removeBtn);
@@ -491,10 +495,29 @@ function getModeratorCredentialsFromUI() {
   return credentials;
 }
 
+function saveModeratorCredentialDraft() {
+  const list = $("moderatorCredentialsList");
+  if (!list) return;
+  const moderatorEnabled = $("moderatorEnabled");
+  const nextDraft = getModeratorCredentialsFromUI();
+  if (moderatorEnabled) {
+    saveControlSettings({
+      moderatorEnabled: moderatorEnabled.checked,
+      moderatorCredentials: nextDraft,
+    });
+    return;
+  }
+  saveControlSettings({ moderatorCredentials: nextDraft });
+}
+
 async function saveControlSettings(patch) {
   try {
     const current = await api("/api/control/settings");
     const next = { ...current, ...patch };
+    if (Object.prototype.hasOwnProperty.call(patch, "moderatorCredentials")) {
+      delete next.moderatorUsername;
+      delete next.moderatorPasswordConfigured;
+    }
     await api("/api/control/settings", { method: "POST", body: JSON.stringify(next) });
     toast("Settings saved");
     render();
