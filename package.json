@@ -19,7 +19,8 @@
     "dotenv": "^17.4.2",
     "express": "^5.1.0",
     "selfsigned": "^5.5.0",
-    "tmi.js": "^1.8.5"
+    "tmi.js": "^1.8.5",
+    "ws": "^8.21.3"
   },
   "allowScripts": {
     "better-sqlite3@13.0.3": true

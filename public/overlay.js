@@ -114,9 +114,33 @@ function updateNowPlaying(data) {
   }
 }
 
+function updateUpcomingLabel(tempModDisplayName) {
+  const label = document.querySelector(".upcoming-label");
+  if (!label) return;
+
+  const defaultText = "Upcoming Requests:";
+  if (!tempModDisplayName) {
+    label.textContent = defaultText;
+    return;
+  }
+
+  label.textContent = `@${String(tempModDisplayName)} is in charge of the queue! Upcoming Requests:`;
+}
+
 function updateOverlay(nowPlaying, queue) {
   updateNowPlaying(nowPlaying);
   updateQueue(queue);
+}
+
+async function pollTempModStatus() {
+  try {
+    const resp = await fetch("/api/overlay/temp-mod-status");
+    if (!resp.ok) throw new Error("Failed");
+    const data = await resp.json();
+    updateUpcomingLabel(data && data.displayName ? data.displayName : null);
+  } catch (e) {
+    updateUpcomingLabel(null);
+  }
 }
 
 // Try EventSource first; fall back to polling if not available.
@@ -153,6 +177,9 @@ async function pollNowPlaying() {
   }
 }
 
+updateUpcomingLabel(null);
+pollTempModStatus();
+
 if (!startSSE()) {
   poll();
   setInterval(poll, 1000);
@@ -161,3 +188,4 @@ if (!startSSE()) {
   pollNowPlaying();
   setInterval(pollNowPlaying, 2000);
 }
+setInterval(pollTempModStatus, 2000);

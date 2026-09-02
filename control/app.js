@@ -610,7 +610,11 @@ $("connectTwitch").onclick = async () => {
     const redirectUri = `${location.origin}/twitch-callback.html`;
     const r = await api("/api/twitch/start-auth", {
       method: "POST",
-      body: JSON.stringify({ clientId, redirectUri, scopes: "chat:read chat:edit" }),
+      body: JSON.stringify({
+        clientId,
+        redirectUri,
+        scopes: "chat:read chat:edit user:manage:whispers",
+      }),
     });
     if (r && r.url) window.location = r.url;
   } catch (e) {
@@ -634,6 +638,7 @@ $("disconnectTwitch").onclick = async () => {
 
 let tempModPollTimer = null;
 let tempModUsers = [];
+let activeTempModUsername = null;
 
 function isPublicUrlValid(url) {
   if (!url) return false;
@@ -667,6 +672,7 @@ async function renderTempMod() {
 
     // Update status
     if (status.tempMod) {
+      activeTempModUsername = status.tempMod.username;
       statusDiv.style.display = "";
       activeDiv.style.display = "";
       cooldownDiv.style.display = "none";
@@ -679,6 +685,7 @@ async function renderTempMod() {
         btn.closest(".temp-mod-user-item").classList.add("disabled");
       });
     } else if (status.hasPendingNomination) {
+      activeTempModUsername = null;
       statusDiv.style.display = "";
       activeDiv.style.display = "none";
       cooldownDiv.style.display = "";
@@ -689,6 +696,7 @@ async function renderTempMod() {
         btn.closest(".temp-mod-user-item").classList.add("disabled");
       });
     } else {
+      activeTempModUsername = null;
       statusDiv.style.display = "none";
       // Enable nominate buttons
       document.querySelectorAll(".temp-mod-user-item.disabled").forEach((item) => {
@@ -733,14 +741,21 @@ function renderTempModUserList(filter = "") {
   noUsers.style.display = "none";
 
   userList.innerHTML = filtered
-    .map(
-      (u) => `
-    <div class="temp-mod-user-item" data-username="${esc(u.username)}">
+    .map((u) => {
+      const isActive = activeTempModUsername && u.username.toLowerCase() === activeTempModUsername.toLowerCase();
+      const endEarlyButton = isActive
+        ? `<button class="temp-mod-end-early-btn" onclick="endTempModEarly('${esc(u.username)}')">End Early</button>`
+        : "";
+      return `
+    <div class="temp-mod-user-item${isActive ? " active" : ""}" data-username="${esc(u.username)}">
       <span class="username">@${esc(u.displayName)}</span>
-      <button class="temp-mod-nominate-btn" onclick="nominateTempMod('${esc(u.username)}')">Nominate</button>
+      <div class="temp-mod-user-actions">
+        <button class="temp-mod-nominate-btn" onclick="nominateTempMod('${esc(u.username)}')">Nominate</button>
+        ${endEarlyButton}
+      </div>
     </div>
-  `,
-    )
+  `;
+    })
     .join("");
 }
 
@@ -759,8 +774,27 @@ async function nominateTempMod(username) {
   }
 }
 
+async function endTempModEarly(username) {
+  const target = username || activeTempModUsername;
+  if (!target) return;
+  if (!confirm("End this temporary moderator session early?")) return;
+
+  try {
+    await api("/api/control/temp-mod/end-early", {
+      method: "POST",
+      body: JSON.stringify({ username: target }),
+    });
+    toast("Temporary moderator session ended.");
+    renderTempMod();
+    loadTempModUsers();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
 // Make nominateTempMod available globally for onclick
 window.nominateTempMod = nominateTempMod;
+window.endTempModEarly = endTempModEarly;
 
 // Search filter for temp mod users
 const tempModSearch = $("tempModSearch");
