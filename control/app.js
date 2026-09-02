@@ -134,6 +134,7 @@ async function getFilters() {
 let searchTimer = null;
 let searchPage = 1;
 let searchTotalPages = 1;
+let moderatorDraftRows = [];
 
 function updateSearchPager() {
   ["search-prev", "search-prev-bottom"].forEach((id) => {
@@ -323,6 +324,43 @@ async function render() {
   }
 }
 
+function getModeratorDraftRowsFromSettings(settings) {
+  if (Array.isArray(settings && settings.moderatorCredentials) && settings.moderatorCredentials.length) {
+    return settings.moderatorCredentials.map((entry) => ({
+      username: String(entry.username || ""),
+      password: "",
+    }));
+  }
+  if (settings && settings.moderatorUsername) {
+    return [{ username: String(settings.moderatorUsername || ""), password: "" }];
+  }
+  return [{ username: "", password: "" }];
+}
+
+function syncModeratorDraft(settings) {
+  moderatorDraftRows = getModeratorDraftRowsFromSettings(settings);
+  return moderatorDraftRows;
+}
+
+function updateModeratorDraftFromUI() {
+  const list = $("moderatorCredentialsList");
+  if (!list) return;
+
+  const rows = Array.from(list.querySelectorAll(".moderator-credential-row"));
+  const nextRows = rows
+    .map((row) => {
+      const usernameInput = row.querySelector(".moderator-username-input");
+      const passwordInput = row.querySelector(".moderator-password-input");
+      return {
+        username: usernameInput ? usernameInput.value.trim() : "",
+        password: passwordInput ? passwordInput.value : "",
+      };
+    })
+    .filter((row) => row.username || row.password);
+
+  moderatorDraftRows = nextRows.length ? nextRows : [{ username: "", password: "" }];
+}
+
 function createModeratorCredentialRow(entry = {}, index = 0) {
   const row = document.createElement("div");
   row.className = "moderator-credential-row";
@@ -334,13 +372,15 @@ function createModeratorCredentialRow(entry = {}, index = 0) {
   usernameInput.value = String(entry.username || "");
   usernameInput.dataset.index = String(index);
   usernameInput.className = "moderator-username-input";
+  usernameInput.addEventListener("input", () => updateModeratorDraftFromUI());
 
   const passwordInput = document.createElement("input");
   passwordInput.type = "password";
   passwordInput.autocomplete = "new-password";
   passwordInput.placeholder = "Password";
-  passwordInput.value = "";
+  passwordInput.value = String(entry.password || "");
   passwordInput.className = "moderator-password-input";
+  passwordInput.addEventListener("input", () => updateModeratorDraftFromUI());
 
   const addBtn = document.createElement("button");
   addBtn.type = "button";
@@ -360,9 +400,12 @@ function createModeratorCredentialRow(entry = {}, index = 0) {
       : "";
     if (lastUsername || lastPassword) {
       list.appendChild(createModeratorCredentialRow({}, rows.length));
+      updateModeratorDraftFromUI();
     } else {
       toast("Fill in the current moderator row before adding another.");
-      const focused = lastRow?.querySelector(".moderator-username-input") || lastRow?.querySelector(".moderator-password-input");
+      const focused =
+        lastRow?.querySelector(".moderator-username-input") ||
+        lastRow?.querySelector(".moderator-password-input");
       if (focused) focused.focus();
     }
   });
@@ -380,6 +423,7 @@ function createModeratorCredentialRow(entry = {}, index = 0) {
     if (rows.length <= 1) return;
     const target = rows[rows.findIndex((item) => item === row)];
     if (target) target.remove();
+    updateModeratorDraftFromUI();
     updateModeratorRowButtons();
   });
 
@@ -407,15 +451,16 @@ function renderModeratorCredentials(settings) {
   const list = $("moderatorCredentialsList");
   if (!list) return;
 
-  const storedRows = Array.isArray(settings && settings.moderatorCredentials) && settings.moderatorCredentials.length
-    ? settings.moderatorCredentials.map((entry) => ({ username: String(entry.username || "") }))
-    : settings && settings.moderatorUsername
-      ? [{ username: String(settings.moderatorUsername || "") }]
-      : [];
+  const activeInsideList = list.contains(document.activeElement);
+  if (activeInsideList) {
+    updateModeratorDraftFromUI();
+    return;
+  }
 
+  const rows = moderatorDraftRows.length ? moderatorDraftRows : syncModeratorDraft(settings);
   list.innerHTML = "";
-  storedRows.forEach((entry, index) => list.appendChild(createModeratorCredentialRow(entry, index)));
-  list.appendChild(createModeratorCredentialRow({}, storedRows.length));
+  rows.forEach((entry, index) => list.appendChild(createModeratorCredentialRow(entry, index)));
+  list.appendChild(createModeratorCredentialRow({}, rows.length));
   updateModeratorRowButtons();
 }
 
