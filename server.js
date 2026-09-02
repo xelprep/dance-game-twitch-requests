@@ -2406,6 +2406,7 @@ module.exports = {
   verifyStreamerAuth,
   parseSecureMode,
   applySecureModeDefaults,
+  scanSongs,
 };
 
 // Twitch connection and OAuth helper support.

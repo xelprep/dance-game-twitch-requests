@@ -18,7 +18,10 @@ fs.writeFileSync(
 );
 process.env.SONGS_DIR = tmpSongsDir;
 
-const { db, addRequest, getQueue, setRequestStatus, getSongSearchRows } = require('../../server.js');
+const { db, addRequest, getQueue, setRequestStatus, getSongSearchRows, scanSongs } = require('../../server.js');
+
+// Scan the seed songs directory to populate the database
+scanSongs(tmpSongsDir, db);
 
 function resetRequests() {
   db.prepare('DELETE FROM requests').run();
