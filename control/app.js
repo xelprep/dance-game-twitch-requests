@@ -342,23 +342,34 @@ function syncModeratorDraft(settings) {
   return moderatorDraftRows;
 }
 
+function normalizeModeratorRows(rows) {
+  const nonEmptyRows = (rows || [])
+    .filter((row) => row && (String(row.username || "").trim() || String(row.password || "")))
+    .map((row) => ({ username: String(row.username || "").trim(), password: String(row.password || "") }));
+
+  if (!nonEmptyRows.length) {
+    return [{ username: "", password: "" }];
+  }
+
+  const withTrailingBlank = [...nonEmptyRows, { username: "", password: "" }];
+  return withTrailingBlank;
+}
+
 function updateModeratorDraftFromUI() {
   const list = $("moderatorCredentialsList");
   if (!list) return;
 
   const rows = Array.from(list.querySelectorAll(".moderator-credential-row"));
-  const nextRows = rows
-    .map((row) => {
-      const usernameInput = row.querySelector(".moderator-username-input");
-      const passwordInput = row.querySelector(".moderator-password-input");
-      return {
-        username: usernameInput ? usernameInput.value.trim() : "",
-        password: passwordInput ? passwordInput.value : "",
-      };
-    })
-    .filter((row) => row.username || row.password);
+  const nextRows = rows.map((row) => {
+    const usernameInput = row.querySelector(".moderator-username-input");
+    const passwordInput = row.querySelector(".moderator-password-input");
+    return {
+      username: usernameInput ? usernameInput.value.trim() : "",
+      password: passwordInput ? passwordInput.value : "",
+    };
+  });
 
-  moderatorDraftRows = nextRows.length ? nextRows : [{ username: "", password: "" }];
+  moderatorDraftRows = normalizeModeratorRows(nextRows);
 }
 
 function createModeratorCredentialRow(entry = {}, index = 0) {
@@ -458,9 +469,9 @@ function renderModeratorCredentials(settings) {
   }
 
   const rows = moderatorDraftRows.length ? moderatorDraftRows : syncModeratorDraft(settings);
+  const normalizedRows = normalizeModeratorRows(rows);
   list.innerHTML = "";
-  rows.forEach((entry, index) => list.appendChild(createModeratorCredentialRow(entry, index)));
-  list.appendChild(createModeratorCredentialRow({}, rows.length));
+  normalizedRows.forEach((entry, index) => list.appendChild(createModeratorCredentialRow(entry, index)));
   updateModeratorRowButtons();
 }
 
