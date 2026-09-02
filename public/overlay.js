@@ -124,7 +124,7 @@ function updateUpcomingLabel(tempModDisplayName) {
     return;
   }
 
-  label.textContent = `@${String(tempModDisplayName)} in charge of the queue! Upcoming Requests:`;
+  label.textContent = `@${String(tempModDisplayName)} is in charge of the queue! Upcoming Requests:`;
 }
 
 function updateOverlay(nowPlaying, queue) {
