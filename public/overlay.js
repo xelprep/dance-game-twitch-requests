@@ -150,7 +150,15 @@ function startSSE() {
     s.addEventListener("message", (ev) => {
       try {
         const data = JSON.parse(ev.data);
-        updateQueue(data);
+        const queue = Array.isArray(data) ? data : data && Array.isArray(data.queue) ? data.queue : null;
+        const nowPlaying = data && "nowPlaying" in data ? data.nowPlaying : null;
+        const tempModDisplayName = data && "tempModDisplayName" in data ? data.tempModDisplayName : null;
+
+        if (queue) {
+          updateQueue(queue);
+        }
+        updateNowPlaying(nowPlaying);
+        updateUpcomingLabel(tempModDisplayName);
       } catch (e) {
         console.error("Failed to parse SSE data", e);
       }
@@ -166,12 +174,21 @@ function startSSE() {
   }
 }
 
-async function pollNowPlaying() {
+async function poll() {
   try {
-    const resp = await fetch("/api/now-playing");
-    if (!resp.ok) throw new Error("Failed");
-    const data = await resp.json();
-    updateNowPlaying(data);
+    const [queueResp, nowPlayingResp] = await Promise.all([
+      fetch("/api/queue"),
+      fetch("/api/now-playing"),
+    ]);
+
+    if (!queueResp.ok) throw new Error("Queue fetch failed");
+    if (!nowPlayingResp.ok) throw new Error("Now-playing fetch failed");
+
+    const queue = await queueResp.json();
+    const nowPlaying = await nowPlayingResp.json();
+    updateQueue(queue);
+    updateNowPlaying(nowPlaying);
+    await pollTempModStatus();
   } catch (e) {
     /* ignore polling errors */
   }
@@ -183,9 +200,4 @@ pollTempModStatus();
 if (!startSSE()) {
   poll();
   setInterval(poll, 1000);
-} else {
-  // SSE handles queue updates; poll now-playing separately since SSE only broadcasts queue.
-  pollNowPlaying();
-  setInterval(pollNowPlaying, 2000);
 }
-setInterval(pollTempModStatus, 2000);
