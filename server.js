@@ -2,6 +2,7 @@ const { installConsoleLogger } = require("./logger");
 
 installConsoleLogger();
 require("dotenv").config({ quiet: true });
+const SHOULD_START_APP = !(process.env.NODE_ENV === "test" || process.env.SKIP_APP_STARTUP === "1");
 
 const express = require("express");
 const path = require("path");
@@ -2364,22 +2365,45 @@ controlApp.use(express.static(path.join(__dirname, "control")));
 createApi(controlApp, { control: true });
 
 // Create HTTPS servers for both public viewer site and streamer control panel.
-(async () => {
-  try {
-    const tlsOptions = await getControlTlsOptions();
-    https.createServer(tlsOptions, publicApp).listen(PORT, HOST, () => {
-      const hostLabel = HOST === "0.0.0.0" ? "localhost" : HOST;
-      console.log(`Public request site: https://${hostLabel}:${PORT}`);
-    });
-    https.createServer(tlsOptions, controlApp).listen(CONTROL_PORT, CONTROL_HOST, () => {
-      const hostLabel = CONTROL_HOST === "0.0.0.0" ? "localhost" : CONTROL_HOST;
-      console.log(`Streamer control panel: https://${hostLabel}:${CONTROL_PORT}`);
-    });
-  } catch (e) {
-    console.error("Failed to start HTTPS servers:", e);
-    process.exitCode = 1;
-  }
-})();
+if (SHOULD_START_APP) {
+  (async () => {
+    try {
+      const tlsOptions = await getControlTlsOptions();
+      https.createServer(tlsOptions, publicApp).listen(PORT, HOST, () => {
+        const hostLabel = HOST === "0.0.0.0" ? "localhost" : HOST;
+        console.log(`Public request site: https://${hostLabel}:${PORT}`);
+      });
+      https.createServer(tlsOptions, controlApp).listen(CONTROL_PORT, CONTROL_HOST, () => {
+        const hostLabel = CONTROL_HOST === "0.0.0.0" ? "localhost" : CONTROL_HOST;
+        console.log(`Streamer control panel: https://${hostLabel}:${CONTROL_PORT}`);
+      });
+    } catch (e) {
+      console.error("Failed to start HTTPS servers:", e);
+      process.exitCode = 1;
+    }
+  })();
+}
+
+module.exports = {
+  db,
+  createApi,
+  classifyWhisperReply,
+  extractWhisperText,
+  getSongSearchRows,
+  addRequest,
+  setRequestStatus,
+  getQueue,
+  getStats,
+  getControlSettings,
+  getModeratorCredentialsList,
+  persistModeratorCredentials,
+  setSetting,
+  hashModeratorPassword,
+  verifyModeratorPassword,
+  verifyStreamerAuth,
+  parseSecureMode,
+  applySecureModeDefaults,
+};
 
 // Twitch connection and OAuth helper support.
 const TWITCH_DATA_FILE = path.resolve("./data/twitch.json");
@@ -3225,34 +3249,36 @@ async function stopTmiClient() {
 }
 
 // Load config from disk or environment and start client if present.
-(function initializeTwitch() {
-  // Environment variables take precedence; if present write them to persistent config.
-  const envUsername = process.env.TWITCH_USERNAME;
-  const envOauth = process.env.TWITCH_OAUTH_TOKEN;
-  const envChannel = (process.env.TWITCH_CHANNEL || "").replace(/^#/, "");
-  const envClientId = process.env.TWITCH_CLIENT_ID || null;
-  const envClientSecret = process.env.TWITCH_CLIENT_SECRET || null;
+if (SHOULD_START_APP) {
+  (function initializeTwitch() {
+    // Environment variables take precedence; if present write them to persistent config.
+    const envUsername = process.env.TWITCH_USERNAME;
+    const envOauth = process.env.TWITCH_OAUTH_TOKEN;
+    const envChannel = (process.env.TWITCH_CHANNEL || "").replace(/^#/, "");
+    const envClientId = process.env.TWITCH_CLIENT_ID || null;
+    const envClientSecret = process.env.TWITCH_CLIENT_SECRET || null;
 
-  if (envUsername && envOauth && envChannel) {
-    saveTwitchConfig({
-      username: envUsername,
-      accessToken: String(envOauth).replace(/^oauth:/, ""),
-      channel: envChannel,
-      clientId: envClientId,
-      clientSecret: envClientSecret,
-    });
-  }
+    if (envUsername && envOauth && envChannel) {
+      saveTwitchConfig({
+        username: envUsername,
+        accessToken: String(envOauth).replace(/^oauth:/, ""),
+        channel: envChannel,
+        clientId: envClientId,
+        clientSecret: envClientSecret,
+      });
+    }
 
-  const cfg = loadTwitchConfig();
-  if (cfg && cfg.accessToken && cfg.channel) {
-    startTmiClient(cfg);
-    scheduleTwitchRefresh();
-  } else {
-    console.warn(
-      "Twitch bot disabled: set TWITCH_USERNAME, TWITCH_OAUTH_TOKEN and TWITCH_CHANNEL, or use the control panel to connect.",
-    );
-  }
-})();
+    const cfg = loadTwitchConfig();
+    if (cfg && cfg.accessToken && cfg.channel) {
+      startTmiClient(cfg);
+      scheduleTwitchRefresh();
+    } else {
+      console.warn(
+        "Twitch bot disabled: set TWITCH_USERNAME, TWITCH_OAUTH_TOKEN and TWITCH_CHANNEL, or use the control panel to connect.",
+      );
+    }
+  })();
+}
 
 // Control-panel API endpoints for OAuth flow.
 if (true) {
