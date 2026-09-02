@@ -1117,20 +1117,28 @@ function generateRandomPassword(length = 12) {
 function extractWhisperText(message) {
   if (typeof message === "string") return message;
   if (message == null) return "";
+
+  if (Array.isArray(message)) {
+    return message.map((entry) => extractWhisperText(entry)).join("");
+  }
+
   if (typeof message === "object") {
     if (typeof message.text === "string") return message.text;
     if (typeof message.message === "string") return message.message;
     if (typeof message.content === "string") return message.content;
-    if (Array.isArray(message.fragments)) {
-      return message.fragments
-        .map((fragment) => {
-          if (typeof fragment === "string") return fragment;
-          if (fragment && typeof fragment.text === "string") return fragment.text;
-          return "";
-        })
-        .join("");
+
+    const fragmentCollections = [message.fragments, message.items, message.parts];
+    for (const fragments of fragmentCollections) {
+      if (Array.isArray(fragments)) {
+        return fragments.map((fragment) => extractWhisperText(fragment)).join("");
+      }
     }
   }
+
+  if (typeof message === "number" || typeof message === "boolean") {
+    return String(message);
+  }
+
   return String(message || "");
 }
 
@@ -2555,7 +2563,12 @@ async function handleTempModWhisper(fromUsername, message) {
       const moderatorLink = `${PUBLIC_URL}/requestModerator.html?token=${encodeURIComponent(ssoToken)}`;
       await sendWhisper(
         wasPending.username,
-        `Welcome! You're now a temporary moderator for ${wasPending.tempModTime} minutes. Tap the link to open the queue:\n\n${moderatorLink}\n\n(If the link doesn't work, open ${PUBLIC_URL}/requestModerator.html and log in with:\nUsername: ${wasPending.username}\nPassword: ${password})`,
+        `Welcome! You're now a temporary moderator for ${wasPending.tempModTime} minutes. Copy the link below to open the queue:`,
+      );
+      await sendWhisper(wasPending.username, moderatorLink);
+      await sendWhisper(
+        wasPending.username,
+        `(If the link doesn't work, open ${PUBLIC_URL}/requestModerator.html and log in with:\nUsername: ${wasPending.username}\nPassword: ${password})`,
       );
       // Announce to chat
       await sendChatMessage(
@@ -2757,7 +2770,8 @@ async function connectEventSub(cfg, opts = {}) {
         // this is purely defensive.
         return;
       }
-      const rawWhisperMessage = event.message ?? event.text ?? event.content ?? "";
+      const rawWhisperMessage =
+        event.whisper ?? event.message ?? event.text ?? event.content ?? "";
       const whisperText = extractWhisperText(rawWhisperMessage);
       console.log(
         `[eventsub] Whisper received from ${event.from_user_login || "unknown"}: ${String(
