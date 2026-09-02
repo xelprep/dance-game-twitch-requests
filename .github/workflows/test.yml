@@ -26,4 +26,5 @@ jobs:
         env:
           NODE_ENV: test
           SKIP_APP_STARTUP: 1
+          CONTROL_PASSWORD: a-long-random-password
         run: npm test
