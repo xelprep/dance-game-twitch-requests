@@ -75,7 +75,7 @@ The control panel provides:
 
 ## Public moderator control
 
-The streamer can enable a separate, restricted moderator interface from the control panel. Set a username and password in the **Moderator access** settings, enable it, and provide the public-port URL:
+The streamer can enable a separate, restricted moderator interface from the control panel. Add one or more moderator accounts in the **Moderator access** settings, give each a username/password pair, enable the feature, and provide the public-port URL:
 
 ```text
 https://localhost:3000/requestModerator.html
@@ -83,7 +83,7 @@ https://localhost:3000/requestModerator.html
 
 When enabled, the page uses its own HTTP Basic Authentication credentials and provides queue management, song search, unlimited requests, and the request/chat restriction settings. It cannot configure Twitch, rescan songs, or manage blacklists. Disabling the page immediately invalidates the credentials on every subsequent request.
 
-The moderator username is used as the `Requested By` display name for requests made through this interface. The password is stored as a one-way hash in the local settings database.
+The username that successfully authenticates is used as the `Requested By` display name for requests made through this interface. Passwords are stored as one-way hashes in the local settings database.
 
 ### Secure startup mode
 
@@ -93,9 +93,9 @@ Set this in `.env`:
 SECURE_MODE=true
 ```
 
-When enabled, the app starts with moderator access disabled and clears any previously stored moderator username/password data before the app begins accepting requests. This prevents moderator access from a prior session from being silently re-enabled after a restart unless the streamer explicitly configures and enables moderator access again in the current session.
+When enabled, the app starts with moderator access disabled and clears any previously stored permanent moderator username/password data before the app begins accepting requests. This includes the full list of configured permanent moderator accounts and any legacy single-account settings, so moderator access from a prior session cannot silently reappear after a restart unless the streamer explicitly reconfigures and enables moderator access again in the current session.
 
-This is a startup reset, not a permanent runtime lock. If the streamer later sets a new moderator username and password and enables the moderator feature in the same run, the feature works normally for that session. The next restart with `SECURE_MODE=true` will again reset the moderator state back to the default disabled state.
+This is a startup reset, not a permanent runtime lock. If the streamer later creates one or more moderator credentials and enables the moderator feature in the same run, the feature works normally for that session. The next restart with `SECURE_MODE=true` will again reset the moderator state back to the default disabled state.
 
 ## Temporary moderator nomination
 
