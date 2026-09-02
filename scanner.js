@@ -1,3 +1,7 @@
+const { installConsoleLogger } = require("./logger");
+
+installConsoleLogger();
+
 const fs = require("fs");
 const path = require("path");
 

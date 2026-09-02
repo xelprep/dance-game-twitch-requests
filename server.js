@@ -1,4 +1,7 @@
-require("dotenv").config();
+const { installConsoleLogger } = require("./logger");
+
+installConsoleLogger();
+require("dotenv").config({ quiet: true });
 
 const express = require("express");
 const path = require("path");
