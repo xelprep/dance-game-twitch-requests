@@ -214,10 +214,12 @@ activeTempMod = null;
 originalModeratorPasswordHash = null;
 pendingNomination = null;
 
-const result = refreshDatabase();
+// Only scan songs on real startup, not during test mode
+if (SHOULD_START_APP) {
+  const result = refreshDatabase();
 
-if (result.songs === 0) {
-  console.error(`
+  if (result.songs === 0) {
+    console.error(`
 ====================================================================
 ERROR: No songs found in ${SONGS_DIR}
 ====================================================================
@@ -238,7 +240,8 @@ The application cannot start without a song library. Please check:
 Fix the path or add songs, then restart the application.
 ====================================================================
 `);
-  process.exit(1);
+    process.exit(1);
+  }
 }
 
 function transliterateLatin(s) {
