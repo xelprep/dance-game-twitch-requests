@@ -150,9 +150,14 @@ function startSSE() {
     s.addEventListener("message", (ev) => {
       try {
         const data = JSON.parse(ev.data);
-        const queue = Array.isArray(data) ? data : data && Array.isArray(data.queue) ? data.queue : null;
+        const queue = Array.isArray(data)
+          ? data
+          : data && Array.isArray(data.queue)
+            ? data.queue
+            : null;
         const nowPlaying = data && "nowPlaying" in data ? data.nowPlaying : null;
-        const tempModDisplayName = data && "tempModDisplayName" in data ? data.tempModDisplayName : null;
+        const tempModDisplayName =
+          data && "tempModDisplayName" in data ? data.tempModDisplayName : null;
 
         if (queue) {
           updateQueue(queue);
