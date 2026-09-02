@@ -53,10 +53,7 @@ function applySecureModeDefaults(db, { secureMode = false } = {}) {
     }
 
     if (parsed !== row.value) {
-      db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)").run(
-        row.key,
-        expected,
-      );
+      db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)").run(row.key, expected);
       changed = true;
     }
   }
