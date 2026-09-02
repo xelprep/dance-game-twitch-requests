@@ -7,11 +7,13 @@
   "scripts": {
     "start": "node server.js",
     "scan": "node scanner.js",
+    "test": "NODE_ENV=test node --test --test-concurrency=1",
+    "test:watch": "NODE_ENV=test node --test --watch --test-concurrency=1",
     "format": "prettier --write \"**/*.{js,css,html,md}\" --ignore-path .prettierignore",
     "format:check": "prettier --check \"**/*.{js,css,html,md}\" --ignore-path .prettierignore"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
