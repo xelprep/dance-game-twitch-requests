@@ -2296,12 +2296,25 @@ publicApp.get("/requestModerator.html", authenticateModerator, (_req, res) => {
 publicApp.use(express.static(path.join(__dirname, "public")));
 createApi(publicApp, { moderator: true });
 
-// Server-Sent Events (SSE) endpoint for OBS overlay to receive real-time queue updates.
-// Clients should connect to /overlay/queue/stream and will receive JSON array payloads in `message` events.
+// Server-Sent Events (SSE) endpoint for OBS overlay to receive real-time overlay state.
+// Clients should connect to /overlay/queue/stream and will receive the merged overlay state in `message` events.
 const sseQueueClients = new Set();
+function buildOverlayState() {
+  const nowPlaying = getNowPlaying();
+  const queue = getQueue();
+  const tempModDisplayName =
+    activeTempMod && Date.now() < activeTempMod.expiresAt ? activeTempMod.displayname : null;
+
+  return {
+    queue,
+    nowPlaying,
+    tempModDisplayName,
+  };
+}
+
 function broadcastQueueUpdate() {
   try {
-    const payload = `data: ${JSON.stringify(getQueue())}\n\n`;
+    const payload = `data: ${JSON.stringify(buildOverlayState())}\n\n`;
     for (const res of Array.from(sseQueueClients)) {
       try {
         res.write(payload);
@@ -2324,7 +2337,7 @@ publicApp.get("/overlay/queue/stream", (req, res) => {
   sseQueueClients.add(res);
   req.on("close", () => sseQueueClients.delete(res));
   // Send initial state
-  res.write(`data: ${JSON.stringify(getQueue())}\n\n`);
+  res.write(`data: ${JSON.stringify(buildOverlayState())}\n\n`);
 });
 
 // Expose a small helper name used by patched functions above.
