@@ -24,6 +24,10 @@ header,
   justify-content: space-between;
   gap: 16px;
 }
+.section-head + * {
+  display: block;
+  margin-top: 16px;
+}
 h1,
 h2 {
   margin: 0;
