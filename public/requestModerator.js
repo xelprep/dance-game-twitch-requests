@@ -191,19 +191,10 @@ async function render() {
 
   if (nowResult.status === "fulfilled") {
     const now = nowResult.value;
-    const completeBtn = $("complete-now");
     if (now) {
       window._nowPlayingId = now.id;
-      if (completeBtn) {
-        completeBtn.hidden = false;
-        completeBtn.disabled = false;
-      }
     } else {
       window._nowPlayingId = null;
-      if (completeBtn) {
-        completeBtn.hidden = true;
-        completeBtn.disabled = true;
-      }
     }
     $("now").innerHTML = now
       ? `
@@ -215,8 +206,18 @@ async function render() {
           <small>${esc(formatCharts(now.charts))}</small>
           <small>requested by ${esc(now.requested_display)}</small>
         </div>
+        <button id="complete-now" type="button" ${now ? "" : "hidden disabled"}>Complete</button>
       </div>`
       : "Nothing playing.";
+
+    const completeBtn = $("complete-now");
+    if (completeBtn) {
+      completeBtn.disabled = !now;
+      completeBtn.hidden = !now;
+      completeBtn.onclick = () => {
+        if (window._nowPlayingId != null) window.complete(window._nowPlayingId);
+      };
+    }
   } else {
     $("now").textContent = nowResult.reason.message;
   }
@@ -341,6 +342,23 @@ $("clear").onclick = async () => {
 };
 
 $("refresh").onclick = render;
+
+$("logout").onclick = async () => {
+  try {
+    const result = await api("/api/moderator/logout", { method: "POST" });
+    clearModeratorToken();
+    if (result && result.logoutType === "temp") {
+      toast("Logged out and temporary moderator session ended.");
+    } else {
+      toast("Logged out.");
+    }
+    setTimeout(() => {
+      window.location.assign("/requestModerator.html?loggedOut=1");
+    }, 150);
+  } catch (error) {
+    toast(error.message);
+  }
+};
 
 ["search-prev", "search-prev-bottom"].forEach((id) => {
   const el = $(id);
