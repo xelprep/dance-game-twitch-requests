@@ -14,14 +14,32 @@
           <p id="stats">Loading…</p>
         </div>
         <nav class="category-tabs" aria-label="Control categories">
-          <button type="button" class="category-button active" data-category="songs">Songs &amp; Queue</button>
-          <button type="button" class="category-button" data-category="moderation">Moderation</button>
-          <button type="button" class="category-button" data-category="configuration">Configuration</button>
+          <button type="button" class="category-button active" data-category="songs">
+            Songs &amp; Queue
+          </button>
+          <button type="button" class="category-button" data-category="moderation">
+            Moderation
+          </button>
+          <button type="button" class="category-button" data-category="configuration">
+            Configuration
+          </button>
         </nav>
         <div class="actions">
-          <button id="next" class="category-action" data-visible-category="songs" type="button">Play Next</button>
-          <button id="clear" class="category-action" data-visible-category="songs" type="button">Clear Queue</button>
-          <button id="rescan" class="category-action" data-visible-category="configuration" type="button" hidden>Rescan Songs</button>
+          <button id="next" class="category-action" data-visible-category="songs" type="button">
+            Play Next
+          </button>
+          <button id="clear" class="category-action" data-visible-category="songs" type="button">
+            Clear Queue
+          </button>
+          <button
+            id="rescan"
+            class="category-action"
+            data-visible-category="configuration"
+            type="button"
+            hidden
+          >
+            Rescan Songs
+          </button>
         </div>
       </header>
 
@@ -148,15 +166,16 @@
           <div class="section-head"><h2>Temporary Moderator</h2></div>
           <div class="temp-mod-form">
             <p class="small muted">
-              Nominate a viewer from chat to moderate the request queue temporarily. They'll receive a
-              Twitch whisper with credentials.
+              Nominate a viewer from chat to moderate the request queue temporarily. They'll receive
+              a Twitch whisper with credentials.
             </p>
             <div id="tempModStatus" style="display: none">
               <div id="tempModActive" class="temp-mod-active"></div>
               <div id="tempModCooldown" class="temp-mod-cooldown" style="display: none"></div>
             </div>
             <label
-              >Duration (minutes): <input id="tempModTime" type="number" min="1" max="60" value="15"
+              >Duration (minutes):
+              <input id="tempModTime" type="number" min="1" max="60" value="15"
             /></label>
             <label
               >Search chat users:
@@ -186,7 +205,8 @@
           <div class="settings-form">
             <label>
               <input type="checkbox" id="prioritizeViewerRequests" checked />
-              Prioritize viewer requests above streamer requests (chat requests &gt; streamer requests)
+              Prioritize viewer requests above streamer requests (chat requests &gt; streamer
+              requests)
             </label>
             <p class="small muted">
               When enabled (default), requests made via Twitch chat will be placed ahead of any
@@ -222,22 +242,22 @@
           <div class="section-head"><h2>Twitch</h2></div>
           <div class="twitch-form">
             <p class="muted">
-              Quick guide: You may authorize either the streamer&apos;s account (messages will appear
-              as the streamer) or a separate bot account (messages appear from the bot). See the note
-              below before connecting.
+              Quick guide: You may authorize either the streamer&apos;s account (messages will
+              appear as the streamer) or a separate bot account (messages appear from the bot). See
+              the note below before connecting.
             </p>
             <div class="twitch-note">
               <strong>Streamer vs Bot account</strong>
               <ul>
                 <li>
                   <strong>Streamer account</strong>: Authorize the streamer to make the bot send
-                  messages as the streamer (useful if you want requests to appear from the streamer).
-                  This requires the streamer to sign in.
+                  messages as the streamer (useful if you want requests to appear from the
+                  streamer). This requires the streamer to sign in.
                 </li>
                 <li>
                   <strong>Bot account</strong>: Create a dedicated bot account, authorize it, and it
-                  will send messages as the bot. This is recommended for production since it separates
-                  broadcaster credentials from bot activity.
+                  will send messages as the bot. This is recommended for production since it
+                  separates broadcaster credentials from bot activity.
                 </li>
               </ul>
             </div>
@@ -248,7 +268,11 @@
             </div>
             <div class="twitch-field">
               <label for="twitchClientSecret">Client Secret:</label>
-              <input id="twitchClientSecret" placeholder="Twitch app client secret" type="password" />
+              <input
+                id="twitchClientSecret"
+                placeholder="Twitch app client secret"
+                type="password"
+              />
             </div>
             <div class="twitch-field">
               <label for="twitchChannel">Channel (optional):</label>
@@ -256,7 +280,13 @@
             </div>
             <div class="twitch-field">
               <label for="twitchInstructionsMinutes">Instructions interval (minutes):</label>
-              <input id="twitchInstructionsMinutes" type="number" min="0" step="1" placeholder="10" />
+              <input
+                id="twitchInstructionsMinutes"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="10"
+              />
               <small class="muted">
                 The bot posts usage instructions in chat every N minutes. Set this to 0 to disable
                 automatic reminders; viewers can still use <code>!help</code> at any time.
