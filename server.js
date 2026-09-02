@@ -1483,6 +1483,20 @@ function createApi(app, options = {}) {
       }
       res.json({ ok: true, ...settings });
     });
+    app.post("/api/moderator/logout", async (req, res) => {
+      const isTempMod =
+        !!activeTempMod &&
+        !!req.moderatorUsername &&
+        req.moderatorUsername.toLowerCase() === activeTempMod.username.toLowerCase();
+
+      if (isTempMod) {
+        const result = await expireTempMod({ manual: true });
+        return res.json({ ok: true, logoutType: "temp", ...result });
+      }
+
+      return res.json({ ok: true, logoutType: "permanent" });
+    });
+
     app.post("/api/moderator/request", (req, res) => {
       try {
         const r = addRequest(
