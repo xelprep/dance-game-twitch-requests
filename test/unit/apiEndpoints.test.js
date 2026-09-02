@@ -10,6 +10,7 @@ const {
   announceTempModNomination,
   createApi,
   db,
+  formatVisibleUsername,
   hashModeratorPassword,
   setSetting,
 } = require("../../server.js");
@@ -136,4 +137,10 @@ test("announceTempModNomination sends a chat reminder with the username and dura
   assert.equal(calls[0].channel, "testchannel");
   assert.match(calls[0].message, /^!\s*@Alice, you have been nominated to moderate the request queue for 12 minutes/i);
   assert.match(calls[0].message, /please check your Twitch whispers for details/i);
+});
+
+test("formatVisibleUsername prefers a chat user's chosen capitalization when present", () => {
+  assert.equal(formatVisibleUsername("willyj", "WillyJ"), "WillyJ");
+  assert.equal(formatVisibleUsername("willyj", "willyj"), "willyj");
+  assert.equal(formatVisibleUsername("willyj", ""), "willyj");
 });

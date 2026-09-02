@@ -676,6 +676,7 @@ function authenticateModerator(req, res, next) {
     );
     if (matchedCred) {
       req.moderatorUsername = matchedCred.username;
+      req.moderatorDisplayName = matchedCred.username;
       return next();
     }
   }
@@ -691,6 +692,7 @@ function authenticateModerator(req, res, next) {
       activeTempMod = null;
     } else {
       req.moderatorUsername = activeTempMod.username;
+      req.moderatorDisplayName = activeTempMod.displayname;
       return next();
     }
   }
@@ -706,6 +708,7 @@ function authenticateModerator(req, res, next) {
     Date.now() < activeTempMod.expiresAt
   ) {
     req.moderatorUsername = activeTempMod.username;
+    req.moderatorDisplayName = activeTempMod.displayname;
     return next();
   }
 
@@ -1195,6 +1198,15 @@ function getOnlineUsers() {
   return users;
 }
 
+function formatVisibleUsername(username, displayName) {
+  const login = String(username || "").trim();
+  const visible = String(displayName || "").trim();
+  if (visible && visible !== login) {
+    return visible;
+  }
+  return login || visible || "user";
+}
+
 function generateRandomPassword(length = 12) {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // ambiguous chars omitted
   const bytes = crypto.randomBytes(length);
@@ -1318,7 +1330,7 @@ async function announceTempModNomination({
     return;
   }
 
-  const effectiveUsername = String(displayName || username || "").trim();
+  const effectiveUsername = formatVisibleUsername(username, displayName);
   const mention = effectiveUsername ? `@${effectiveUsername}` : "@user";
   const message = `${mention}, you have been nominated to moderate the request queue for ${Number(tempModTime)} minutes. Please check your Twitch whispers for details!`;
 
@@ -1531,7 +1543,7 @@ function createApi(app, options = {}) {
         const r = addRequest(
           Number(req.body.songId),
           req.moderatorUsername,
-          req.moderatorUsername,
+          req.moderatorDisplayName || req.moderatorUsername,
           { skipLimit: true },
         );
         res.json({ ok: true, request: r });
@@ -2464,6 +2476,7 @@ module.exports = {
   createApi,
   classifyWhisperReply,
   extractWhisperText,
+  formatVisibleUsername,
   getSongSearchRows,
   addRequest,
   setRequestStatus,
