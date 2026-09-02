@@ -330,10 +330,6 @@ $("next").onclick = async () => {
   }
 };
 
-$("complete-now").onclick = () => {
-  if (window._nowPlayingId != null) window.complete(window._nowPlayingId);
-};
-
 $("clear").onclick = async () => {
   if (confirm("Skip every queued request?")) {
     await api("/api/moderator/queue/clear", { method: "POST" });
