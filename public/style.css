@@ -13,8 +13,10 @@ body {
     sans-serif;
 }
 main {
-  width: min(1250px, calc(100% - 28px));
+  width: 100%;
+  max-width: 1278px;
   margin: 22px auto;
+  padding: 0 14px;
 }
 header,
 .section-head,
@@ -75,6 +77,7 @@ button:hover {
 .now-card > div:first-child,
 .info {
   flex: 1;
+  min-width: 0;
 }
 .now-card strong,
 .now-card span,
@@ -113,6 +116,22 @@ button:hover {
 }
 .search-row input {
   flex: 1;
+  min-width: 0;
+}
+.search-reset-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+#reset-search {
+  background: transparent;
+  border-color: #3b4350;
+  color: #929baa;
+  font-size: 13px;
+}
+#reset-search:hover {
+  color: #f4f6f8;
+  border-color: #5e738d;
 }
 input,
 select {
@@ -122,7 +141,6 @@ select {
   border-radius: 8px;
   padding: 9px 11px;
   font-size: 14px;
-  min-width: 200px;
 }
 input[type="checkbox"] {
   min-width: 0;
@@ -276,6 +294,13 @@ input[type="checkbox"] {
   transform: none;
 }
 @media (max-width: 800px) {
+  main {
+    margin-top: 12px;
+    padding: 0 12px;
+  }
+  .panel {
+    padding: 14px;
+  }
   header {
     align-items: flex-start;
     flex-direction: column;
@@ -294,5 +319,11 @@ input[type="checkbox"] {
   .song-actions {
     justify-content: flex-start;
     width: 100%;
+  }
+  #toast,
+  .copy-status {
+    left: 16px;
+    right: 16px;
+    text-align: center;
   }
 }
