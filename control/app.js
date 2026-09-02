@@ -856,9 +856,8 @@ async function renderTempMod() {
       const mins = Math.floor(remaining / 60);
       const secs = remaining % 60;
       activeDiv.textContent = `🟢 ${status.tempMod.displayName} is moderating (${mins}:${secs.toString().padStart(2, "0")} remaining)`;
-      // Disable nominate buttons
       document.querySelectorAll(".temp-mod-nominate-btn").forEach((btn) => {
-        btn.closest(".temp-mod-user-item").classList.add("disabled");
+        btn.disabled = true;
       });
     } else if (status.hasPendingNomination) {
       activeTempModUsername = null;
@@ -867,14 +866,15 @@ async function renderTempMod() {
       cooldownDiv.style.display = "";
       const secs = Math.ceil(status.nominationCooldown / 1000);
       cooldownDiv.textContent = `⏳ Awaiting response… (${secs}s cooldown)`;
-      // Disable nominate buttons
       document.querySelectorAll(".temp-mod-nominate-btn").forEach((btn) => {
-        btn.closest(".temp-mod-user-item").classList.add("disabled");
+        btn.disabled = true;
       });
     } else {
       activeTempModUsername = null;
       statusDiv.style.display = "none";
-      // Enable nominate buttons
+      document.querySelectorAll(".temp-mod-nominate-btn").forEach((btn) => {
+        btn.disabled = false;
+      });
       document.querySelectorAll(".temp-mod-user-item.disabled").forEach((item) => {
         item.classList.remove("disabled");
       });

@@ -380,5 +380,9 @@ input[type="checkbox"] {
 }
 .temp-mod-user-item.disabled {
   opacity: 0.4;
-  pointer-events: none;
+}
+
+.temp-mod-nominate-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
