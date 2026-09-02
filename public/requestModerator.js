@@ -339,22 +339,27 @@ $("clear").onclick = async () => {
 
 $("refresh").onclick = render;
 
-$("logout").onclick = async () => {
-  try {
-    const result = await api("/api/moderator/logout", { method: "POST" });
-    clearModeratorToken();
-    if (result && result.logoutType === "temp") {
-      toast("Logged out and temporary moderator session ended.");
-    } else {
-      toast("Logged out.");
+const logoutButton = $("logout");
+if (logoutButton) {
+  const isTempModSession = !!getModeratorToken();
+  logoutButton.hidden = !isTempModSession;
+  logoutButton.onclick = async () => {
+    try {
+      const result = await api("/api/moderator/logout", { method: "POST" });
+      clearModeratorToken();
+      if (result && result.logoutType === "temp") {
+        toast("Logged out and temporary moderator session ended.");
+      } else {
+        toast("Logged out.");
+      }
+      setTimeout(() => {
+        window.location.assign("/requestModerator.html?loggedOut=1");
+      }, 150);
+    } catch (error) {
+      toast(error.message);
     }
-    setTimeout(() => {
-      window.location.assign("/requestModerator.html?loggedOut=1");
-    }, 150);
-  } catch (error) {
-    toast(error.message);
-  }
-};
+  };
+}
 
 ["search-prev", "search-prev-bottom"].forEach((id) => {
   const el = $(id);
