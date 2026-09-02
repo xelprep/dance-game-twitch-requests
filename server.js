@@ -1813,6 +1813,8 @@ function createApi(app, options = {}) {
         };
       });
 
+      const credentialsChanged = Object.prototype.hasOwnProperty.call(req.body, "moderatorCredentials");
+
       const settings = {
         prioritizeViewerRequests: Object.prototype.hasOwnProperty.call(
           req.body,
@@ -1832,10 +1834,12 @@ function createApi(app, options = {}) {
         moderatorEnabled: Object.prototype.hasOwnProperty.call(req.body, "moderatorEnabled")
           ? next.moderatorEnabled
           : current.moderatorEnabled,
-        moderatorUsername: Object.prototype.hasOwnProperty.call(req.body, "moderatorUsername")
-          ? next.moderatorUsername
-          : current.moderatorUsername,
-        moderatorCredentials: Object.prototype.hasOwnProperty.call(req.body, "moderatorCredentials")
+        moderatorUsername: credentialsChanged
+          ? (normalizedCredentials[0] ? normalizedCredentials[0].username : "")
+          : Object.prototype.hasOwnProperty.call(req.body, "moderatorUsername")
+            ? next.moderatorUsername
+            : current.moderatorUsername,
+        moderatorCredentials: credentialsChanged
           ? normalizedCredentials
           : current.moderatorCredentials,
         moderatorPasswordConfigured: current.moderatorPasswordConfigured,
