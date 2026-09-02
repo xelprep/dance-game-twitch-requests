@@ -368,6 +368,11 @@ input[type="checkbox"] {
   .panel {
     padding: 14px;
   }
+  /* 16px+ text fields prevent iOS Safari auto-zoom on focus */
+  input,
+  select {
+    font-size: 16px;
+  }
   header {
     align-items: flex-start;
     flex-direction: column;
