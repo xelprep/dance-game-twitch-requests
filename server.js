@@ -7,6 +7,8 @@ const SHOULD_START_APP = !(process.env.NODE_ENV === "test" || process.env.SKIP_A
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
+const net = require("net");
 const crypto = require("crypto");
 const https = require("https");
 const Database = require("better-sqlite3");
@@ -16,10 +18,12 @@ const WebSocket = require("ws");
 const { parseSecureMode, applySecureModeDefaults } = require("./secureMode");
 const { scanSongs } = require("./scanner");
 
-const PORT = Number(process.env.PORT || 3000);
-const CONTROL_PORT = Number(process.env.CONTROL_PORT || 3001);
-const HOST = process.env.HOST || "0.0.0.0";
-const CONTROL_HOST = process.env.CONTROL_HOST || "0.0.0.0";
+// Network settings (bind address + public/control ports) are runtime settings managed from the
+// streamer control panel and persisted in the settings DB. These are only the fallback defaults.
+// PORT/CONTROL_PORT are intentionally NOT read from .env anymore.
+const DEFAULT_PUBLIC_PORT = 3000;
+const DEFAULT_CONTROL_PORT = 3001;
+const DEFAULT_BIND_HOST = "0.0.0.0";
 const SONGS_DIR = path.resolve(process.env.SONGS_DIR || "./Songs");
 const PREFIX = process.env.BOT_PREFIX || "!";
 const SEARCH_COMMAND = (process.env.SEARCH_COMMAND || "search").toLowerCase();
@@ -60,6 +64,130 @@ function getRuntimeInstructionsMinutes() {
   return parseInstructionsMinutes(_INSTRUCTIONS_MINUTES_RAW);
 }
 
+// --- Runtime network settings (bind host + public/control ports) ---
+
+function isValidIPv4(value) {
+  const parts = String(value).split(".");
+  if (parts.length !== 4) return false;
+  return parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
+}
+
+function isValidPort(value) {
+  return Number.isInteger(value) && value >= 1 && value <= 65535;
+}
+
+// Legacy env support: HOST/CONTROL_HOST set in .env act as the startup default bind address.
+// The runtime value can be overridden via the control panel and stored in the settings DB.
+const _HOST_RAW = Object.prototype.hasOwnProperty.call(process.env, "HOST")
+  ? process.env.HOST
+  : Object.prototype.hasOwnProperty.call(process.env, "CONTROL_HOST")
+    ? process.env.CONTROL_HOST
+    : undefined;
+
+function parseBindHost(rawValue) {
+  if (typeof rawValue === "undefined" || rawValue === "") return DEFAULT_BIND_HOST;
+  const value = String(rawValue).trim();
+  return value === "0.0.0.0" || isValidIPv4(value) ? value : DEFAULT_BIND_HOST;
+}
+
+function getRuntimeHost() {
+  const saved = getSetting("host", null);
+  if (typeof saved === "string" && (saved === "0.0.0.0" || isValidIPv4(saved))) return saved;
+  return parseBindHost(_HOST_RAW);
+}
+
+// Network interfaces of this machine that could be used to reach the app from the LAN.
+// Only non-internal IPv4 addresses are returned, de-duplicated.
+function getLanIPv4Addresses() {
+  const addresses = new Set();
+  let interfaces = {};
+  try {
+    interfaces = os.networkInterfaces();
+  } catch (e) {
+    return [];
+  }
+  for (const name of Object.keys(interfaces)) {
+    for (const entry of interfaces[name] || []) {
+      if (entry.family === "IPv4" && !entry.internal) {
+        addresses.add(entry.address);
+      }
+    }
+  }
+  return Array.from(addresses);
+}
+
+// Current runtime network settings (host + ports), read from the settings DB with fallback
+// to the startup defaults.
+function getNetworkSettings() {
+  let publicPort = Number(getSetting("publicPort", DEFAULT_PUBLIC_PORT));
+  let controlPort = Number(getSetting("controlPort", DEFAULT_CONTROL_PORT));
+  if (!isValidPort(publicPort)) publicPort = DEFAULT_PUBLIC_PORT;
+  if (!isValidPort(controlPort)) controlPort = DEFAULT_CONTROL_PORT;
+  return { host: getRuntimeHost(), publicPort, controlPort };
+}
+
+// Probe whether a port is reachable (i.e. already in use) by attempting a TCP connect.
+function isPortAvailable(port, host) {
+  return new Promise((resolve) => {
+    if (!isValidPort(port)) return resolve(false);
+    const probeHost = host === "0.0.0.0" ? "127.0.0.1" : host;
+    const socket = net.connect({ host: probeHost, port, timeout: 1500 });
+    let settled = false;
+    const finish = (available) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(available);
+    };
+    socket.once("connect", () => finish(false));
+    socket.once("error", () => finish(true));
+    socket.once("timeout", () => finish(true));
+  });
+}
+
+// Check that the given network settings can be bound. Ports we are currently bound to are
+// ignored because we will release them before binding again.
+// Returns null when the settings are usable, or { code, port } describing the problem.
+async function checkPortsAvailable(settings) {
+  if (!isValidPort(settings.publicPort)) {
+    return { code: "invalid-port", port: settings.publicPort };
+  }
+  if (!isValidPort(settings.controlPort)) {
+    return { code: "invalid-port", port: settings.controlPort };
+  }
+  if (settings.publicPort === settings.controlPort) {
+    return { code: "same-port", port: settings.publicPort };
+  }
+  const heldPorts = currentlyHeldPorts();
+  if (
+    !heldPorts.has(settings.publicPort) &&
+    !(await isPortAvailable(settings.publicPort, settings.host))
+  ) {
+    return { code: "in-use", port: settings.publicPort };
+  }
+  if (
+    !heldPorts.has(settings.controlPort) &&
+    !(await isPortAvailable(settings.controlPort, settings.host))
+  ) {
+    return { code: "in-use", port: settings.controlPort };
+  }
+  return null;
+}
+
+function networkProblemMessage(problem) {
+  if (problem.code === "invalid-port") {
+    return `Invalid port ${problem.port}: ports must be whole numbers between 1 and 65535.`;
+  }
+  if (problem.code === "same-port") {
+    return `The public port and the control port must be different (both are set to ${problem.port}).`;
+  }
+  return (
+    `Port ${problem.port} is already in use by another program. ` +
+    `To fix this, find the process that owns the port (on macOS/Linux run: lsof -i :${problem.port}, ` +
+    `on Windows run: netstat -ano | findstr :${problem.port}), stop that program or choose a different port, then try again.`
+  );
+}
+
 const CONTROL_PASSWORD = String(process.env.CONTROL_PASSWORD || "").trim();
 
 if (!CONTROL_PASSWORD || CONTROL_PASSWORD === "a-long-random-password") {
@@ -76,17 +204,33 @@ if (!CONTROL_PASSWORD || CONTROL_PASSWORD === "a-long-random-password") {
 const CONTROL_TLS_DIR = path.resolve("./data/control-panel");
 const CONTROL_TLS_KEY_PATH = path.join(CONTROL_TLS_DIR, "key.pem");
 const CONTROL_TLS_CERT_PATH = path.join(CONTROL_TLS_DIR, "cert.pem");
+const CONTROL_TLS_HOSTS_PATH = path.join(CONTROL_TLS_DIR, "hosts.json");
+const BASE_TLS_HOST_VALUES = ["localhost", "127.0.0.1", "::1", "0.0.0.0"];
 
 fs.mkdirSync(path.resolve("./data"), { recursive: true });
 
-async function getControlTlsOptions() {
-  fs.mkdirSync(CONTROL_TLS_DIR, { recursive: true });
-  if (fs.existsSync(CONTROL_TLS_KEY_PATH) && fs.existsSync(CONTROL_TLS_CERT_PATH)) {
-    return {
-      key: fs.readFileSync(CONTROL_TLS_KEY_PATH, "utf8"),
-      cert: fs.readFileSync(CONTROL_TLS_CERT_PATH, "utf8"),
-    };
+function readControlTlsHosts() {
+  try {
+    if (fs.existsSync(CONTROL_TLS_HOSTS_PATH)) {
+      const parsed = JSON.parse(fs.readFileSync(CONTROL_TLS_HOSTS_PATH, "utf8"));
+      if (Array.isArray(parsed)) return parsed.filter((host) => typeof host === "string");
+    }
+  } catch (e) {
+    /* fall through to defaults */
   }
+  return [...BASE_TLS_HOST_VALUES];
+}
+
+function writeControlTlsHosts(hostValues) {
+  try {
+    fs.writeFileSync(CONTROL_TLS_HOSTS_PATH, JSON.stringify(hostValues, null, 2));
+  } catch (e) {
+    /* non-fatal: worst case the certificate gets regenerated on the next start */
+  }
+}
+
+async function getControlTlsOptions({ host } = {}) {
+  fs.mkdirSync(CONTROL_TLS_DIR, { recursive: true });
 
   const altNames = [
     { type: 2, value: "localhost" },
@@ -95,13 +239,27 @@ async function getControlTlsOptions() {
     { type: 2, value: "0.0.0.0" },
     { type: 2, value: "127.0.0.1" },
   ];
-  if (CONTROL_HOST && CONTROL_HOST !== "0.0.0.0") {
-    const ipLike = /^\d+(?:\.\d+){3}$/.test(CONTROL_HOST);
-    altNames.push(ipLike ? { type: 7, ip: CONTROL_HOST } : { type: 2, value: CONTROL_HOST });
+  const hostValues = [...BASE_TLS_HOST_VALUES];
+  const extraHost = typeof host === "string" ? host.trim() : "";
+  if (extraHost && extraHost !== "0.0.0.0" && !hostValues.includes(extraHost)) {
+    const ipLike = /^\d+(?:\.\d+){3}$/.test(extraHost);
+    altNames.push(ipLike ? { type: 7, ip: extraHost } : { type: 2, value: extraHost });
+    hostValues.push(extraHost);
   }
-  if (HOST && HOST !== "0.0.0.0") {
-    const ipLike = /^\d+(?:\.\d+){3}$/.test(HOST);
-    altNames.push(ipLike ? { type: 7, ip: HOST } : { type: 2, value: HOST });
+
+  // Reuse the cached certificate only when it already covers the host we are about to bind to,
+  // so that switching bind address regenerates it instead of showing an unknown-host warning.
+  const cachedHosts = readControlTlsHosts();
+  const canReuseCache =
+    fs.existsSync(CONTROL_TLS_KEY_PATH) &&
+    fs.existsSync(CONTROL_TLS_CERT_PATH) &&
+    hostValues.every((value) => cachedHosts.includes(value));
+
+  if (canReuseCache) {
+    return {
+      key: fs.readFileSync(CONTROL_TLS_KEY_PATH, "utf8"),
+      cert: fs.readFileSync(CONTROL_TLS_CERT_PATH, "utf8"),
+    };
   }
 
   // selfsigned.generate may return the certificate synchronously or as a Promise (in newer versions).
@@ -127,6 +285,7 @@ async function getControlTlsOptions() {
 
   fs.writeFileSync(CONTROL_TLS_KEY_PATH, privateKey);
   fs.writeFileSync(CONTROL_TLS_CERT_PATH, certificate);
+  writeControlTlsHosts(hostValues);
 
   return { key: privateKey, cert: certificate };
 }
@@ -507,6 +666,7 @@ function getControlSettings() {
 
   const moderatorCredentials = getModeratorCredentialsList();
   const primaryModerator = moderatorCredentials[0] || { username: "", passwordHash: "" };
+  const networkSettings = getNetworkSettings();
 
   return {
     prioritizeViewerRequests: !!getSetting("prioritizeViewerRequests", true),
@@ -517,6 +677,10 @@ function getControlSettings() {
     moderatorPasswordConfigured: moderatorCredentials.some((entry) => !!entry.passwordHash),
     moderatorCredentials,
     instructionsMinutes: Number(getRuntimeInstructionsMinutes()),
+    host: networkSettings.host,
+    publicPort: networkSettings.publicPort,
+    controlPort: networkSettings.controlPort,
+    lanIPs: getLanIPv4Addresses(),
   };
 }
 
@@ -1913,6 +2077,25 @@ function createApi(app, options = {}) {
             ? Number(req.body.instructionsMinutes)
             : current.instructionsMinutes
           : current.instructionsMinutes,
+        // Network settings (bind host + ports). Invalid values silently keep the
+        // current setting, matching the other settings above. The servers are NOT
+        // restarted on change — the streamer triggers that from the panel.
+        host: Object.prototype.hasOwnProperty.call(req.body, "host")
+          ? (() => {
+              const value = String(req.body.host || "").trim();
+              return value === "0.0.0.0" || isValidIPv4(value) ? value : current.host;
+            })()
+          : current.host,
+        publicPort: Object.prototype.hasOwnProperty.call(req.body, "publicPort")
+          ? isValidPort(Number(req.body.publicPort))
+            ? Number(req.body.publicPort)
+            : current.publicPort
+          : current.publicPort,
+        controlPort: Object.prototype.hasOwnProperty.call(req.body, "controlPort")
+          ? isValidPort(Number(req.body.controlPort))
+            ? Number(req.body.controlPort)
+            : current.controlPort
+          : current.controlPort,
       };
 
       const validModeratorCredentials = settings.moderatorCredentials.filter(
@@ -1931,6 +2114,9 @@ function createApi(app, options = {}) {
       setSetting("moderatorUsername", settings.moderatorUsername);
       setSetting("moderatorCredentials", settings.moderatorCredentials);
       setSetting("instructionsMinutes", settings.instructionsMinutes);
+      setSetting("host", settings.host);
+      setSetting("publicPort", settings.publicPort);
+      setSetting("controlPort", settings.controlPort);
       if (validModeratorCredentials.length > 0) {
         const primaryMember = validModeratorCredentials[0];
         setSetting("moderatorUsername", primaryMember.username);
@@ -1959,6 +2145,43 @@ function createApi(app, options = {}) {
         if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
       } catch (e) {}
       res.json({ ok: true, ...settings });
+    });
+
+    // Restart the servers to apply the configured bind address and ports.
+    // When the control server's own port changes the response socket is closed
+    // as part of the restart and the browser sees a network error — the UI
+    // treats that the same as success (it then waits and redirects to the new
+    // address/port). When a restart fails the old servers keep running, so the
+    // error response is still deliverable.
+    app.post("/api/control/restart", async (_req, res) => {
+      if (!SHOULD_START_APP) {
+        return res.status(503).json({
+          ok: false,
+          error: "Server restart is not available in this environment.",
+        });
+      }
+      const result = await performRestart();
+      // The original connection may already be gone (its server was re-bound
+      // while we were restarting); sending then would only log a write error.
+      try {
+        if (res.writableEnded || (res.socket && res.socket.destroyed)) return;
+      } catch (e) {
+        return;
+      }
+      try {
+        if (result.ok) {
+          res.json({
+            ok: true,
+            alreadyRunning: !!result.alreadyRunning,
+            publicUrl: result.publicUrl,
+            controlUrl: result.controlUrl,
+          });
+        } else {
+          res.status(500).json({ ok: false, error: result.error });
+        }
+      } catch (e) {
+        /* connection already closed — nothing to do */
+      }
     });
 
     // --- Temp mod nomination endpoints ---
@@ -2451,22 +2674,225 @@ const controlApp = express();
 controlApp.use(express.static(path.join(__dirname, "control")));
 createApi(controlApp, { control: true });
 
+// --- HTTPS server lifecycle (startup + runtime restart) ---
+
+// Servers currently listening, tracked by role so a restart can decide which
+// ones can keep running and which have to be re-bound.
+const runningServers = [];
+
+function currentlyHeldPorts() {
+  return new Set(
+    runningServers
+      .map((entry) => {
+        const address = entry.server.address();
+        return typeof address === "object" && address ? address.port : null;
+      })
+      .filter((port) => Number.isInteger(port)),
+  );
+}
+
+function listenServer(server, port, host) {
+  return new Promise((resolve, reject) => {
+    const onError = (err) => {
+      cleanup();
+      reject(err);
+    };
+    const onListening = () => {
+      cleanup();
+      resolve();
+    };
+    const cleanup = () => {
+      server.removeListener("error", onError);
+      server.removeListener("listening", onListening);
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(port, host);
+  });
+}
+
+function stopHttpsServer(entry) {
+  return new Promise((resolve) => {
+    const server = entry.server;
+    if (!server || !server.listening) return resolve();
+    // Give long-lived connections (e.g. the overlay SSE stream) a short grace
+    // period, then drop them so server.close() can complete.
+    const forceTimer = setTimeout(() => {
+      if (typeof server.closeAllConnections === "function") server.closeAllConnections();
+    }, 1500);
+    server.close(() => {
+      clearTimeout(forceTimer);
+      resolve();
+    });
+  });
+}
+
+function restartFailureMessage(error, target) {
+  const code = error && error.code;
+  if (code === "EADDRINUSE") {
+    const port = error && error.port ? error.port : "the configured port";
+    return (
+      `Port ${port} is already in use by another program (EADDRINUSE). ` +
+      `Possible cause: another instance of this app — or any other service — is bound to that port. ` +
+      `How to fix: find the process with \`lsof -i :${port}\` (macOS/Linux) or ` +
+      `\`netstat -ano | findstr :${port}\` (Windows), stop it or pick a different port in the ` +
+      `Network section of the control panel, then press Restart Server again.`
+    );
+  }
+  if (code === "EACCES" || code === "EPERM") {
+    return (
+      "Binding was denied by the operating system (EACCES/EPERM). " +
+      "Ports below 1024 need administrator/root privileges on most systems. " +
+      "How to fix: choose a port 1024 or higher in the Network section of the control panel, " +
+      "or run the app with elevated privileges, then try again."
+    );
+  }
+  if (code === "EADDRNOTAVAIL") {
+    return (
+      `The address ${target && target.host ? target.host : ""} is not available on this machine (EADDRNOTAVAIL). ` +
+      "Possible causes: the network interface that owns it is down, the IP address was released " +
+      "(for example after a router lease change), or a VPN changed the network. " +
+      "How to fix: pick one of the other addresses listed in the Network section of the control " +
+      "panel, then press Restart Server again."
+    );
+  }
+  return error && error.message ? error.message : String(error);
+}
+
+function serverLabelUrl(host, port) {
+  const label = host === "0.0.0.0" ? "localhost" : host;
+  return `https://${label}:${port}`;
+}
+
+let restartInFlight = false;
+
+// Re-bind the servers to the configured address/ports. Servers that already
+// match the target keep running; the rest are re-created. The old servers are
+// only stopped once the new ones are up (except when a port is needed for the
+// new bind), so a failed restart leaves the old servers running and the
+// control panel usable.
+async function performRestart() {
+  if (restartInFlight) {
+    return {
+      ok: false,
+      error: "A restart is already in progress. Please wait for it to finish before trying again.",
+    };
+  }
+  restartInFlight = true;
+  try {
+    const target = getNetworkSettings();
+
+    const keep = [];
+    const replace = [];
+    for (const entry of runningServers) {
+      const address = entry.server.address();
+      const matchesTarget =
+        typeof address === "object" &&
+        address &&
+        (entry.role === "public"
+          ? address.address === target.host && address.port === target.publicPort
+          : address.address === target.host && address.port === target.controlPort);
+      (matchesTarget ? keep : replace).push(entry);
+    }
+    const neededRoles = ["public", "control"].filter(
+      (role) => !keep.some((entry) => entry.role === role),
+    );
+
+    if (neededRoles.length === 0) {
+      // Nothing to change: the servers already run on the configured address/ports.
+      return {
+        ok: true,
+        alreadyRunning: true,
+        publicUrl: serverLabelUrl(target.host, target.publicPort),
+        controlUrl: serverLabelUrl(target.host, target.controlPort),
+      };
+    }
+
+    const tlsOptions = await getControlTlsOptions({ host: target.host });
+
+    // Stop servers whose ports the new binds need.
+    const colliding = replace.filter((entry) => {
+      const address = entry.server.address();
+      return (
+        typeof address === "object" &&
+        address &&
+        (address.port === target.publicPort || address.port === target.controlPort)
+      );
+    });
+    await Promise.all(colliding.map(stopHttpsServer));
+
+    // Start the replacement servers. If any of them fail, tear down what was
+    // started and keep the surviving old servers running.
+    const started = [];
+    try {
+      for (const role of neededRoles) {
+        const port = role === "public" ? target.publicPort : target.controlPort;
+        const app = role === "public" ? publicApp : controlApp;
+        const server = https.createServer(tlsOptions, app);
+        await listenServer(server, port, target.host);
+        started.push({ role, server });
+      }
+    } catch (e) {
+      await Promise.all(started.map(stopHttpsServer));
+      const message = restartFailureMessage(e, target);
+      console.error("Failed to restart servers:");
+      console.error(message);
+      return { ok: false, error: message };
+    }
+
+    // New servers are up: stop the remaining old ones and swap the registry.
+    const remaining = replace.filter((entry) => !colliding.includes(entry));
+    await Promise.all(remaining.map(stopHttpsServer));
+    runningServers.length = 0;
+    runningServers.push(...keep, ...started);
+
+    const publicUrl = serverLabelUrl(target.host, target.publicPort);
+    const controlUrl = serverLabelUrl(target.host, target.controlPort);
+    console.log(`Public request site: ${publicUrl}`);
+    console.log(`Streamer control panel: ${controlUrl}`);
+    return { ok: true, publicUrl, controlUrl };
+  } finally {
+    restartInFlight = false;
+  }
+}
+
 // Create HTTPS servers for both public viewer site and streamer control panel.
 if (SHOULD_START_APP) {
   (async () => {
+    const target = getNetworkSettings();
     try {
-      const tlsOptions = await getControlTlsOptions();
-      https.createServer(tlsOptions, publicApp).listen(PORT, HOST, () => {
-        const hostLabel = HOST === "0.0.0.0" ? "localhost" : HOST;
-        console.log(`Public request site: https://${hostLabel}:${PORT}`);
-      });
-      https.createServer(tlsOptions, controlApp).listen(CONTROL_PORT, CONTROL_HOST, () => {
-        const hostLabel = CONTROL_HOST === "0.0.0.0" ? "localhost" : CONTROL_HOST;
-        console.log(`Streamer control panel: https://${hostLabel}:${CONTROL_PORT}`);
-      });
+      // Startup check: if either configured port is already taken, log a
+      // helpful message and quit gracefully instead of crashing with EADDRINUSE.
+      const problem = await checkPortsAvailable(target);
+      if (problem) {
+        console.error("====================================================================");
+        console.error(`ERROR: Cannot start the servers: ${networkProblemMessage(problem)}`);
+        console.error(
+          "The app is exiting. Free up the port (or change the address/ports in the streamer",
+        );
+        console.error("control panel → Network section on the next start) and try again.");
+        console.error("====================================================================");
+        process.exit(1);
+      }
+
+      const tlsOptions = await getControlTlsOptions({ host: target.host });
+      const publicServer = https.createServer(tlsOptions, publicApp);
+      await listenServer(publicServer, target.publicPort, target.host);
+      runningServers.push({ role: "public", server: publicServer });
+      const controlServer = https.createServer(tlsOptions, controlApp);
+      await listenServer(controlServer, target.controlPort, target.host);
+      runningServers.push({ role: "control", server: controlServer });
+
+      console.log(`Public request site: ${serverLabelUrl(target.host, target.publicPort)}`);
+      console.log(`Streamer control panel: ${serverLabelUrl(target.host, target.controlPort)}`);
     } catch (e) {
-      console.error("Failed to start HTTPS servers:", e);
-      process.exitCode = 1;
+      for (const entry of runningServers.slice()) {
+        await stopHttpsServer(entry).catch(() => {});
+      }
+      runningServers.length = 0;
+      console.error("Failed to start HTTPS servers:");
+      console.error(restartFailureMessage(e, target));
+      process.exit(1);
     }
   })();
 }
@@ -2474,6 +2900,16 @@ if (SHOULD_START_APP) {
 module.exports = {
   db,
   createApi,
+  getNetworkSettings,
+  isValidIPv4,
+  isValidPort,
+  getLanIPv4Addresses,
+  checkPortsAvailable,
+  networkProblemMessage,
+  currentlyHeldPorts,
+  performRestart,
+  stopHttpsServer,
+  getSetting,
   classifyWhisperReply,
   extractWhisperText,
   formatVisibleUsername,

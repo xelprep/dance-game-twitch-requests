@@ -158,6 +158,12 @@ button:hover {
   flex-wrap: wrap;
   margin-top: 4px;
 }
+#networkStatus {
+  min-height: 1em;
+}
+#networkStatus.error {
+  color: #ff8585;
+}
 .search-row {
   display: flex;
   gap: 8px;

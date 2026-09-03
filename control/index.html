@@ -241,6 +241,64 @@
         </section>
 
         <section class="panel">
+          <div class="section-head"><h2>Network</h2></div>
+          <div class="settings-form">
+            <div class="settings-field">
+              <label for="bindHost">Bind address</label>
+              <select id="bindHost">
+                <option value="0.0.0.0">0.0.0.0 — all interfaces (default)</option>
+                <option value="127.0.0.1">127.0.0.1 — this computer only</option>
+              </select>
+            </div>
+            <p class="small muted">
+              The IP address both HTTPS servers listen on.
+              <strong>0.0.0.0</strong>: other computers on your LAN can connect using this PC's
+              address (e.g. <code>https://192.168.1.50:3001</code>). <strong>127.0.0.1</strong>:
+              only this computer can connect. Picking a specific LAN IP restricts access to that one
+              address. Changing the address regenerates the self-signed certificate, so browsers
+              will show the trust warning again after a restart.
+            </p>
+
+            <div class="settings-field">
+              <label for="publicPort">Public site port</label>
+              <input
+                id="publicPort"
+                type="number"
+                min="1"
+                max="65535"
+                step="1"
+                placeholder="3000"
+              />
+            </div>
+            <div class="settings-field">
+              <label for="controlPort">Control panel port</label>
+              <input
+                id="controlPort"
+                type="number"
+                min="1"
+                max="65535"
+                step="1"
+                placeholder="3001"
+              />
+            </div>
+            <p class="small muted">
+              The two ports must be different and both must be free for the servers to start. Ports
+              below 1024 may require administrator privileges.
+            </p>
+
+            <div class="twitch-actions">
+              <button id="restartServer" type="button">Restart Server</button>
+            </div>
+            <div id="networkStatus" class="muted"></div>
+            <p class="small muted">
+              Network changes are saved immediately but only take effect after you press
+              <strong>Restart Server</strong>. After a successful restart this page will
+              automatically open the control panel at its new address and port.
+            </p>
+          </div>
+        </section>
+
+        <section class="panel">
           <div class="section-head"><h2>Twitch</h2></div>
           <div class="twitch-form">
             <p class="muted">

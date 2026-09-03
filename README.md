@@ -41,33 +41,39 @@ A small local application that:
 
 ## Ports
 
-Viewer site:
+By default the app listens on `0.0.0.0` (all interfaces) with these ports:
 
-```text
-https://localhost:3000
-```
+| Site                   | Default URL              | Default port |
+| ---------------------- | ------------------------ | ------------ |
+| Viewer site            | `https://localhost:3000` | 3000         |
+| Streamer control panel | `https://localhost:3001` | 3001         |
 
 Browser source:
 
 Also hosted on port 3000 is the request queue browser source. Using the above viewer site URL as an example, you can add the following to OBS as a browser source: `https://localhost:3000/overlay.html` and have a live-updating request queue visible on stream.
 
-Streamer control panel:
-
-```text
-https://localhost:3001
-```
-
 Both sites use a locally generated self-signed certificate, so browsers will show an HTTPS warning the first time you connect. This is expected for private/LAN setups.
 
-Both servers listen on `0.0.0.0` by default, so another computer on your LAN can connect using the streaming PC's LAN IP.
-
-Example:
+Because the default bind address is `0.0.0.0`, another computer on your LAN can connect using the streaming PC's LAN IP:
 
 ```text
 https://192.168.1.50:3001
 ```
 
 Do not expose port 3001 to the public Internet. It is intended for your LAN.
+
+### Changing the bind address and ports (runtime)
+
+The bind address and both ports are **runtime settings** — they are not read from `.env` (the old `PORT` / `CONTROL_PORT` / `HOST` / `CONTROL_HOST` environment variables are no longer used, except a legacy `HOST` / `CONTROL_HOST` is still accepted as a one-time startup default fallback).
+
+To change them:
+
+1. Open the streamer control panel → **Configuration** → **Network**.
+2. Choose the **bind address**: `0.0.0.0` (all interfaces / reachable from your LAN), `127.0.0.1` (local machine only), or any of the LAN IP addresses detected on this machine.
+3. Set the **public** and **control** ports (defaults 3000 / 3001).
+4. Saving the settings does **not** restart the servers. Press **Restart Server** when you want the new address/ports to take effect. After a successful restart the control page automatically redirects to the new address/port (using `localhost` when `0.0.0.0` is selected).
+
+At startup the app checks that the configured ports are available; if either is already in use it logs a clear message (including how to find the process holding the port) and exits instead of crashing. If a runtime restart fails, the specific error and likely causes/fixes (port in use, ports below 1024, unavailable address) are logged.
 
 ## Streamer control panel features
 
