@@ -5,8 +5,12 @@ process.env.CONTROL_PASSWORD = "test-control-password";
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+const path = require("node:path");
+
 const {
   db,
+  DB_PATH,
+  resolveDatabasePath,
   hashModeratorPassword,
   verifyModeratorPassword,
   verifyStreamerAuth,
@@ -61,4 +65,44 @@ test("startup smoke check: the app can initialize a minimal settings table witho
   const rowCount = db.prepare("SELECT COUNT(*) AS n FROM settings").get().n;
   assert.equal(typeof rowCount, "number");
   assert.equal(rowCount >= 0, true);
+});
+
+test("test environment uses a temporary in-memory database and avoids dev db", () => {
+  assert.equal(DB_PATH, ":memory:");
+  assert.equal(db.name, ":memory:");
+});
+
+test("resolveDatabasePath properly prioritizes test mode and custom environment variables", () => {
+  const defaultDevPath = path.resolve("./data/songs.db");
+
+  // In production/normal mode:
+  assert.equal(resolveDatabasePath({ NODE_ENV: "production" }), defaultDevPath);
+  assert.equal(
+    resolveDatabasePath({ NODE_ENV: "production", DATABASE_PATH: "/custom/dev.db" }),
+    "/custom/dev.db",
+  );
+  assert.equal(
+    resolveDatabasePath({ NODE_ENV: "production", DB_PATH: "/custom/alt-dev.db" }),
+    "/custom/alt-dev.db",
+  );
+
+  // In test mode: defaults to :memory: even if DATABASE_PATH is present in .env
+  assert.equal(
+    resolveDatabasePath({ NODE_ENV: "test", DATABASE_PATH: defaultDevPath }),
+    ":memory:",
+  );
+  assert.equal(
+    resolveDatabasePath({ SKIP_APP_STARTUP: "1", DATABASE_PATH: defaultDevPath }),
+    ":memory:",
+  );
+
+  // In test mode: can still be overridden by TEST_DATABASE_PATH or TEST_DB_PATH
+  assert.equal(
+    resolveDatabasePath({ NODE_ENV: "test", TEST_DATABASE_PATH: "/tmp/test.db" }),
+    "/tmp/test.db",
+  );
+  assert.equal(
+    resolveDatabasePath({ NODE_ENV: "test", TEST_DB_PATH: "/tmp/alt-test.db" }),
+    "/tmp/alt-test.db",
+  );
 });

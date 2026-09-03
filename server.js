@@ -289,7 +289,30 @@ async function getControlTlsOptions({ host } = {}) {
 
   return { key: privateKey, cert: certificate };
 }
-const db = new Database(path.resolve("./data/songs.db"));
+const isTestMode =
+  process.env.NODE_ENV === "test" ||
+  process.env.SKIP_APP_STARTUP === "1" ||
+  Boolean(process.env.NODE_TEST_CONTEXT) ||
+  (Array.isArray(process.execArgv) && process.execArgv.includes("--test"));
+
+function resolveDatabasePath(env = process.env) {
+  const isTest =
+    env.NODE_ENV === "test" ||
+    env.SKIP_APP_STARTUP === "1" ||
+    Boolean(env.NODE_TEST_CONTEXT) ||
+    (Array.isArray(process.execArgv) && process.execArgv.includes("--test"));
+
+  if (isTest) {
+    return env.TEST_DATABASE_PATH || env.TEST_DB_PATH || ":memory:";
+  }
+  return env.DATABASE_PATH || env.DB_PATH || path.resolve("./data/songs.db");
+}
+
+const DB_PATH = resolveDatabasePath();
+if (DB_PATH !== ":memory:") {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+}
+const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
@@ -2899,6 +2922,8 @@ if (SHOULD_START_APP) {
 
 module.exports = {
   db,
+  DB_PATH,
+  resolveDatabasePath,
   createApi,
   getNetworkSettings,
   isValidIPv4,
