@@ -311,6 +311,7 @@ async function render() {
         const moderatorEnabled = $("moderatorEnabled");
         if (moderatorEnabled) moderatorEnabled.checked = !!(settings && settings.moderatorEnabled);
         renderModeratorCredentials(settings);
+        renderNetworkSettings(settings);
       }
 
       const allowChat = !!(chatRequestsEnabled && chatRequestsEnabled.checked);
@@ -320,6 +321,52 @@ async function render() {
     }
   } catch (e) {
     toast(e.message);
+  }
+}
+
+function describeBindHost(value) {
+  if (value === "0.0.0.0") return "0.0.0.0 — all interfaces (default)";
+  if (value === "127.0.0.1") return "127.0.0.1 — this computer only";
+  return `${value} — this computer (LAN address)`;
+}
+
+function renderNetworkSettings(settings) {
+  try {
+    const bindHostEl = $("bindHost");
+    if (!bindHostEl || !settings) return;
+    const desiredHost =
+      typeof settings.host === "string" && settings.host ? settings.host : "0.0.0.0";
+    const options = ["0.0.0.0", "127.0.0.1"];
+    for (const ip of Array.isArray(settings.lanIPs) ? settings.lanIPs : []) {
+      if (ip && !options.includes(ip)) options.push(ip);
+    }
+    if (!options.includes(desiredHost)) options.push(desiredHost);
+    const currentValues = Array.from(bindHostEl.options).map((o) => o.value);
+    const needsRebuild =
+      currentValues.length !== options.length || currentValues.some((v, i) => v !== options[i]);
+    if (needsRebuild) {
+      bindHostEl.textContent = "";
+      for (const value of options) {
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = describeBindHost(value);
+        bindHostEl.appendChild(opt);
+      }
+    }
+    if (bindHostEl.value !== desiredHost) bindHostEl.value = desiredHost;
+
+    const publicPortEl = $("publicPort");
+    if (publicPortEl && document.activeElement !== publicPortEl) {
+      const port = Number(settings.publicPort);
+      publicPortEl.value = Number.isFinite(port) && port > 0 ? port : 3000;
+    }
+    const controlPortEl = $("controlPort");
+    if (controlPortEl && document.activeElement !== controlPortEl) {
+      const port = Number(settings.controlPort);
+      controlPortEl.value = Number.isFinite(port) && port > 0 ? port : 3001;
+    }
+  } catch (e) {
+    /* ignore */
   }
 }
 
@@ -554,6 +601,132 @@ if (chatRequestsRequireRoleEl) {
   chatRequestsRequireRoleEl.addEventListener("change", () =>
     saveControlSettings({ chatRequestsRequireRole: chatRequestsRequireRoleEl.value }),
   );
+}
+
+// --- Network settings (bind address + ports) ---
+
+function setNetworkStatus(message, isError) {
+  const el = $("networkStatus");
+  if (!el) return;
+  el.textContent = message || "";
+  el.classList.toggle("error", !!isError);
+}
+
+function clearNetworkStatus() {
+  setNetworkStatus("");
+}
+
+const bindHostEl = $("bindHost");
+if (bindHostEl) {
+  bindHostEl.addEventListener("change", () => {
+    clearNetworkStatus();
+    saveControlSettings({ host: bindHostEl.value });
+  });
+}
+
+const publicPortEl = $("publicPort");
+const controlPortEl = $("controlPort");
+
+function validateNetworkPort(el, label, otherEl) {
+  const value = Number(el.value);
+  if (!Number.isInteger(value) || value < 1 || value > 65535) {
+    toast(`${label} must be a whole number between 1 and 65535.`);
+    render();
+    return null;
+  }
+  if (otherEl && Number(otherEl.value) === value) {
+    toast("The public and control ports must be different.");
+    render();
+    return null;
+  }
+  return value;
+}
+
+if (publicPortEl) {
+  publicPortEl.addEventListener("change", () => {
+    const value = validateNetworkPort(publicPortEl, "Public port", controlPortEl);
+    if (value === null) return;
+    clearNetworkStatus();
+    saveControlSettings({ publicPort: value });
+  });
+}
+
+if (controlPortEl) {
+  controlPortEl.addEventListener("change", () => {
+    const value = validateNetworkPort(controlPortEl, "Control port", publicPortEl);
+    if (value === null) return;
+    clearNetworkStatus();
+    saveControlSettings({ controlPort: value });
+  });
+}
+
+const restartServerEl = $("restartServer");
+if (restartServerEl) {
+  restartServerEl.addEventListener("click", startServerRestart);
+}
+
+function startServerRestart() {
+  if (!restartServerEl || restartServerEl.disabled) return;
+  // The inputs mirror the saved settings (render keeps them in sync), so the
+  // redirect target is computed up front — the server may be unreachable for a
+  // few seconds while it re-binds.
+  const host = bindHostEl && bindHostEl.value ? bindHostEl.value : "0.0.0.0";
+  const port =
+    controlPortEl && Number.isFinite(Number(controlPortEl.value))
+      ? Number(controlPortEl.value)
+      : 3001;
+  const label = host === "0.0.0.0" ? "localhost" : host;
+  const target = `https://${label}:${port}`;
+
+  restartServerEl.disabled = true;
+  setNetworkStatus("Restarting servers…");
+
+  (async () => {
+    let result = null;
+    try {
+      // Raw fetch (not api()): the server answers before it re-binds, and if
+      // the control port changed this request may die mid-response — which
+      // still counts as a successful restart.
+      const res = await fetch("/api/control/restart", { method: "POST" });
+      let body = null;
+      try {
+        body = await res.json();
+      } catch (e) {
+        body = null;
+      }
+      if (res.ok && (!body || body.ok !== false)) {
+        result = body || {};
+      } else {
+        setNetworkStatus(
+          (body && body.error) || "Restart failed. Check the server logs for details.",
+          true,
+        );
+        restartServerEl.disabled = false;
+        return;
+      }
+    } catch (e) {
+      result = {}; // socket closed by the restart — assume it is coming back.
+    }
+
+    if (result.alreadyRunning) {
+      setNetworkStatus(`Servers already run on ${result.controlUrl || target}.`);
+      restartServerEl.disabled = false;
+      return;
+    }
+
+    const openAt = result.controlUrl || target;
+    let delay = 5;
+    setNetworkStatus(`Restarting… opening ${openAt} in ${delay}s`);
+    const timer = setInterval(() => {
+      delay -= 1;
+      if (delay <= 0) {
+        clearInterval(timer);
+        window.location.href = openAt;
+        return;
+      }
+      setNetworkStatus(`Restarting… opening ${openAt} in ${delay}s`);
+    }, 1000);
+  })();
 }
 
 const instructionsMinutesEl = $("twitchInstructionsMinutes");
