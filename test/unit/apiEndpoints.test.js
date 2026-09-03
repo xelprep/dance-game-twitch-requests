@@ -135,7 +135,10 @@ test("announceTempModNomination sends a chat reminder with the username and dura
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].channel, "testchannel");
-  assert.match(calls[0].message, /^!\s*@Alice, you have been nominated to moderate the request queue for 12 minutes/i);
+  assert.match(
+    calls[0].message,
+    /^!\s*@Alice, you have been nominated to moderate the request queue for 12 minutes/i,
+  );
   assert.match(calls[0].message, /please check your Twitch whispers for details/i);
 });
 
