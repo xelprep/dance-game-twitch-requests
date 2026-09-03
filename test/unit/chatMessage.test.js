@@ -61,7 +61,7 @@ test("regular user can make a chat request with !requestid without ReferenceErro
 
   assert.equal(sent.length, 1);
   assert.ok(
-    sent[0].message.includes("@AliceDancer, added \"Chat Song\" to the request queue!"),
+    sent[0].message.includes('@AliceDancer, added "Chat Song" to the request queue!'),
     `Unexpected message: ${sent[0].message}`,
   );
 
@@ -85,7 +85,7 @@ test("bot user (self=true) can make a chat request without ReferenceError and is
 
   assert.equal(sent.length, 1);
   assert.ok(
-    sent[0].message.includes("@BotAccount, added \"Chat Song\" to the request queue!"),
+    sent[0].message.includes('@BotAccount, added "Chat Song" to the request queue!'),
     `Unexpected message: ${sent[0].message}`,
   );
 
