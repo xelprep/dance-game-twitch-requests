@@ -147,6 +147,9 @@ body {
   width: max-content;
   min-width: 0;
 }
+#message .queue-stack > :last-child {
+  padding-right: 16px;
+}
 #message .queue-entry {
   display: flex;
   align-items: stretch;
@@ -160,6 +163,7 @@ body {
   max-width: none;
   display: flex;
   align-items: stretch;
+  padding-right: 16px;
 }
 #message .queue-lines {
   display: flex;
@@ -190,7 +194,8 @@ body {
   max-width: 100%;
 }
 #message .queue-line-requester {
-  max-width: 100%;
+  max-width: none;
+  overflow: visible;
   text-overflow: clip;
 }
 #message .queue-line-more {
@@ -198,6 +203,7 @@ body {
   white-space: nowrap;
   overflow: visible;
   text-overflow: clip;
+  padding-right: 16px;
 }
 #message .queue-divider {
   width: 4px;
