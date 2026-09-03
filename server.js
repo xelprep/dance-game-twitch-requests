@@ -2929,6 +2929,8 @@ module.exports = {
   applySecureModeDefaults,
   announceTempModNomination,
   scanSongs,
+  handleChatMessage,
+  getOnlineUsers,
 };
 
 // Twitch connection and OAuth helper support.
@@ -3558,6 +3560,130 @@ async function stopEventSubClient() {
   }
 }
 
+async function handleChatMessage(client, cfg, _channel, tags, message, self) {
+  const display = (tags && (tags["display-name"] || tags.username)) || "";
+
+  // Track real chatters for temp mod nomination. Skip the bot's own messages
+  // (self): the bot logs in as the channel account, so including self would list
+  // the bot itself and a nomination would resolve to a self-whisper (Helix 400).
+  if (self) {
+    if (!message.startsWith(PREFIX)) return;
+  } else {
+    if (tags && tags.username) {
+      updateChatUser(tags.username, display);
+    }
+  }
+
+  if (!message.startsWith(PREFIX)) return;
+  const body = message.slice(PREFIX.length).trim();
+  const space = body.indexOf(" ");
+  const command = (space === -1 ? body : body.slice(0, space)).toLowerCase();
+  const arg = space === -1 ? "" : body.slice(space + 1).trim();
+
+  if (command === "help") {
+    await postHelpMessage(client, cfg.channel);
+    return;
+  }
+
+  // Support requesting by numeric ID: !requestid <id>
+  if (command === REQUEST_ID_COMMAND) {
+    if (!arg) {
+      await sendChatMessage(
+        client,
+        cfg.channel,
+        `@${display}, usage: ${PREFIX}${REQUEST_ID_COMMAND} <song id>`,
+      );
+      return;
+    }
+    const id = Number(arg);
+    if (!Number.isInteger(id)) {
+      await sendChatMessage(client, cfg.channel, `@${display}, "${arg}" is not a valid song id.`);
+      return;
+    }
+
+    const username = tags && tags.username;
+    const chatPermission = await getChatRequestPermission(username, tags);
+    if (!chatPermission.allowed) {
+      await sendChatMessage(client, cfg.channel, `@${display}, ${chatPermission.reason}`);
+      return;
+    }
+
+    if (!canRequest(username)) {
+      await sendChatMessage(
+        client,
+        cfg.channel,
+        `@${display}, you already have the maximum number of active requests.`,
+      );
+      return;
+    }
+    try {
+      // Mark this as a chat-made viewer request so prioritization logic can apply.
+      const r = addRequest(id, username, display, { prioritizeViewerInsertion: true });
+      await sendChatMessage(
+        client,
+        cfg.channel,
+        `@${display}, added "${r.song.title}" to the request queue!`,
+        { skipPrefix: true },
+      );
+    } catch (e) {
+      await sendChatMessage(client, cfg.channel, `@${display}, ${e.message}`);
+    }
+    return;
+  }
+
+  // Add a !queue command that lists up to 5 songs from the top of the request queue.
+  if (command === "queue") {
+    const queued = getQueue(5);
+    if (!queued || !queued.length) {
+      await sendChatMessage(
+        client,
+        cfg.channel,
+        `@${display}, the request queue is currently empty.`,
+      );
+      return;
+    }
+    const top = queued.slice(0, 5);
+    const reply = top
+      .map(
+        (req) =>
+          `ID:${req.song_id} Title:${req.title} Artist:${req.artist || ""} Pack:${req.pack || ""}`,
+      )
+      .join(" | ");
+    await sendChatMessage(client, cfg.channel, `@${display}, ${reply}`);
+    return;
+  }
+
+  if (command !== SEARCH_COMMAND) return;
+  if (!arg) {
+    await sendChatMessage(
+      client,
+      cfg.channel,
+      `@${display}, usage: ${PREFIX}${SEARCH_COMMAND} <song title>`,
+    );
+    return;
+  }
+  // Perform the search and present results (do not auto-request on unique match).
+  const matches = getSongSearchRows(100, arg);
+
+  if (!matches.length) {
+    await sendChatMessage(client, cfg.channel, `@${display}, no song matched "${arg}".`);
+    return;
+  }
+
+  // Present the top 5 matches in the requested compact format.
+  const top = matches.slice(0, 5);
+  const reply = top
+    .map(
+      (song) =>
+        `ID:${song.id} Title:${song.title} Artist:${song.artist || ""} Pack:${song.pack || ""}`,
+    )
+    .join(" | ");
+
+  await sendChatMessage(client, cfg.channel, `@${display}, ${reply}`, {
+    maxLength: TWITCH_MAX_MESSAGE_LENGTH,
+  });
+}
+
 async function startTmiClient(cfg) {
   if (!cfg || !cfg.accessToken || !cfg.channel) {
     console.warn("Twitch client not started: missing config.");
@@ -3616,123 +3742,11 @@ async function startTmiClient(cfg) {
   }
 
   client.on("message", async (_channel, tags, message, self) => {
-    // Track real chatters for temp mod nomination. Skip the bot's own messages
-    // (self): the bot logs in as the channel account, so including self would list
-    // the bot itself and a nomination would resolve to a self-whisper (Helix 400).
-    if (self) {
-      if (!message.startsWith(PREFIX)) return;
-    } else {
-      const display = tags["display-name"] || tags.username;
-      updateChatUser(tags.username, display);
+    try {
+      await handleChatMessage(client, cfg, _channel, tags, message, self);
+    } catch (err) {
+      console.error("Failed to handle chat message:", err && err.message ? err.message : err);
     }
-
-    if (!message.startsWith(PREFIX)) return;
-    const body = message.slice(PREFIX.length).trim();
-    const space = body.indexOf(" ");
-    const command = (space === -1 ? body : body.slice(0, space)).toLowerCase();
-    const arg = space === -1 ? "" : body.slice(space + 1).trim();
-
-    if (command === "help") {
-      await postHelpMessage(client, cfg.channel);
-      return;
-    }
-
-    // Support requesting by numeric ID: !requestid <id>
-    if (command === REQUEST_ID_COMMAND) {
-      if (!arg) {
-        await sendChatMessage(
-          client,
-          cfg.channel,
-          `@${display}, usage: ${PREFIX}${REQUEST_ID_COMMAND} <song id>`,
-        );
-        return;
-      }
-      const id = Number(arg);
-      if (!Number.isInteger(id)) {
-        await sendChatMessage(client, cfg.channel, `@${display}, "${arg}" is not a valid song id.`);
-        return;
-      }
-
-      const chatPermission = await getChatRequestPermission(tags.username, tags);
-      if (!chatPermission.allowed) {
-        await sendChatMessage(client, cfg.channel, `@${display}, ${chatPermission.reason}`);
-        return;
-      }
-
-      if (!canRequest(tags.username)) {
-        await sendChatMessage(
-          client,
-          cfg.channel,
-          `@${display}, you already have the maximum number of active requests.`,
-        );
-        return;
-      }
-      try {
-        // Mark this as a chat-made viewer request so prioritization logic can apply.
-        const r = addRequest(id, tags.username, display, { prioritizeViewerInsertion: true });
-        await sendChatMessage(
-          client,
-          cfg.channel,
-          `@${display}, added "${r.song.title}" to the request queue!`,
-          { skipPrefix: true },
-        );
-      } catch (e) {
-        await sendChatMessage(client, cfg.channel, `@${display}, ${e.message}`);
-      }
-      return;
-    }
-
-    // Add a !queue command that lists up to 5 songs from the top of the request queue.
-    if (command === "queue") {
-      const queued = getQueue(5);
-      if (!queued || !queued.length) {
-        await sendChatMessage(
-          client,
-          cfg.channel,
-          `@${display}, the request queue is currently empty.`,
-        );
-        return;
-      }
-      const top = queued.slice(0, 5);
-      const reply = top
-        .map(
-          (req) =>
-            `ID:${req.song_id} Title:${req.title} Artist:${req.artist || ""} Pack:${req.pack || ""}`,
-        )
-        .join(" | ");
-      await sendChatMessage(client, cfg.channel, `@${display}, ${reply}`);
-      return;
-    }
-
-    if (command !== SEARCH_COMMAND) return;
-    if (!arg) {
-      await sendChatMessage(
-        client,
-        cfg.channel,
-        `@${display}, usage: ${PREFIX}${SEARCH_COMMAND} <song title>`,
-      );
-      return;
-    }
-    // Perform the search and present results (do not auto-request on unique match).
-    const matches = getSongSearchRows(100, arg);
-
-    if (!matches.length) {
-      await sendChatMessage(client, cfg.channel, `@${display}, no song matched "${arg}".`);
-      return;
-    }
-
-    // Present the top 5 matches in the requested compact format.
-    const top = matches.slice(0, 5);
-    const reply = top
-      .map(
-        (song) =>
-          `ID:${song.id} Title:${song.title} Artist:${song.artist || ""} Pack:${song.pack || ""}`,
-      )
-      .join(" | ");
-
-    await sendChatMessage(client, cfg.channel, `@${display}, ${reply}`, {
-      maxLength: TWITCH_MAX_MESSAGE_LENGTH,
-    });
   });
 
   // Incoming temp-mod nomination replies are handled exclusively through the
