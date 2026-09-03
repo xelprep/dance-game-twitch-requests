@@ -91,10 +91,43 @@ function formatQueue(queue) {
   `;
 }
 
+function fitQueueEntries() {
+  const entries = document.querySelectorAll("#message .queue-entry:not(.queue-entry--more)");
+  entries.forEach((entry) => {
+    const linesEl = entry.querySelector(".queue-lines");
+    const requesterEl = entry.querySelector(".queue-line-requester");
+    if (!linesEl || !requesterEl) return;
+
+    linesEl.style.width = "auto";
+    linesEl.style.minWidth = "0px";
+    linesEl.style.maxWidth = "none";
+    requesterEl.style.width = "max-content";
+    requesterEl.style.maxWidth = "none";
+
+    let width = 0;
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(requesterEl);
+      width = Math.ceil(range.getBoundingClientRect().width);
+    } catch (e) {
+      width = Math.ceil(requesterEl.scrollWidth);
+    }
+
+    if (width > 0) {
+      linesEl.style.width = `${width}px`;
+      linesEl.style.minWidth = `${width}px`;
+      linesEl.style.maxWidth = `${width}px`;
+    }
+    requesterEl.style.width = "";
+    requesterEl.style.maxWidth = "";
+  });
+}
+
 function updateQueue(queue) {
   const msgEl = $("message");
   const msg = formatQueue(queue);
   msgEl.innerHTML = msg;
+  fitQueueEntries();
   msgEl.classList.remove("queue-animate");
   void msgEl.offsetWidth;
   msgEl.classList.add("queue-animate");
@@ -205,4 +238,9 @@ pollTempModStatus();
 if (!startSSE()) {
   poll();
   setInterval(poll, 1000);
+}
+
+window.addEventListener("resize", fitQueueEntries);
+if (document.fonts && document.fonts.ready) {
+  document.fonts.ready.then(fitQueueEntries);
 }
