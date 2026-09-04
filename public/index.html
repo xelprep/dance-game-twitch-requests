@@ -94,7 +94,16 @@
           </label>
           <div class="pager">
             <button id="search-prev" type="button" disabled>Prev</button>
-            <span id="pageInfo">Page 1</span>
+            <span>Page</span>
+            <input
+              id="page-input"
+              class="page-input"
+              type="number"
+              min="1"
+              value="1"
+              aria-label="Current page number"
+            />
+            <span id="pageInfo">of 1</span>
             <button id="search-next" type="button" disabled>Next</button>
           </div>
         </div>
@@ -104,7 +113,16 @@
         <div id="results" class="results"></div>
         <div class="pager">
           <button id="search-prev-bottom" type="button" disabled>Prev</button>
-          <span id="pageInfo-bottom">Page 1</span>
+          <span>Page</span>
+          <input
+            id="page-input-bottom"
+            class="page-input"
+            type="number"
+            min="1"
+            value="1"
+            aria-label="Current page number"
+          />
+          <span id="pageInfo-bottom">of 1</span>
           <button id="search-next-bottom" type="button" disabled>Next</button>
         </div>
       </section>

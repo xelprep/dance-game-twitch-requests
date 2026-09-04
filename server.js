@@ -1946,7 +1946,7 @@ function createApi(app, options = {}) {
         `
       SELECT CAST(meter AS INTEGER) meter, COUNT(DISTINCT song_id) count FROM charts
       WHERE meter IS NOT NULL AND trim(meter) != ''
-      GROUP BY meter ORDER BY meter ASC
+      GROUP BY CAST(meter AS INTEGER) ORDER BY meter ASC
     `,
       )
       .all();

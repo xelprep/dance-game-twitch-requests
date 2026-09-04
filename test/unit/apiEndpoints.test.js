@@ -147,3 +147,38 @@ test("formatVisibleUsername prefers a chat user's chosen capitalization when pre
   assert.equal(formatVisibleUsername("willyj", "willyj"), "willyj");
   assert.equal(formatVisibleUsername("willyj", ""), "willyj");
 });
+
+test("song-filters meters dedupe leading-zero variants of the same meter", async () => {
+  resetSettings();
+  const titles = ["Zero Meter Song", "Plain Meter Song"];
+  const insertSong = (title, meter) => {
+    const song = db
+      .prepare("INSERT INTO songs (file_path, title, last_modified) VALUES (?, ?, 0)")
+      .run(`${title}.sm`, title);
+    db.prepare(
+      "INSERT INTO charts (song_id, chart_type, difficulty, meter) VALUES (?, 'dance-single', 'Easy', ?)",
+    ).run(song.lastInsertRowid, meter);
+  };
+  insertSong(titles[0], "06");
+  insertSong(titles[1], "6");
+
+  const server = await startPublicModeratorApp();
+  const port = server.address().port;
+
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/song-filters`, {
+      headers: { Accept: "application/json" },
+    });
+    assert.equal(res.status, 200);
+    const json = await res.json();
+    const meterEntries = json.meters.filter((entry) => entry.meter === 6);
+    assert.equal(meterEntries.length, 1);
+    assert.equal(meterEntries[0].count, 2);
+  } finally {
+    server.close();
+    db.prepare(
+      "DELETE FROM charts WHERE song_id IN (SELECT id FROM songs WHERE title IN (?, ?))",
+    ).run(...titles);
+    db.prepare("DELETE FROM songs WHERE title IN (?, ?)").run(...titles);
+  }
+});
