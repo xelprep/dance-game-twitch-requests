@@ -135,6 +135,7 @@ let searchTimer = null;
 let searchPage = 1;
 let searchTotalPages = 1;
 let searchRequestSeq = 0;
+let activeSongsKey = "";
 let moderatorDraftRows = [];
 
 function updateSearchPager() {
@@ -192,6 +193,8 @@ async function loadSongs(page = 1) {
   if (sort) params.set("sort", sort);
   if (order) params.set("order", order);
   if (q) params.set("q", q);
+  // Hide songs that are already queued or now playing.
+  params.set("excludeActive", "1");
 
   try {
     const res = await api(`/api/songs?${params.toString()}`);
@@ -252,6 +255,18 @@ async function render() {
     ]);
 
     $("stats").textContent = `${stats.songs.toLocaleString()} songs • ${stats.queued} queued`;
+
+    // Reload the song search when a song enters or leaves the queue / now playing,
+    // so cleared songs become pickable again without a manual refresh.
+    {
+      const ids = new Set(queue.map((r) => r.song_id));
+      if (now && now.song_id != null) ids.add(now.song_id);
+      const key = [...ids].sort((a, b) => a - b).join(",");
+      if (key !== activeSongsKey) {
+        activeSongsKey = key;
+        loadSongs(searchPage);
+      }
+    }
 
     $("now").innerHTML = now
       ? `
