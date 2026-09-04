@@ -58,7 +58,6 @@ test("moderator settings API rejects invalid auth and accepts valid moderator au
   setSetting("moderatorCredentials", [
     { username: "alice", passwordHash: hashModeratorPassword("hunter2") },
   ]);
-  setSetting("moderatorUsername", "alice");
 
   const server = await startPublicModeratorApp();
   const port = server.address().port;

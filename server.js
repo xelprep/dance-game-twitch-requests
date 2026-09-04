@@ -39,29 +39,14 @@ const PUBLIC_URL = (process.env.PUBLIC_URL || "").trim();
 const STREAMER_VANITY_NAME = String(process.env.STREAMER_VANITY_NAME || "Streamer").slice(0, 50);
 const DEFAULT_INSTRUCTIONS_MINUTES = 10;
 
-// Legacy env support: if a value is set in .env it acts as the startup default value.
-// The runtime value can be overridden via the control panel and stored in the settings DB.
-const _INSTRUCTIONS_MINUTES_RAW = Object.prototype.hasOwnProperty.call(
-  process.env,
-  "INSTRUCTIONS_MINUTES",
-)
-  ? process.env.INSTRUCTIONS_MINUTES
-  : undefined;
-
-function parseInstructionsMinutes(rawValue) {
-  if (typeof rawValue === "undefined") return DEFAULT_INSTRUCTIONS_MINUTES;
-  if (rawValue === "") return 0;
-  const value = Number(rawValue);
-  return Number.isFinite(value) ? value : DEFAULT_INSTRUCTIONS_MINUTES;
-}
-
+// Runtime instructions timer (minutes); managed from the control panel and stored in the settings DB.
 function getRuntimeInstructionsMinutes() {
   const saved = getSetting("instructionsMinutes", null);
   if (saved !== null && saved !== undefined && saved !== "") {
     const value = Number(saved);
     return Number.isFinite(value) && value >= 0 ? value : DEFAULT_INSTRUCTIONS_MINUTES;
   }
-  return parseInstructionsMinutes(_INSTRUCTIONS_MINUTES_RAW);
+  return DEFAULT_INSTRUCTIONS_MINUTES;
 }
 
 // --- Runtime network settings (bind host + public/control ports) ---
@@ -76,24 +61,11 @@ function isValidPort(value) {
   return Number.isInteger(value) && value >= 1 && value <= 65535;
 }
 
-// Legacy env support: HOST/CONTROL_HOST set in .env act as the startup default bind address.
-// The runtime value can be overridden via the control panel and stored in the settings DB.
-const _HOST_RAW = Object.prototype.hasOwnProperty.call(process.env, "HOST")
-  ? process.env.HOST
-  : Object.prototype.hasOwnProperty.call(process.env, "CONTROL_HOST")
-    ? process.env.CONTROL_HOST
-    : undefined;
-
-function parseBindHost(rawValue) {
-  if (typeof rawValue === "undefined" || rawValue === "") return DEFAULT_BIND_HOST;
-  const value = String(rawValue).trim();
-  return value === "0.0.0.0" || isValidIPv4(value) ? value : DEFAULT_BIND_HOST;
-}
-
+// Runtime bind address; managed from the control panel and stored in the settings DB.
 function getRuntimeHost() {
   const saved = getSetting("host", null);
   if (typeof saved === "string" && (saved === "0.0.0.0" || isValidIPv4(saved))) return saved;
-  return parseBindHost(_HOST_RAW);
+  return DEFAULT_BIND_HOST;
 }
 
 // Network interfaces of this machine that could be used to reach the app from the LAN.
@@ -380,7 +352,6 @@ function refreshDatabase() {
 // so startup cleanup can clear it unconditionally without hitting TDZ.
 let pendingNomination = null;
 let activeTempMod = null;
-let originalModeratorPasswordHash = null;
 
 const secureModeResult = applySecureModeDefaults(db, { secureMode: SECURE_MODE });
 if (secureModeResult.secureMode) {
@@ -393,7 +364,6 @@ if (secureModeResult.secureMode) {
 // temporary moderator state unconditionally so a fresh startup always starts
 // from a clean slate regardless of SECURE_MODE.
 activeTempMod = null;
-originalModeratorPasswordHash = null;
 pendingNomination = null;
 
 // Only scan songs on real startup, not during test mode
@@ -591,30 +561,14 @@ function setSetting(key, value) {
 
 function getModeratorCredentialsList() {
   const stored = getSetting("moderatorCredentials", null);
-  const legacyEntries = [];
-  const legacyUsername = String(getSetting("moderatorUsername", "")).trim();
-  const legacyPasswordHash = String(getSetting("moderatorPasswordHash", "")).trim();
-
-  if (Array.isArray(stored)) {
-    legacyEntries.push(...stored);
-  }
-  if (
-    legacyUsername &&
-    legacyPasswordHash &&
-    !legacyEntries.some(
-      (entry) => String(entry.username || "").toLowerCase() === legacyUsername.toLowerCase(),
-    )
-  ) {
-    legacyEntries.push({ username: legacyUsername, passwordHash: legacyPasswordHash });
-  }
 
   const unique = [];
   const seen = new Set();
 
-  for (const entry of legacyEntries) {
+  for (const entry of Array.isArray(stored) ? stored : []) {
     if (!entry || typeof entry !== "object") continue;
-    const username = String(entry.username || entry.user || "").trim();
-    const passwordHash = String(entry.passwordHash || entry.hash || "").trim();
+    const username = String(entry.username || "").trim();
+    const passwordHash = String(entry.passwordHash || "").trim();
     if (!username || !passwordHash) continue;
     const key = username.toLowerCase();
     if (seen.has(key)) continue;
@@ -622,71 +576,11 @@ function getModeratorCredentialsList() {
     unique.push({ username, passwordHash });
   }
 
-  if (unique.length > 0 && !Array.isArray(stored)) {
-    setSetting("moderatorCredentials", unique);
-  }
-
   return unique;
 }
 
-function persistModeratorCredentials(entries) {
-  const current = getModeratorCredentialsList();
-  const uniqueEntries = [];
-  const seen = new Set();
-
-  for (const entry of Array.isArray(entries) ? entries : []) {
-    if (!entry || typeof entry !== "object") continue;
-    const username = String(entry.username || "").trim();
-    if (!username) continue;
-    const key = username.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    const existing = current.find((item) => item.username.toLowerCase() === key);
-    const passwordHash = String(entry.password || "").trim()
-      ? hashModeratorPassword(String(entry.password || ""))
-      : existing && existing.passwordHash
-        ? existing.passwordHash
-        : "";
-
-    if (!passwordHash) continue;
-    uniqueEntries.push({ username, passwordHash });
-  }
-
-  setSetting("moderatorCredentials", uniqueEntries);
-  if (uniqueEntries.length === 1) {
-    setSetting("moderatorUsername", uniqueEntries[0].username);
-    setSetting("moderatorPasswordHash", uniqueEntries[0].passwordHash);
-  } else {
-    setSetting("moderatorUsername", "");
-    setSetting("moderatorPasswordHash", "");
-  }
-
-  return uniqueEntries;
-}
-
 function getControlSettings() {
-  // Migrate legacy boolean settings to the new single role setting
-  const legacyFollowers = getSetting("chatRequestsRequireFollowers", false);
-  const legacySubscribers = getSetting("chatRequestsRequireSubscribers", false);
-  const legacyModerators = getSetting("chatRequestsRequireModerators", false);
-  let role = getSetting("chatRequestsRequireRole", "");
-  if (!role && (legacyFollowers || legacySubscribers || legacyModerators)) {
-    // Migrate: highest priority wins
-    if (legacyFollowers) role = "follower";
-    else if (legacySubscribers) role = "subscriber";
-    else if (legacyModerators) role = "moderator";
-    // Persist the migrated value
-    setSetting("chatRequestsRequireRole", role);
-    // Clean up legacy keys
-    const db2 = db;
-    db2
-      .prepare(
-        "DELETE FROM settings WHERE key IN ('chatRequestsRequireFollowers','chatRequestsRequireSubscribers','chatRequestsRequireModerators')",
-      )
-      .run();
-  }
-
+  const role = getSetting("chatRequestsRequireRole", "");
   const moderatorCredentials = getModeratorCredentialsList();
   const primaryModerator = moderatorCredentials[0] || { username: "", passwordHash: "" };
   const networkSettings = getNetworkSettings();
@@ -824,8 +718,6 @@ function getModeratorCredentials() {
   const settings = getControlSettings();
   return {
     enabled: settings.moderatorEnabled,
-    username: settings.moderatorUsername,
-    passwordHash: String(getSetting("moderatorPasswordHash", "")),
     credentials: (Array.isArray(settings.moderatorCredentials) ? settings.moderatorCredentials : [])
       .map((entry) => ({
         username: String(entry && entry.username ? entry.username : "").trim(),
@@ -1620,11 +1512,6 @@ async function expireTempMod(options = {}) {
   const username = activeTempMod.username;
   activeTempMod = null;
 
-  // Restore the original moderator password to invalidate the temp mod's credentials
-  if (originalModeratorPasswordHash) {
-    setSetting("moderatorPasswordHash", originalModeratorPasswordHash);
-  }
-
   try {
     await sendChatMessage(
       twitchClient,
@@ -2134,21 +2021,12 @@ function createApi(app, options = {}) {
       setSetting("chatRequestsEnabled", settings.chatRequestsEnabled);
       setSetting("chatRequestsRequireRole", settings.chatRequestsRequireRole);
       setSetting("moderatorEnabled", settings.moderatorEnabled);
-      setSetting("moderatorUsername", settings.moderatorUsername);
       setSetting("moderatorCredentials", settings.moderatorCredentials);
       setSetting("instructionsMinutes", settings.instructionsMinutes);
       setSetting("host", settings.host);
       setSetting("publicPort", settings.publicPort);
       setSetting("controlPort", settings.controlPort);
-      if (validModeratorCredentials.length > 0) {
-        const primaryMember = validModeratorCredentials[0];
-        setSetting("moderatorUsername", primaryMember.username);
-        setSetting("moderatorPasswordHash", primaryMember.passwordHash);
-        settings.moderatorPasswordConfigured = true;
-      } else {
-        setSetting("moderatorPasswordHash", "");
-        settings.moderatorPasswordConfigured = false;
-      }
+      settings.moderatorPasswordConfigured = validModeratorCredentials.length > 0;
 
       if (current.instructionsMinutes !== settings.instructionsMinutes) {
         clearInstructionsTimer();
@@ -2945,7 +2823,6 @@ module.exports = {
   getStats,
   getControlSettings,
   getModeratorCredentialsList,
-  persistModeratorCredentials,
   setSetting,
   hashModeratorPassword,
   verifyModeratorPassword,
@@ -3274,9 +3151,6 @@ async function handleTempModWhisper(fromUsername, message) {
     const passwordHash = hashModeratorPassword(password);
     const expiresAt = Date.now() + wasPending.tempModTime * 60 * 1000;
 
-    // Store original password hash so we can restore it on expiration
-    originalModeratorPasswordHash = String(getSetting("moderatorPasswordHash", ""));
-
     // One-click single-sign-on token so the whisper link auto-authenticates on
     // both page load and API calls (no password prompt, phone-friendly).
     const ssoToken = createTempModeratorToken(wasPending.username, expiresAt);
@@ -3318,10 +3192,6 @@ async function handleTempModWhisper(fromUsername, message) {
       );
       // Rollback on failure
       activeTempMod = null;
-      if (originalModeratorPasswordHash) {
-        setSetting("moderatorPasswordHash", originalModeratorPasswordHash);
-        originalModeratorPasswordHash = null;
-      }
       return;
     }
 

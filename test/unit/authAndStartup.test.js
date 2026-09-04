@@ -15,7 +15,7 @@ const {
   verifyModeratorPassword,
   verifyStreamerAuth,
   getModeratorCredentialsList,
-  persistModeratorCredentials,
+  setSetting,
 } = require("../../server.js");
 
 function resetSettings() {
@@ -43,21 +43,23 @@ test("streamer auth accepts the expected basic auth credentials", () => {
   assert.equal(verifyStreamerAuth("", "test-control-password"), false);
 });
 
-test("persistModeratorCredentials stores moderator credentials and rehydrates them", () => {
+test("getModeratorCredentialsList rehydrates stored multi-moderator credentials and drops invalid entries", () => {
   resetSettings();
-  const entries = [
-    { username: "alice", password: "hunter2" },
-    { username: "bob", password: "hunter3" },
-  ];
+  setSetting("moderatorCredentials", [
+    { username: "alice", passwordHash: hashModeratorPassword("hunter2") },
+    { username: "bob", passwordHash: hashModeratorPassword("hunter3") },
+    { username: "alice", passwordHash: "duplicate-should-be-dropped" },
+    { username: "", passwordHash: "missing-username" },
+    { username: "missing-hash" },
+    "not-an-object",
+  ]);
 
-  const stored = persistModeratorCredentials(entries);
-  assert.equal(stored.length, 2);
-  assert.equal(getModeratorCredentialsList().length, 2);
-  assert.equal(getModeratorCredentialsList()[0].username, "alice");
-  assert.equal(
-    verifyModeratorPassword("hunter2", getModeratorCredentialsList()[0].passwordHash),
-    true,
-  );
+  const list = getModeratorCredentialsList();
+  assert.equal(list.length, 2);
+  assert.equal(list[0].username, "alice");
+  assert.equal(list[1].username, "bob");
+  assert.equal(verifyModeratorPassword("hunter2", list[0].passwordHash), true);
+  assert.equal(verifyModeratorPassword("hunter3", list[1].passwordHash), true);
 });
 
 test("startup smoke check: the app can initialize a minimal settings table without crashing", () => {

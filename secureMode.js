@@ -20,8 +20,6 @@ function applySecureModeDefaults(db, { secureMode = false } = {}) {
 
   const rows = [
     { key: "moderatorEnabled", value: false },
-    { key: "moderatorUsername", value: "" },
-    { key: "moderatorPasswordHash", value: null, remove: true },
     { key: "moderatorCredentials", value: [] },
   ];
 
@@ -29,15 +27,6 @@ function applySecureModeDefaults(db, { secureMode = false } = {}) {
 
   for (const row of rows) {
     const current = db.prepare("SELECT value FROM settings WHERE key = ?").get(row.key);
-
-    if (row.remove) {
-      if (current !== undefined) {
-        db.prepare("DELETE FROM settings WHERE key = ?").run(row.key);
-        changed = true;
-      }
-      continue;
-    }
-
     const expected = JSON.stringify(row.value);
     if (current === undefined) {
       db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)").run(row.key, expected);

@@ -64,7 +64,7 @@ Do not expose port 3001 to the public Internet. It is intended for your LAN.
 
 ### Changing the bind address and ports (runtime)
 
-The bind address and both ports are **runtime settings** — they are not read from `.env` (the old `PORT` / `CONTROL_PORT` / `HOST` / `CONTROL_HOST` environment variables are no longer used, except a legacy `HOST` / `CONTROL_HOST` is still accepted as a one-time startup default fallback).
+The bind address and both ports are **runtime settings** — they are not read from `.env` (the old `PORT` / `CONTROL_PORT` / `HOST` / `CONTROL_HOST` environment variables are no longer used).
 
 To change them:
 
@@ -114,7 +114,7 @@ Set this in `.env`:
 SECURE_MODE=true
 ```
 
-When enabled, the app starts with moderator access disabled and clears any previously stored permanent moderator username/password data before the app begins accepting requests. This includes the full list of configured permanent moderator accounts and any legacy single-account settings, so moderator access from a prior session cannot silently reappear after a restart unless the streamer explicitly reconfigures and enables moderator access again in the current session.
+When enabled, the app starts with moderator access disabled and clears the stored list of permanent moderator accounts before the app begins accepting requests, so moderator access from a prior session cannot silently reappear after a restart unless the streamer explicitly reconfigures and enables moderator access again in the current session.
 
 This is a startup reset, not a permanent runtime lock. If the streamer later creates one or more moderator credentials and enables the moderator feature in the same run, the feature works normally for that session. The next restart with `SECURE_MODE=true` will again reset the moderator state back to the default disabled state.
 
