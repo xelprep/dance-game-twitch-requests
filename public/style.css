@@ -194,6 +194,11 @@ input[type="checkbox"] {
 .pager span {
   color: #aeb4c0;
 }
+.pager .page-input {
+  width: 4.5em;
+  min-width: 0;
+  text-align: center;
+}
 .results {
   margin-top: 16px;
 }

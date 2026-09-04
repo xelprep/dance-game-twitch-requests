@@ -12,6 +12,14 @@ function decodeSMValue(raw) {
     .trim();
 }
 
+// Meters come through as raw strings; some charts write leading zeros
+// (e.g. "06"). Normalize numeric meters so "06" and "6" don't end up as
+// two distinct values in the database.
+function normalizeMeter(raw) {
+  const value = decodeSMValue(raw);
+  return /^-?\d+$/.test(value) ? String(Number(value)) : value;
+}
+
 function parseTags(text) {
   const tags = {};
   const re = /#([A-Z0-9_]+):([\s\S]*?);/gi;
@@ -34,7 +42,7 @@ function parseNotesBlocks(text) {
       const chart = {
         chartType: fields[0],
         difficulty: fields[2],
-        meter: fields[3],
+        meter: normalizeMeter(fields[3]),
         radar: fields[4],
       };
       if (chart.chartType === "dance-single" || chart.chartType === "dance-double") {
@@ -52,7 +60,7 @@ function parseNotesBlocks(text) {
       const chart = {
         chartType: tags.STEPSTYPE || "",
         difficulty: tags.DIFFICULTY || "",
-        meter: tags.METER || "",
+        meter: normalizeMeter(tags.METER || ""),
         radar: tags.RADARVALUES || "",
       };
       if (chart.chartType === "dance-single" || chart.chartType === "dance-double") {

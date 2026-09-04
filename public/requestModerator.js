@@ -109,6 +109,7 @@ function songCard(song) {
 let searchTimer = null;
 let searchPage = 1;
 let searchTotalPages = 1;
+let searchRequestSeq = 0;
 
 function updateSearchPager() {
   ["search-prev", "search-prev-bottom"].forEach((id) => {
@@ -121,11 +122,27 @@ function updateSearchPager() {
   });
   ["pageInfo", "pageInfo-bottom"].forEach((id) => {
     const el = $(id);
-    if (el) el.textContent = `Page ${searchPage} of ${searchTotalPages}`;
+    if (el) el.textContent = `of ${searchTotalPages}`;
+  });
+  ["page-input", "page-input-bottom"].forEach((id) => {
+    const el = $(id);
+    if (el && document.activeElement !== el) el.value = String(searchPage);
   });
 }
 
+function commitPageInput(source) {
+  const target = parseInt(source.value, 10);
+  if (Number.isNaN(target) || target < 1) {
+    source.value = String(searchPage);
+    return;
+  }
+  const page = Math.min(target, searchTotalPages);
+  source.value = String(page);
+  if (page !== searchPage) loadSongs(page);
+}
+
 async function loadSongs(page = 1) {
+  const seq = ++searchRequestSeq;
   const results = $("results");
   results.replaceChildren();
 
@@ -155,6 +172,7 @@ async function loadSongs(page = 1) {
 
   try {
     const res = await api(`/api/songs?${params.toString()}`);
+    if (seq !== searchRequestSeq) return;
     const songs = res.songs || [];
     const total = res.total || 0;
     searchPage = res.page || page;
@@ -169,6 +187,7 @@ async function loadSongs(page = 1) {
     songs.forEach((song) => results.appendChild(songCard(song)));
     updateSearchPager();
   } catch (e) {
+    if (seq !== searchRequestSeq) return;
     results.textContent = e.message;
     updateSearchPager();
   }
@@ -374,6 +393,15 @@ if (logoutButton) {
     el.onclick = () => {
       if (searchPage < searchTotalPages) loadSongs(searchPage + 1);
     };
+});
+
+["page-input", "page-input-bottom"].forEach((id) => {
+  const el = $(id);
+  if (!el) return;
+  el.onchange = () => commitPageInput(el);
+  el.onkeydown = (e) => {
+    if (e.key === "Enter") commitPageInput(el);
+  };
 });
 
 $("search").oninput = () => {

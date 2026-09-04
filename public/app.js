@@ -163,6 +163,7 @@ function escapeHTML(value) {
 let timer;
 let currentPage = 1;
 let totalPages = 1;
+let pageRequestSeq = 0;
 
 function getPerPage() {
   return Number($("per-page").value) || 25;
@@ -221,6 +222,14 @@ $("reset-search").addEventListener("click", () => {
     el.addEventListener("click", () => {
       if (currentPage < totalPages) loadSongs(currentPage + 1);
     });
+});
+["page-input", "page-input-bottom"].forEach((id) => {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener("change", () => commitPageInput(el));
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") commitPageInput(el);
+  });
 });
 
 $("refresh").addEventListener("click", queue);
@@ -294,6 +303,7 @@ async function getFilters() {
 }
 
 async function loadSongs(page = 1) {
+  const seq = ++pageRequestSeq;
   const results = $("results");
   results.replaceChildren();
 
@@ -323,6 +333,7 @@ async function loadSongs(page = 1) {
 
   try {
     const res = await getJSON(`/api/songs?${params.toString()}`);
+    if (seq !== pageRequestSeq) return;
     const songs = res.songs || [];
     const total = res.total || 0;
     currentPage = res.page || page;
@@ -337,6 +348,7 @@ async function loadSongs(page = 1) {
     songs.forEach((song) => results.appendChild(songCard(song)));
     updatePager();
   } catch (e) {
+    if (seq !== pageRequestSeq) return;
     results.textContent = e.message;
     updatePager();
   }
@@ -353,8 +365,23 @@ function updatePager() {
   });
   ["pageInfo", "pageInfo-bottom"].forEach((id) => {
     const el = $(id);
-    if (el) el.textContent = `Page ${currentPage} of ${totalPages}`;
+    if (el) el.textContent = `of ${totalPages}`;
   });
+  ["page-input", "page-input-bottom"].forEach((id) => {
+    const el = $(id);
+    if (el && document.activeElement !== el) el.value = String(currentPage);
+  });
+}
+
+function commitPageInput(source) {
+  const target = parseInt(source.value, 10);
+  if (Number.isNaN(target) || target < 1) {
+    source.value = String(currentPage);
+    return;
+  }
+  const page = Math.min(target, totalPages);
+  source.value = String(page);
+  if (page !== currentPage) loadSongs(page);
 }
 
 stats();

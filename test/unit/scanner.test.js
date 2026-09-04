@@ -168,3 +168,29 @@ test("scanSongs deletes stale songs and their related records", () => {
   const count = db.prepare("SELECT COUNT(*) AS n FROM songs").get().n;
   assert.equal(count, 0);
 });
+
+test("readSongFile normalizes leading-zero meters", () => {
+  const tmp = tempDir();
+
+  const smPath = path.join(tmp, "leading-zero.sm");
+  fs.writeFileSync(
+    smPath,
+    "#TITLE:Zero Meter Song;\n#NOTES:dance-single:1:Easy:06:1.000000:0.000000:0.000000;\n",
+    "utf8",
+  );
+
+  const smSong = readSongFile(smPath, "Test Pack");
+  assert.equal(smSong.charts.length, 1);
+  assert.equal(smSong.charts[0].meter, "6");
+
+  const sscPath = path.join(tmp, "leading-zero.ssc");
+  fs.writeFileSync(
+    sscPath,
+    "#TITLE:Zero Meter Song;\n#NOTEDATA:;\n#STEPSTYPE:dance-single;\n#DIFFICULTY:Easy;\n#METER:06;\n#RADARVALUES:1.0;\n",
+    "utf8",
+  );
+
+  const sscSong = readSongFile(sscPath, "Test Pack");
+  assert.equal(sscSong.charts.length, 1);
+  assert.equal(sscSong.charts[0].meter, "6");
+});

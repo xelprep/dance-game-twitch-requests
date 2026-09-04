@@ -134,6 +134,7 @@ async function getFilters() {
 let searchTimer = null;
 let searchPage = 1;
 let searchTotalPages = 1;
+let searchRequestSeq = 0;
 let moderatorDraftRows = [];
 
 function updateSearchPager() {
@@ -144,11 +145,27 @@ function updateSearchPager() {
     $(id).disabled = searchPage >= searchTotalPages;
   });
   ["pageInfo", "pageInfo-bottom"].forEach((id) => {
-    $(id).textContent = `Page ${searchPage} of ${searchTotalPages}`;
+    $(id).textContent = `of ${searchTotalPages}`;
+  });
+  ["page-input", "page-input-bottom"].forEach((id) => {
+    const input = $(id);
+    if (document.activeElement !== input) input.value = String(searchPage);
   });
 }
 
+function commitPageInput(source) {
+  const target = parseInt(source.value, 10);
+  if (Number.isNaN(target) || target < 1) {
+    source.value = String(searchPage);
+    return;
+  }
+  const page = Math.min(target, searchTotalPages);
+  source.value = String(page);
+  if (page !== searchPage) loadSongs(page);
+}
+
 async function loadSongs(page = 1) {
+  const seq = ++searchRequestSeq;
   const results = $("results");
   results.replaceChildren();
 
@@ -178,6 +195,7 @@ async function loadSongs(page = 1) {
 
   try {
     const res = await api(`/api/songs?${params.toString()}`);
+    if (seq !== searchRequestSeq) return;
     const songs = res.songs || [];
     const total = res.total || 0;
     searchPage = res.page || page;
@@ -192,6 +210,7 @@ async function loadSongs(page = 1) {
     songs.forEach((song) => results.appendChild(songCard(song)));
     updateSearchPager();
   } catch (e) {
+    if (seq !== searchRequestSeq) return;
     results.textContent = e.message;
     updateSearchPager();
   }
@@ -931,6 +950,14 @@ $("reset-search").addEventListener("click", () => {
 ["search-next", "search-next-bottom"].forEach((id) => {
   $(id).addEventListener("click", () => {
     if (searchPage < searchTotalPages) loadSongs(searchPage + 1);
+  });
+});
+["page-input", "page-input-bottom"].forEach((id) => {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener("change", () => commitPageInput(el));
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") commitPageInput(el);
   });
 });
 
