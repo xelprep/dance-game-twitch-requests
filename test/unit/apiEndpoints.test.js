@@ -181,3 +181,48 @@ test("song-filters meters dedupe leading-zero variants of the same meter", async
     db.prepare("DELETE FROM songs WHERE title IN (?, ?)").run(...titles);
   }
 });
+
+test("songs API hides queued and playing songs when excludeActive is set", async () => {
+  resetSettings();
+  const titles = ["Hide Queued Song", "Hide Playing Song", "Visible Song"];
+  const songIds = titles.map((title) =>
+    db
+      .prepare("INSERT INTO songs (file_path, title, last_modified) VALUES (?, ?, 0)")
+      .run(`${title}.sm`, title).lastInsertRowid,
+  );
+  const insertRequest = (songId, status) =>
+    db
+      .prepare(
+        "INSERT INTO requests (song_id, requested_by, requested_display, status, created_at) VALUES (?, 'tester', 'Tester', ?, 0)",
+      )
+      .run(songId, status);
+  insertRequest(songIds[0], "queued");
+  insertRequest(songIds[1], "playing");
+
+  const server = await startPublicModeratorApp();
+  const port = server.address().port;
+
+  try {
+    const all = await (
+      await fetch(`http://127.0.0.1:${port}/api/songs?perPage=100`, {
+        headers: { Accept: "application/json" },
+      })
+    ).json();
+    assert.ok(titles.every((title) => all.songs.some((song) => song.title === title)));
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/songs?perPage=100&excludeActive=1`, {
+      headers: { Accept: "application/json" },
+    });
+    assert.equal(res.status, 200);
+    const json = await res.json();
+    const visibleTitles = json.songs.map((song) => song.title);
+    assert.ok(!visibleTitles.includes(titles[0]));
+    assert.ok(!visibleTitles.includes(titles[1]));
+    assert.ok(visibleTitles.includes(titles[2]));
+    assert.equal(json.total, all.total - 2);
+  } finally {
+    server.close();
+    db.prepare("DELETE FROM requests WHERE song_id IN (?, ?, ?)").run(...songIds);
+    db.prepare("DELETE FROM songs WHERE id IN (?, ?, ?)").run(...songIds);
+  }
+});
