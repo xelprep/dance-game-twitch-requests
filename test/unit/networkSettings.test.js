@@ -1,8 +1,6 @@
 process.env.NODE_ENV = "test";
 process.env.SKIP_APP_STARTUP = "1";
 process.env.CONTROL_PASSWORD = "test-control-password";
-// Make the legacy HOST fallback deterministic so the default bind address is 0.0.0.0.
-process.env.HOST = "0.0.0.0";
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
