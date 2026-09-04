@@ -169,6 +169,8 @@ async function loadSongs(page = 1) {
   if (sort) params.set("sort", sort);
   if (order) params.set("order", order);
   if (q) params.set("q", q);
+  // Hide songs that are already queued or now playing.
+  params.set("excludeActive", "1");
 
   try {
     const res = await api(`/api/songs?${params.toString()}`);

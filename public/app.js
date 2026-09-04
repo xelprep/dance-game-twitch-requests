@@ -137,6 +137,25 @@ async function queue() {
   }
 }
 
+let activeSongsKey = "";
+async function refreshSongsIfActiveChanged() {
+  // Reload the picker when a song enters or leaves the queue / now playing,
+  // so cleared songs become pickable again without a manual refresh.
+  try {
+    const [queueItems, nowPlaying] = await Promise.all([
+      getJSON("/api/queue"),
+      getJSON("/api/now-playing"),
+    ]);
+    const ids = new Set((queueItems || []).map((r) => r.song_id));
+    if (nowPlaying && nowPlaying.song_id != null) ids.add(nowPlaying.song_id);
+    const key = [...ids].sort((a, b) => a - b).join(",");
+    if (key !== activeSongsKey) {
+      activeSongsKey = key;
+      loadSongs(currentPage);
+    }
+  } catch {}
+}
+
 async function stats() {
   try {
     const s = await getJSON("/api/stats");
@@ -330,6 +349,8 @@ async function loadSongs(page = 1) {
   if (sort) params.set("sort", sort);
   if (order) params.set("order", order);
   if (q) params.set("q", q);
+  // Hide songs that are already queued or now playing.
+  params.set("excludeActive", "1");
 
   try {
     const res = await getJSON(`/api/songs?${params.toString()}`);
@@ -391,4 +412,5 @@ loadSongs(1);
 setInterval(() => {
   queue();
   stats();
+  refreshSongsIfActiveChanged();
 }, 5000);

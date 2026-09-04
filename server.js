@@ -1766,6 +1766,11 @@ function createApi(app, options = {}) {
       params.q = q;
     }
 
+    // Hide songs that are already queued or playing (a song can only be requested once).
+    if (req.query.excludeActive === "1" || req.query.excludeActive === "true") {
+      where.push("id NOT IN (SELECT song_id FROM requests WHERE status IN ('queued', 'playing'))");
+    }
+
     const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
 
     const sort = new Set(["title", "artist", "pack", "last_modified"]).has(req.query.sort)
