@@ -298,6 +298,9 @@ CREATE TABLE IF NOT EXISTS songs (
   genre TEXT DEFAULT '',
   pack TEXT DEFAULT '',
   music TEXT DEFAULT '',
+  bpm_min INTEGER,
+  bpm_max INTEGER,
+  duration INTEGER,
   last_modified INTEGER NOT NULL
 );
 
@@ -333,6 +336,8 @@ CREATE TABLE IF NOT EXISTS blocked (
 
 CREATE INDEX IF NOT EXISTS idx_songs_title ON songs(title);
 CREATE INDEX IF NOT EXISTS idx_songs_artist ON songs(artist);
+CREATE INDEX IF NOT EXISTS idx_songs_bpm ON songs(bpm_min, bpm_max);
+CREATE INDEX IF NOT EXISTS idx_songs_duration ON songs(duration);
 CREATE INDEX IF NOT EXISTS idx_requests_status_created ON requests(status, created_at);
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -1138,6 +1143,9 @@ function songRow(row) {
     genre: row.genre,
     pack: row.pack,
     music: row.music,
+    bpmMin: row.bpm_min,
+    bpmMax: row.bpm_max,
+    duration: row.duration,
     filePath: row.file_path,
     charts: getSongCharts(row.id),
   };
@@ -1760,6 +1768,32 @@ function createApi(app, options = {}) {
       where.push(`id IN (SELECT song_id FROM charts WHERE ${chartWhere.join(" AND ")})`);
     }
 
+    // Song-level filters: BPM range overlap and duration range (seconds).
+    const numOrNull = (value) =>
+      typeof value !== "undefined" && value !== "" && Number.isFinite(Number(value))
+        ? Number(value)
+        : null;
+    const bpmMin = numOrNull(req.query.bpmMin);
+    const bpmMax = numOrNull(req.query.bpmMax);
+    const durationMin = numOrNull(req.query.durationMin);
+    const durationMax = numOrNull(req.query.durationMax);
+    if (bpmMin !== null) {
+      where.push("bpm_max >= @bpmMin");
+      params.bpmMin = bpmMin;
+    }
+    if (bpmMax !== null) {
+      where.push("bpm_min <= @bpmMax");
+      params.bpmMax = bpmMax;
+    }
+    if (durationMin !== null) {
+      where.push("duration >= @durationMin");
+      params.durationMin = durationMin;
+    }
+    if (durationMax !== null) {
+      where.push("duration <= @durationMax");
+      params.durationMax = durationMax;
+    }
+
     const q = String(req.query.q || "").trim();
     if (q) {
       where.push("match_query(title, @q) = 1");
@@ -1860,7 +1894,17 @@ function createApi(app, options = {}) {
       )
       .all();
 
-    res.json({ packs, genres, difficulties, meters, styles });
+    const bpms = db
+      .prepare(
+        `
+      SELECT bpm_min bpm, COUNT(*) count FROM songs
+      WHERE bpm_min IS NOT NULL
+      GROUP BY bpm_min ORDER BY bpm_min ASC
+    `,
+      )
+      .all();
+
+    res.json({ packs, genres, difficulties, meters, styles, bpms });
   });
 
   app.get("/api/queue", (_req, res) => res.json(getQueue()));

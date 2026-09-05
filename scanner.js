@@ -30,6 +30,162 @@ function parseTags(text) {
   return tags;
 }
 
+// --- BPM / duration extraction ---
+
+// Parse "beat=value" pairs from a #BPMS or #STOPS tag value. For #BPMS the
+// value is the tempo; for #STOPS it is the stop length in beats.
+function parseBeatValuePairs(raw) {
+  const pairs = [];
+  const re = /(\d+(?:\.\d+)?)\s*=\s*(\d+(?:\.\d+)?)/g;
+  let m;
+  while ((m = re.exec(String(raw || "")))) {
+    pairs.push({ beat: Number(m[1]), value: Number(m[2]) });
+  }
+  pairs.sort((a, b) => a.beat - b.beat);
+  return pairs;
+}
+
+// #DISPLAYBPM is either a single number ("150") or a range ("120:240").
+// Missing, "*", or anything malformed means "not set".
+function parseDisplayBpm(raw) {
+  const value = decodeSMValue(raw).trim();
+  if (!value || value === "*") return null;
+  const m = value.match(/^(\d+(?:\.\d+)?)\s*(?::\s*(\d+(?:\.\d+)?))?$/);
+  if (!m) return null;
+  const low = Math.round(Number(m[1]));
+  const high = m[2] !== undefined ? Math.round(Number(m[2])) : low;
+  return { min: Math.min(low, high), max: Math.max(low, high) };
+}
+
+function sscNotedataBlocks(text) {
+  const blocks = [];
+  const re = /#NOTEDATA\s*:?\s*;([\s\S]*?)(?=#NOTEDATA\s*:?\s*;|$)/gi;
+  let m;
+  while ((m = re.exec(text))) blocks.push(m[1]);
+  return blocks;
+}
+
+// File-level tags. For .ssc files only the portion before the first #NOTEDATA
+// block is considered, so chart-local tags never shadow the global ones.
+function globalTagsFor(text, isSsc) {
+  if (!isSsc) return parseTags(text);
+  const idx = text.search(/#NOTEDATA/i);
+  return parseTags(idx === -1 ? text : text.slice(0, idx));
+}
+
+// Canonical BPM range for a song. #DISPLAYBPM (explicit number or range) wins
+// outright; otherwise the min/max of every relevant #BPMS value is used.
+function extractBpmRange(text, isSsc) {
+  const tags = globalTagsFor(text, isSsc);
+  const display = parseDisplayBpm(tags.DISPLAYBPM);
+  if (display) return display;
+
+  const values = parseBeatValuePairs(tags.BPMS).map((p) => p.value);
+  if (isSsc) {
+    // Charts with #TIMINGMODE:STEPS carry their own #BPMS.
+    for (const block of sscNotedataBlocks(text)) {
+      const blockTags = parseTags(block);
+      const timingMode = decodeSMValue(blockTags.TIMINGMODE || "").toUpperCase();
+      if (timingMode === "STEPS" && blockTags.BPMS) {
+        values.push(...parseBeatValuePairs(blockTags.BPMS).map((p) => p.value));
+      }
+    }
+  }
+  if (!values.length) return null;
+  return {
+    min: Math.round(Math.min(...values)),
+    max: Math.round(Math.max(...values)),
+  };
+}
+
+// Total beats of a chart from its note measures. Each note line holds
+// (pipes - 1) measures; a measure holds `meter` beats.
+function countChartBeats(notesText, meter) {
+  const beatsPerMeasure = Number(meter);
+  if (!Number.isFinite(beatsPerMeasure) || beatsPerMeasure <= 0) return 0;
+  let measures = 0;
+  for (const line of String(notesText || "").split(/\r?\n/)) {
+    const pipes = (line.match(/\|/g) || []).length;
+    if (pipes > 1) measures += pipes - 1;
+  }
+  return measures * beatsPerMeasure;
+}
+
+// Seconds of audio for one chart: the beat-by-beat length under its BPM
+// timeline, plus stop lengths, plus the file #OFFSET (seconds of audio before
+// beat zero).
+function chartDurationSeconds(chart, offsetSeconds) {
+  const timeline = parseBeatValuePairs(chart.bpms);
+  const bpmAt = (beat) => {
+    if (!timeline.length) return 120;
+    let bpm = timeline[0].value;
+    for (const entry of timeline) {
+      if (entry.beat <= beat) bpm = entry.value;
+      else break;
+    }
+    return bpm;
+  };
+
+  let seconds = 0;
+  for (let beat = 0; beat < chart.lastBeat; beat++) {
+    seconds += 60 / bpmAt(beat);
+  }
+  for (const stop of parseBeatValuePairs(chart.stops)) {
+    if (stop.beat > chart.lastBeat) continue;
+    seconds += stop.value * (60 / bpmAt(stop.beat));
+  }
+  return seconds + offsetSeconds;
+}
+
+// Maximum duration (whole seconds) across the song's dance charts.
+// #LASTSECONDHINT short-circuits everything when present.
+function extractDurationSeconds(text, isSsc) {
+  const tags = globalTagsFor(text, isSsc);
+  if (tags.LASTSECONDHINT) {
+    const hint = Number.parseFloat(tags.LASTSECONDHINT);
+    if (Number.isFinite(hint) && hint > 0) return Math.round(hint);
+  }
+
+  const parsedOffset = Number.parseFloat(tags.OFFSET);
+  const offsetSeconds = Number.isFinite(parsedOffset) ? parsedOffset : 0;
+  const charts = [];
+
+  if (isSsc) {
+    for (const block of sscNotedataBlocks(text)) {
+      const blockTags = parseTags(block);
+      if (blockTags.STEPSTYPE !== "dance-single" && blockTags.STEPSTYPE !== "dance-double") {
+        continue;
+      }
+      const notesMatch = block.match(/#NOTES\s*;([\s\S]*?);/i);
+      charts.push({
+        bpms: blockTags.BPMS || tags.BPMS || "",
+        stops: blockTags.STOPS || tags.STOPS || "",
+        lastBeat: countChartBeats(notesMatch ? notesMatch[1] : "", blockTags.METER),
+      });
+    }
+  } else {
+    const re = /#NOTES:\s*([^;]*);([\s\S]*?);/gi;
+    let m;
+    while ((m = re.exec(text))) {
+      const fields = m[1].split(":").map((x) => x.trim());
+      if (fields.length < 4) continue;
+      if (fields[0] !== "dance-single" && fields[0] !== "dance-double") continue;
+      charts.push({
+        bpms: tags.BPMS || "",
+        stops: tags.STOPS || "",
+        lastBeat: countChartBeats(m[2], fields[3]),
+      });
+    }
+  }
+
+  if (!charts.length) return null;
+  let max = 0;
+  for (const chart of charts) {
+    max = Math.max(max, chartDurationSeconds(chart, offsetSeconds));
+  }
+  return Math.round(max);
+}
+
 function parseNotesBlocks(text) {
   const charts = [];
 
@@ -94,9 +250,11 @@ function readPackIniDisplayTitle(packDir) {
 function readSongFile(filePath, packOverride) {
   const text = fs.readFileSync(filePath, "utf8");
   const tags = parseTags(text);
+  const isSsc = /\.ssc$/i.test(filePath);
 
   const stat = fs.statSync(filePath);
   const pack = packOverride || path.basename(path.dirname(filePath));
+  const bpm = extractBpmRange(text, isSsc);
 
   return {
     filePath,
@@ -107,6 +265,9 @@ function readSongFile(filePath, packOverride) {
     music: tags.MUSIC || "",
     pack,
     lastModified: stat.mtimeMs,
+    bpmMin: bpm ? bpm.min : null,
+    bpmMax: bpm ? bpm.max : null,
+    duration: extractDurationSeconds(text, isSsc),
     charts: parseNotesBlocks(text),
   };
 }
@@ -146,9 +307,9 @@ function scanSongs(songsDir, db) {
 
   const upsertSong = db.prepare(`
     INSERT INTO songs
-      (file_path, title, subtitle, artist, genre, pack, music, last_modified)
+      (file_path, title, subtitle, artist, genre, pack, music, last_modified, bpm_min, bpm_max, duration)
     VALUES
-      (@filePath, @title, @subtitle, @artist, @genre, @pack, @music, @lastModified)
+      (@filePath, @title, @subtitle, @artist, @genre, @pack, @music, @lastModified, @bpmMin, @bpmMax, @duration)
     ON CONFLICT(file_path) DO UPDATE SET
       title = excluded.title,
       subtitle = excluded.subtitle,
@@ -156,7 +317,10 @@ function scanSongs(songsDir, db) {
       genre = excluded.genre,
       pack = excluded.pack,
       music = excluded.music,
-      last_modified = excluded.last_modified
+      last_modified = excluded.last_modified,
+      bpm_min = excluded.bpm_min,
+      bpm_max = excluded.bpm_max,
+      duration = excluded.duration
   `);
 
   const getSong = db.prepare("SELECT id FROM songs WHERE file_path = ?");

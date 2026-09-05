@@ -185,10 +185,11 @@ test("song-filters meters dedupe leading-zero variants of the same meter", async
 test("songs API marks queued and playing songs when markActive is set", async () => {
   resetSettings();
   const titles = ["Mark Queued Song", "Mark Playing Song", "Plain Song"];
-  const songIds = titles.map((title) =>
-    db
-      .prepare("INSERT INTO songs (file_path, title, last_modified) VALUES (?, ?, 0)")
-      .run(`${title}.sm`, title).lastInsertRowid,
+  const songIds = titles.map(
+    (title) =>
+      db
+        .prepare("INSERT INTO songs (file_path, title, last_modified) VALUES (?, ?, 0)")
+        .run(`${title}.sm`, title).lastInsertRowid,
   );
   const insertRequest = (songId, status) =>
     db

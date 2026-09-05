@@ -63,6 +63,9 @@ test("scanSongs prefers .ssc files when both .sm and .ssc exist", () => {
       genre TEXT DEFAULT '',
       pack TEXT DEFAULT '',
       music TEXT DEFAULT '',
+      bpm_min INTEGER,
+      bpm_max INTEGER,
+      duration INTEGER,
       last_modified INTEGER NOT NULL
     );
     CREATE TABLE charts (
@@ -127,6 +130,9 @@ test("scanSongs deletes stale songs and their related records", () => {
       genre TEXT DEFAULT '',
       pack TEXT DEFAULT '',
       music TEXT DEFAULT '',
+      bpm_min INTEGER,
+      bpm_max INTEGER,
+      duration INTEGER,
       last_modified INTEGER NOT NULL
     );
     CREATE TABLE charts (
@@ -193,4 +199,167 @@ test("readSongFile normalizes leading-zero meters", () => {
   const sscSong = readSongFile(sscPath, "Test Pack");
   assert.equal(sscSong.charts.length, 1);
   assert.equal(sscSong.charts[0].meter, "6");
+});
+
+test("readSongFile extracts BPM from #DISPLAYBPM (single value and range)", () => {
+  const tmp = tempDir();
+
+  const singlePath = path.join(tmp, "single.sm");
+  fs.writeFileSync(singlePath, "#TITLE:Single BPM;\n#DISPLAYBPM:150;\n#BPMS:0=100;\n", "utf8");
+  const single = readSongFile(singlePath, "Test Pack");
+  assert.equal(single.bpmMin, 150);
+  assert.equal(single.bpmMax, 150);
+
+  const rangePath = path.join(tmp, "range.sm");
+  fs.writeFileSync(rangePath, "#TITLE:Range BPM;\n#DISPLAYBPM:120:240;\n#BPMS:0=100;\n", "utf8");
+  const range = readSongFile(rangePath, "Test Pack");
+  assert.equal(range.bpmMin, 120);
+  assert.equal(range.bpmMax, 240);
+});
+
+test("readSongFile falls back to #BPMS when #DISPLAYBPM is missing or *", () => {
+  const tmp = tempDir();
+
+  const missingPath = path.join(tmp, "missing.sm");
+  fs.writeFileSync(missingPath, "#TITLE:No Display BPM;\n#BPMS:0=100,16=150,32=125.5;\n", "utf8");
+  const missing = readSongFile(missingPath, "Test Pack");
+  assert.equal(missing.bpmMin, 100);
+  assert.equal(missing.bpmMax, 150);
+
+  const wildcardPath = path.join(tmp, "wildcard.sm");
+  fs.writeFileSync(
+    wildcardPath,
+    "#TITLE:Wildcard Display BPM;\n#DISPLAYBPM:*;\n#BPMS:0=90;\n",
+    "utf8",
+  );
+  const wildcard = readSongFile(wildcardPath, "Test Pack");
+  assert.equal(wildcard.bpmMin, 90);
+  assert.equal(wildcard.bpmMax, 90);
+});
+
+test("readSongFile includes SSC chart-level #BPMS only for #TIMINGMODE:STEPS charts", () => {
+  const tmp = tempDir();
+  const sscPath = path.join(tmp, "charts.ssc");
+  fs.writeFileSync(
+    sscPath,
+    [
+      "#TITLE:SSC BPM;",
+      "#DISPLAYBPM:*;",
+      "#BPMS:0=100;",
+      "#NOTEDATA:;",
+      "#STEPSTYPE:dance-single;",
+      "#DIFFICULTY:Easy;",
+      "#METER:4;",
+      "#TIMINGMODE:STEPS;",
+      "#BPMS:0=150;",
+      "#NOTES;",
+      "| | | | |",
+      ";",
+      "#NOTEDATA:;",
+      "#STEPSTYPE:dance-double;",
+      "#DIFFICULTY:Hard;",
+      "#METER:4;",
+      "#NOTES;",
+      "| | | | |",
+      ";",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const song = readSongFile(sscPath, "Test Pack");
+  assert.equal(song.bpmMin, 100);
+  assert.equal(song.bpmMax, 150);
+});
+
+test("readSongFile computes duration from notes, #BPMS, #STOPS and #OFFSET", () => {
+  const tmp = tempDir();
+
+  // 8 measures x 4 beats = 32 beats @120bpm = 16s, plus 0.25s offset -> 16s.
+  const basicPath = path.join(tmp, "basic.sm");
+  fs.writeFileSync(
+    basicPath,
+    [
+      "#TITLE:Basic Duration;",
+      "#OFFSET:0.25;",
+      "#BPMS:0=120;",
+      "#NOTES:dance-single:1:Easy:4:1.000000:0.000000:0.000000;",
+      "| | | | |",
+      "| | | | |",
+      ";",
+    ].join("\n"),
+    "utf8",
+  );
+  const basic = readSongFile(basicPath, "Test Pack");
+  assert.equal(basic.duration, 16);
+
+  // 32 beats: 16 @60bpm (16s) + 16 @120bpm (8s) + stop of 2 beats @60bpm (2s) = 26s.
+  const stopPath = path.join(tmp, "stop.sm");
+  fs.writeFileSync(
+    stopPath,
+    [
+      "#TITLE:Stop Duration;",
+      "#BPMS:0=60,16=120;",
+      "#STOPS:8=2;",
+      "#NOTES:dance-single:1:Easy:4:1.000000:0.000000:0.000000;",
+      "| | | | |",
+      "| | | | |",
+      ";",
+    ].join("\n"),
+    "utf8",
+  );
+  const stop = readSongFile(stopPath, "Test Pack");
+  assert.equal(stop.duration, 26);
+});
+
+test("readSongFile uses the longest SSC chart for duration", () => {
+  const tmp = tempDir();
+  const sscPath = path.join(tmp, "duration.ssc");
+  fs.writeFileSync(
+    sscPath,
+    [
+      "#TITLE:SSC Duration;",
+      "#BPMS:0=100;",
+      "#NOTEDATA:;",
+      "#STEPSTYPE:dance-single;",
+      "#DIFFICULTY:Easy;",
+      "#METER:4;",
+      "#TIMINGMODE:STEPS;",
+      "#BPMS:0=150;",
+      "#NOTES;",
+      "| | | | |",
+      ";",
+      "#NOTEDATA:;",
+      "#STEPSTYPE:dance-double;",
+      "#DIFFICULTY:Hard;",
+      "#METER:4;",
+      "#NOTES;",
+      "| | | | |",
+      ";",
+    ].join("\n"),
+    "utf8",
+  );
+
+  // Chart 1: 16 beats @150bpm = 6.4s. Chart 2: 16 beats @100bpm = 9.6s -> 10s.
+  const song = readSongFile(sscPath, "Test Pack");
+  assert.equal(song.duration, 10);
+});
+
+test("readSongFile honors #LASTSECONDHINT for duration", () => {
+  const tmp = tempDir();
+  const hintPath = path.join(tmp, "hint.sm");
+  fs.writeFileSync(
+    hintPath,
+    [
+      "#TITLE:Hint Duration;",
+      "#LASTSECONDHINT:213.4;",
+      "#BPMS:0=120;",
+      "#NOTES:dance-single:1:Easy:4:1.000000:0.000000:0.000000;",
+      "| | | | |",
+      ";",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const song = readSongFile(hintPath, "Test Pack");
+  assert.equal(song.duration, 213);
 });
