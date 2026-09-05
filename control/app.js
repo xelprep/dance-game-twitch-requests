@@ -59,7 +59,7 @@ function songCard(song) {
         <small>${esc(charts)}</small>
       </div>
       <div class="song-actions">
-        <button type="button" class="song-action" ${active ? "disabled" : `onclick="window.addToQueue(${song.id})"`}>${active ? "Already Queued" : "Add to queue"}</button>
+        <button type="button" class="song-action" ${active ? "disabled" : `onclick="window.addToQueue(${song.id})"`}>${active ? "Already Queued" : "Add to Queue"}</button>
       </div>
     </div>
   `;
