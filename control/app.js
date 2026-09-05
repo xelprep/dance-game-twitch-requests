@@ -46,9 +46,10 @@ function formatCharts(charts) {
 
 function songCard(song) {
   const charts = formatCharts(song.charts);
+  const active = !!song.active;
 
   const article = document.createElement("article");
-  article.className = "song";
+  article.className = active ? "song dimmed" : "song";
   article.innerHTML = `
     <div class="song-main">
       <div class="song-meta">
@@ -58,7 +59,7 @@ function songCard(song) {
         <small>${esc(charts)}</small>
       </div>
       <div class="song-actions">
-        <button type="button" class="song-action" onclick="window.addToQueue(${song.id})">Add to queue</button>
+        <button type="button" class="song-action" ${active ? "disabled" : `onclick="window.addToQueue(${song.id})"`}>${active ? "Already Queued" : "Add to queue"}</button>
       </div>
     </div>
   `;
@@ -193,8 +194,8 @@ async function loadSongs(page = 1) {
   if (sort) params.set("sort", sort);
   if (order) params.set("order", order);
   if (q) params.set("q", q);
-  // Hide songs that are already queued or now playing.
-  params.set("excludeActive", "1");
+  // Flag songs that are already queued or now playing so their rows can be dimmed.
+  params.set("markActive", "1");
 
   try {
     const res = await api(`/api/songs?${params.toString()}`);
@@ -257,7 +258,7 @@ async function render() {
     $("stats").textContent = `${stats.songs.toLocaleString()} songs • ${stats.queued} queued`;
 
     // Reload the song search when a song enters or leaves the queue / now playing,
-    // so cleared songs become pickable again without a manual refresh.
+    // so the dimmed "already queued" state stays current without a manual refresh.
     {
       const ids = new Set(queue.map((r) => r.song_id));
       if (now && now.song_id != null) ids.add(now.song_id);

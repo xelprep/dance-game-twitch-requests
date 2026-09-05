@@ -87,9 +87,10 @@ function formatCharts(charts) {
 
 function songCard(song) {
   const charts = formatCharts(song.charts);
+  const active = !!song.active;
 
   const article = document.createElement("article");
-  article.className = "song";
+  article.className = active ? "song dimmed" : "song";
   article.innerHTML = `
     <div class="song-main">
       <div class="song-meta">
@@ -99,7 +100,7 @@ function songCard(song) {
         <small>${esc(charts)}</small>
       </div>
       <div class="song-actions">
-        <button type="button" class="song-action" onclick="window.addToQueue(${song.id})">Add to queue</button>
+        <button type="button" class="song-action" ${active ? "disabled" : `onclick="window.addToQueue(${song.id})"`}>${active ? "Already Queued" : "Add to queue"}</button>
       </div>
     </div>
   `;
@@ -107,6 +108,7 @@ function songCard(song) {
 }
 
 let searchTimer = null;
+let activeSongsKey = "";
 let searchPage = 1;
 let searchTotalPages = 1;
 let searchRequestSeq = 0;
@@ -169,8 +171,8 @@ async function loadSongs(page = 1) {
   if (sort) params.set("sort", sort);
   if (order) params.set("order", order);
   if (q) params.set("q", q);
-  // Hide songs that are already queued or now playing.
-  params.set("excludeActive", "1");
+  // Flag songs that are already queued or now playing so their rows can be dimmed.
+  params.set("markActive", "1");
 
   try {
     const res = await api(`/api/songs?${params.toString()}`);
@@ -270,6 +272,27 @@ async function render() {
       : '<p class="muted">Queue is empty.</p>';
   } else {
     $("queue").textContent = queueResult.reason.message;
+  }
+
+  // Reload the song search when a song enters or leaves the queue / now playing,
+  // so the dimmed "already queued" state stays current without a manual refresh.
+  {
+    const ids = new Set();
+    if (queueResult.status === "fulfilled") {
+      queueResult.value.forEach((r) => ids.add(r.song_id));
+    }
+    if (
+      nowResult.status === "fulfilled" &&
+      nowResult.value &&
+      nowResult.value.song_id != null
+    ) {
+      ids.add(nowResult.value.song_id);
+    }
+    const key = [...ids].sort((a, b) => a - b).join(",");
+    if (key !== activeSongsKey) {
+      activeSongsKey = key;
+      loadSongs(searchPage);
+    }
   }
 
   if (settingsResult.status === "fulfilled") {

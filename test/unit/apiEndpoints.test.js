@@ -182,9 +182,9 @@ test("song-filters meters dedupe leading-zero variants of the same meter", async
   }
 });
 
-test("songs API hides queued and playing songs when excludeActive is set", async () => {
+test("songs API marks queued and playing songs when markActive is set", async () => {
   resetSettings();
-  const titles = ["Hide Queued Song", "Hide Playing Song", "Visible Song"];
+  const titles = ["Mark Queued Song", "Mark Playing Song", "Plain Song"];
   const songIds = titles.map((title) =>
     db
       .prepare("INSERT INTO songs (file_path, title, last_modified) VALUES (?, ?, 0)")
@@ -210,16 +210,18 @@ test("songs API hides queued and playing songs when excludeActive is set", async
     ).json();
     assert.ok(titles.every((title) => all.songs.some((song) => song.title === title)));
 
-    const res = await fetch(`http://127.0.0.1:${port}/api/songs?perPage=100&excludeActive=1`, {
+    const res = await fetch(`http://127.0.0.1:${port}/api/songs?perPage=100&markActive=1`, {
       headers: { Accept: "application/json" },
     });
     assert.equal(res.status, 200);
     const json = await res.json();
-    const visibleTitles = json.songs.map((song) => song.title);
-    assert.ok(!visibleTitles.includes(titles[0]));
-    assert.ok(!visibleTitles.includes(titles[1]));
-    assert.ok(visibleTitles.includes(titles[2]));
-    assert.equal(json.total, all.total - 2);
+    const byTitle = Object.fromEntries(json.songs.map((song) => [song.title, song]));
+    // All songs remain visible; queued/playing ones are flagged as active.
+    assert.ok(titles.every((title) => title in byTitle));
+    assert.equal(byTitle[titles[0]].active, true);
+    assert.equal(byTitle[titles[1]].active, true);
+    assert.equal(byTitle[titles[2]].active, false);
+    assert.equal(json.total, all.total);
   } finally {
     server.close();
     db.prepare("DELETE FROM requests WHERE song_id IN (?, ?, ?)").run(...songIds);

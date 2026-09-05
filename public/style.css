@@ -217,6 +217,9 @@ input[type="checkbox"] {
 .song:last-child {
   border-bottom: 0;
 }
+.song.dimmed {
+  opacity: 0.45;
+}
 .song.clickable {
   cursor: pointer;
   transition: background-color 0.15s ease;

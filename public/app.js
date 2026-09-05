@@ -72,12 +72,24 @@ function formatCharts(charts) {
 
 function songCard(song) {
   const charts = formatCharts(song.charts);
+  const active = !!song.active;
 
   const article = document.createElement("article");
-  article.className = "song clickable";
-  article.tabIndex = 0;
-  article.setAttribute("role", "button");
-  article.setAttribute("aria-label", `Copy request command for ${song.title}`);
+  article.className = active ? "song dimmed" : "song clickable";
+  if (!active) {
+    article.tabIndex = 0;
+    article.setAttribute("role", "button");
+    article.setAttribute("aria-label", `Copy request command for ${song.title}`);
+    article.addEventListener("click", () => copyRequestCommand(song.id));
+    article.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        copyRequestCommand(song.id);
+      }
+    });
+  } else {
+    article.setAttribute("aria-label", `${song.title} is already queued or playing`);
+  }
   article.innerHTML = `
     <div class="song-main">
       <div class="song-meta">
@@ -88,14 +100,6 @@ function songCard(song) {
       </div>
     </div>
   `;
-
-  article.addEventListener("click", () => copyRequestCommand(song.id));
-  article.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      copyRequestCommand(song.id);
-    }
-  });
 
   return article;
 }
@@ -140,7 +144,7 @@ async function queue() {
 let activeSongsKey = "";
 async function refreshSongsIfActiveChanged() {
   // Reload the picker when a song enters or leaves the queue / now playing,
-  // so cleared songs become pickable again without a manual refresh.
+  // so the dimmed "already queued" state stays current without a manual refresh.
   try {
     const [queueItems, nowPlaying] = await Promise.all([
       getJSON("/api/queue"),
@@ -349,8 +353,8 @@ async function loadSongs(page = 1) {
   if (sort) params.set("sort", sort);
   if (order) params.set("order", order);
   if (q) params.set("q", q);
-  // Hide songs that are already queued or now playing.
-  params.set("excludeActive", "1");
+  // Flag songs that are already queued or now playing so their rows can be dimmed.
+  params.set("markActive", "1");
 
   try {
     const res = await getJSON(`/api/songs?${params.toString()}`);

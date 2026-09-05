@@ -1766,9 +1766,17 @@ function createApi(app, options = {}) {
       params.q = q;
     }
 
-    // Hide songs that are already queued or playing (a song can only be requested once).
-    if (req.query.excludeActive === "1" || req.query.excludeActive === "true") {
-      where.push("id NOT IN (SELECT song_id FROM requests WHERE status IN ('queued', 'playing'))");
+    // Flag songs that are already queued or playing (a song can only be requested
+    // once) so clients can dim those rows instead of hiding them.
+    const markActive = req.query.markActive === "1" || req.query.markActive === "true";
+    let activeIds = null;
+    if (markActive) {
+      activeIds = new Set(
+        db
+          .prepare("SELECT song_id FROM requests WHERE status IN ('queued', 'playing')")
+          .all()
+          .map((row) => row.song_id),
+      );
     }
 
     const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
@@ -1791,7 +1799,16 @@ function createApi(app, options = {}) {
         offset,
       });
 
-    res.json({ songs: pageRows.map(songRow), total, page, perPage });
+    res.json({
+      songs: pageRows.map((row) => {
+        const song = songRow(row);
+        if (activeIds) song.active = activeIds.has(row.id);
+        return song;
+      }),
+      total,
+      page,
+      perPage,
+    });
   });
 
   app.get("/api/song-filters", (_req, res) => {
