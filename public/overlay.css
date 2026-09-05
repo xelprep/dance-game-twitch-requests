@@ -57,14 +57,16 @@ body {
   height: 100%;
   padding: 8px 12px 20px 12px;
   overflow: hidden;
-  gap: 4px;
+  /* Vertical rhythm comes from each text line's 0.3em padding-bottom (and
+     the divider's matching margin-bottom), so no flex gap here. */
+  gap: 0;
 }
 
 /* Now Playing section */
 .now-playing-section {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   align-self: flex-start;
 }
 .now-playing-label {
@@ -72,13 +74,18 @@ body {
   font-weight: 700;
   font-size: 48px;
   line-height: 1;
+  /* Same 0.3em gap below the label as between the text lines. */
+  padding-bottom: 0.3em;
   text-align: left;
   text-shadow:
     0 0 6px rgba(0, 0, 0, 0.9),
     0 1px 0 rgba(0, 0, 0, 0.6);
 }
+/* The title/artist/pack/requester lines reuse the .queue-line styles
+   (un-scoped below), so each line carries its own descender/shadow
+   headroom, text-shadow, and the uniform 0.3em bottom gap — the
+   container needs none of that itself. */
 .now-playing {
-  --shadow-breathing: 0.18em;
   color: #ffffff;
   font-weight: 700;
   font-size: 48px;
@@ -89,31 +96,21 @@ body {
   text-overflow: clip;
   width: max-content;
   max-width: none;
-  /* Keep the shadow inside the clipped box while preserving the original layout position. */
-  padding-inline: var(--shadow-breathing);
-  margin-inline: calc(-1 * var(--shadow-breathing));
-  /* padding-bottom gives descenders (g, p, q, y…) and the fading bottom of
-     the text-shadow room below the line box so neither is clipped. 0.3em
-     clears Inter's 0.24em descender with margin, and also covers common
-     per-glyph fallback fonts (CJK ~0.28em, emoji ~0.34em descent) whose
-     metrics differ from Inter. */
-  padding-bottom: 0.3em;
-  text-shadow:
-    0 0 6px rgba(0, 0, 0, 0.9),
-    0 1px 0 rgba(0, 0, 0, 0.6);
 }
 
 /* Upcoming Requests section */
 .upcoming-section {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 .upcoming-label {
   color: #ffffff;
   font-weight: 700;
   font-size: 48px;
   line-height: 1;
+  /* Same 0.3em gap below the label as between the text lines. */
+  padding-bottom: 0.3em;
   text-align: left;
   text-shadow:
     0 0 6px rgba(0, 0, 0, 0.9),
@@ -127,6 +124,11 @@ body {
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
   border-radius: 999px;
+  /* Same 0.3em gap below the bar as between text lines. font-size is set
+     so the em tracks the 48px overlay text (the divider has no text of its
+     own and would otherwise inherit the 16px browser default). */
+  font-size: 48px;
+  margin-bottom: 0.3em;
 }
 
 /* Queue display (existing styles) */
@@ -184,7 +186,8 @@ body {
   align-items: stretch;
   padding-right: 16px;
 }
-#message .queue-lines {
+/* Shared by the Now Playing block and each queue entry. */
+.queue-lines {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -194,7 +197,7 @@ body {
   min-width: 0;
   max-width: 100%;
 }
-#message .queue-line {
+.queue-line {
   --shadow-breathing: 0.18em;
   line-height: 1;
   white-space: nowrap;
@@ -207,15 +210,17 @@ body {
      the text-shadow room inside each line's own overflow:hidden boundary.
      0.3em clears Inter's 0.24em descender with margin, and also covers
      common per-glyph fallback fonts (CJK ~0.28em, emoji ~0.34em descent)
-     whose metrics differ from Inter. */
+     whose metrics differ from Inter. It is also THE uniform vertical gap
+     between all overlay lines — the section labels and the divider match
+     it with their own padding/margin-bottom. */
   padding-bottom: 0.3em;
 }
-#message .queue-line-title,
-#message .queue-line-artist,
-#message .queue-line-pack {
+.queue-line-title,
+.queue-line-artist,
+.queue-line-pack {
   max-width: 100%;
 }
-#message .queue-line-requester {
+.queue-line-requester {
   max-width: none;
   overflow: visible;
   text-overflow: clip;
@@ -256,7 +261,7 @@ body {
 }
 /* subtle stroke for readability on dark backgrounds */
 #message,
-#message .queue-line,
+.queue-line,
 #message .queue-empty-row {
   text-shadow:
     0 0 6px rgba(0, 0, 0, 0.9),
