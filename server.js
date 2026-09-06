@@ -1894,17 +1894,49 @@ function createApi(app, options = {}) {
       )
       .all();
 
+    // BPM filter options are multiples of 10. A bucket is offered when at
+    // least one song's BPM range falls within one bucket-width of it, so a
+    // 153 BPM song keeps both the 150 and the 160 options available.
     const bpms = db
       .prepare(
         `
-      SELECT bpm_min bpm, COUNT(*) count FROM songs
-      WHERE bpm_min IS NOT NULL
-      GROUP BY bpm_min ORDER BY bpm_min ASC
+      WITH RECURSIVE buckets(n) AS (
+        SELECT 0 UNION ALL SELECT n + 10 FROM buckets WHERE n < 1000
+      )
+      SELECT buckets.n bpm, COUNT(*) count
+      FROM buckets
+      JOIN songs ON songs.bpm_min IS NOT NULL
+        AND songs.bpm_min < buckets.n + 10
+        AND songs.bpm_max >= buckets.n - 10
+      GROUP BY buckets.n
+      HAVING count > 0
+      ORDER BY buckets.n ASC
     `,
       )
       .all();
 
-    res.json({ packs, genres, difficulties, meters, styles, bpms });
+    // Duration filter options are 15-second buckets. A bucket is offered
+    // when at least one song's duration falls within one bucket-width of
+    // it, so a 122s song keeps both the 120 and the 135 options available.
+    const durations = db
+      .prepare(
+        `
+      WITH RECURSIVE buckets(n) AS (
+        SELECT 0 UNION ALL SELECT n + 15 FROM buckets WHERE n < 1200
+      )
+      SELECT buckets.n duration, COUNT(*) count
+      FROM buckets
+      JOIN songs ON songs.duration IS NOT NULL AND songs.duration > 0
+        AND songs.duration >= buckets.n - 15
+        AND songs.duration < buckets.n + 15
+      GROUP BY buckets.n
+      HAVING count > 0
+      ORDER BY buckets.n ASC
+    `,
+      )
+      .all();
+
+    res.json({ packs, genres, difficulties, meters, styles, bpms, durations });
   });
 
   app.get("/api/queue", (_req, res) => res.json(getQueue()));

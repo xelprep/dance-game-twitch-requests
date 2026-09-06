@@ -65,6 +65,65 @@ function sscNotedataBlocks(text) {
   return blocks;
 }
 
+// StepMania .sm chart blocks. The #NOTES header comes in two layouts:
+// - classic: a single line "dance-single:rank:difficulty:meter:radars;"
+//   terminated by a semicolon, with the note data following it;
+// - multi-line: each field on its own line ending in ":", with NO
+//   terminating semicolon (verified against the simfile reference repo);
+//   the note data follows the last header line.
+// In both layouts the note data ends at the next semicolon.
+function smNotesBlocks(text) {
+  const blocks = [];
+  const re = /#NOTES:/gi;
+  let m;
+  while ((m = re.exec(text))) {
+    const after = m.index + m[0].length;
+    const rest = text.slice(after);
+    const firstLine = rest.slice(0, rest.search(/\r?\n/));
+    let header;
+    let notesStart;
+    if (firstLine.includes(";")) {
+      // Classic single-line header.
+      const headerEnd = firstLine.indexOf(";");
+      header = rest.slice(0, headerEnd);
+      notesStart = after + headerEnd + 1;
+    } else {
+      // Multi-line header: consecutive lines whose trimmed form ends in ":".
+      // Split keeping the separators so offsets stay correct with CRLF files.
+      const parts = rest.split(/(\r?\n)/);
+      // `rest` usually starts with a newline, leaving an empty first part;
+      // the split layout is [line, separator, line, separator, ...].
+      let start = 0;
+      let base = 0;
+      if (parts[0] === "") {
+        start = 2;
+        base = parts[1] ? parts[1].length : 0;
+      }
+      let count = 0;
+      let rel = 0;
+      while (start + count * 2 + 1 < parts.length && parts[start + count * 2].trim().endsWith(":")) {
+        rel += parts[start + count * 2].length + parts[start + count * 2 + 1].length;
+        count++;
+      }
+      // Each header line already carries its terminating ":", so drop it
+      // before re-joining the fields with ":".
+      const headerLines = [];
+      for (let i = 0; i < count; i++) {
+        headerLines.push(parts[start + i * 2].replace(/:\s*$/, ""));
+      }
+      header = headerLines.join(":");
+      notesStart = after + base + rel;
+    }
+    const notesEnd = text.indexOf(";", notesStart);
+    const notes = notesEnd === -1 ? text.slice(notesStart) : text.slice(notesStart, notesEnd);
+    blocks.push({
+      headerFields: header.split(":").map((field) => decodeSMValue(field)),
+      notes,
+    });
+  }
+  return blocks;
+}
+
 // File-level tags. For .ssc files only the portion before the first #NOTEDATA
 // block is considered, so chart-local tags never shadow the global ones.
 function globalTagsFor(text, isSsc) {
@@ -98,16 +157,15 @@ function extractBpmRange(text, isSsc) {
   };
 }
 
-// Total beats of a chart from its note measures. Each note line holds
-// (pipes - 1) measures; a measure holds `meter` beats.
+// Total beats of a chart from its note measures. A comma separates measures
+// (it may sit on its own line or directly after the note rows); each measure
+// holds `meter` beats regardless of the beat subdivision used to write it.
 function countChartBeats(notesText, meter) {
   const beatsPerMeasure = Number(meter);
   if (!Number.isFinite(beatsPerMeasure) || beatsPerMeasure <= 0) return 0;
-  let measures = 0;
-  for (const line of String(notesText || "").split(/\r?\n/)) {
-    const pipes = (line.match(/\|/g) || []).length;
-    if (pipes > 1) measures += pipes - 1;
-  }
+  const measures = String(notesText || "")
+    .split(",")
+    .filter((measure) => measure.trim() !== "").length;
   return measures * beatsPerMeasure;
 }
 
@@ -156,24 +214,27 @@ function extractDurationSeconds(text, isSsc) {
       if (blockTags.STEPSTYPE !== "dance-single" && blockTags.STEPSTYPE !== "dance-double") {
         continue;
       }
-      const notesMatch = block.match(/#NOTES\s*;([\s\S]*?);/i);
+      // SSC notes tags appear as "#NOTES;" or "#NOTES:" (no semicolon).
+      const notesMatch = block.match(/#NOTES\s*(?:;|:)([\s\S]*?);/i);
+      const chartOffsetRaw = Number.parseFloat(blockTags.OFFSET);
+      const chartOffset = Number.isFinite(chartOffsetRaw) ? chartOffsetRaw : offsetSeconds;
       charts.push({
         bpms: blockTags.BPMS || tags.BPMS || "",
         stops: blockTags.STOPS || tags.STOPS || "",
         lastBeat: countChartBeats(notesMatch ? notesMatch[1] : "", blockTags.METER),
+        offset: chartOffset,
       });
     }
   } else {
-    const re = /#NOTES:\s*([^;]*);([\s\S]*?);/gi;
-    let m;
-    while ((m = re.exec(text))) {
-      const fields = m[1].split(":").map((x) => x.trim());
+    for (const block of smNotesBlocks(text)) {
+      const fields = block.headerFields;
       if (fields.length < 4) continue;
       if (fields[0] !== "dance-single" && fields[0] !== "dance-double") continue;
       charts.push({
         bpms: tags.BPMS || "",
         stops: tags.STOPS || "",
-        lastBeat: countChartBeats(m[2], fields[3]),
+        lastBeat: countChartBeats(block.notes, fields[3]),
+        offset: offsetSeconds,
       });
     }
   }
@@ -181,7 +242,7 @@ function extractDurationSeconds(text, isSsc) {
   if (!charts.length) return null;
   let max = 0;
   for (const chart of charts) {
-    max = Math.max(max, chartDurationSeconds(chart, offsetSeconds));
+    max = Math.max(max, chartDurationSeconds(chart, chart.offset));
   }
   return Math.round(max);
 }
@@ -189,28 +250,25 @@ function extractDurationSeconds(text, isSsc) {
 function parseNotesBlocks(text) {
   const charts = [];
 
-  // Standard .sm #NOTES blocks.
-  const smRe = /#NOTES:\s*([\s\S]*?);/gi;
-  let m;
-  while ((m = smRe.exec(text))) {
-    const fields = m[1].split(":").map((x) => x.trim());
-    if (fields.length >= 6) {
-      const chart = {
-        chartType: fields[0],
-        difficulty: fields[2],
-        meter: normalizeMeter(fields[3]),
-        radar: fields[4],
-      };
-      if (chart.chartType === "dance-single" || chart.chartType === "dance-double") {
-        charts.push(chart);
-      }
+  // Standard .sm #NOTES blocks (single-line or multi-line header).
+  // The header is STEPSTYPE[:DESCRIPTION]:DIFFICULTY:METER:RADARVALUES.
+  // DESCRIPTION is optional, so anchor the trailing fields from the end.
+  for (const block of smNotesBlocks(text)) {
+    const fields = block.headerFields;
+    if (fields.length < 4) continue;
+    const chart = {
+      chartType: fields[0],
+      difficulty: fields[fields.length - 3],
+      meter: normalizeMeter(fields[fields.length - 2]),
+      radar: fields[fields.length - 1],
+    };
+    if (chart.chartType === "dance-single" || chart.chartType === "dance-double") {
+      charts.push(chart);
     }
   }
 
   // .ssc #NOTEDATA blocks.
-  const sscRe = /#NOTEDATA\s*:?\s*;([\s\S]*?)(?=#NOTEDATA\s*:?\s*;|$)/gi;
-  while ((m = sscRe.exec(text))) {
-    const block = m[1];
+  for (const block of sscNotedataBlocks(text)) {
     const tags = parseTags(block);
     if (tags.STEPSTYPE || tags.DIFFICULTY || tags.METER) {
       const chart = {

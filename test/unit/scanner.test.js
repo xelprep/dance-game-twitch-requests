@@ -253,14 +253,14 @@ test("readSongFile includes SSC chart-level #BPMS only for #TIMINGMODE:STEPS cha
       "#TIMINGMODE:STEPS;",
       "#BPMS:0=150;",
       "#NOTES;",
-      "| | | | |",
+      "0000,0000,0000,0000",
       ";",
       "#NOTEDATA:;",
       "#STEPSTYPE:dance-double;",
       "#DIFFICULTY:Hard;",
       "#METER:4;",
       "#NOTES;",
-      "| | | | |",
+      "0000,0000,0000,0000",
       ";",
     ].join("\n"),
     "utf8",
@@ -283,8 +283,7 @@ test("readSongFile computes duration from notes, #BPMS, #STOPS and #OFFSET", () 
       "#OFFSET:0.25;",
       "#BPMS:0=120;",
       "#NOTES:dance-single:1:Easy:4:1.000000:0.000000:0.000000;",
-      "| | | | |",
-      "| | | | |",
+      "0000,0000,0000,0000,0000,0000,0000,0000",
       ";",
     ].join("\n"),
     "utf8",
@@ -301,8 +300,7 @@ test("readSongFile computes duration from notes, #BPMS, #STOPS and #OFFSET", () 
       "#BPMS:0=60,16=120;",
       "#STOPS:8=2;",
       "#NOTES:dance-single:1:Easy:4:1.000000:0.000000:0.000000;",
-      "| | | | |",
-      "| | | | |",
+      "0000,0000,0000,0000,0000,0000,0000,0000",
       ";",
     ].join("\n"),
     "utf8",
@@ -326,14 +324,14 @@ test("readSongFile uses the longest SSC chart for duration", () => {
       "#TIMINGMODE:STEPS;",
       "#BPMS:0=150;",
       "#NOTES;",
-      "| | | | |",
+      "0000,0000,0000,0000",
       ";",
       "#NOTEDATA:;",
       "#STEPSTYPE:dance-double;",
       "#DIFFICULTY:Hard;",
       "#METER:4;",
       "#NOTES;",
-      "| | | | |",
+      "0000,0000,0000,0000",
       ";",
     ].join("\n"),
     "utf8",
@@ -354,7 +352,7 @@ test("readSongFile honors #LASTSECONDHINT for duration", () => {
       "#LASTSECONDHINT:213.4;",
       "#BPMS:0=120;",
       "#NOTES:dance-single:1:Easy:4:1.000000:0.000000:0.000000;",
-      "| | | | |",
+      "0000,0000,0000,0000",
       ";",
     ].join("\n"),
     "utf8",
@@ -362,4 +360,143 @@ test("readSongFile honors #LASTSECONDHINT for duration", () => {
 
   const song = readSongFile(hintPath, "Test Pack");
   assert.equal(song.duration, 213);
+});
+
+test("readSongFile parses multi-line #NOTES headers without a terminating semicolon", () => {
+  const tmp = tempDir();
+  const smPath = path.join(tmp, "multiline.sm");
+  fs.writeFileSync(
+    smPath,
+    [
+      "#TITLE:Multi-line Header;",
+      "#BPMS:0=120;",
+      "#NOTES:",
+      "     dance-single:",
+      "     Feraligatr:",
+      "     Challenge:",
+      "     4:",
+      "     1.000000,1.000000,1.000000,1.000000:",
+      "// measure 0",
+      "0000",
+      "0000",
+      "0000",
+      "0000",
+      ",",
+      "// measure 1",
+      "0000",
+      "0000",
+      "0000",
+      "0000",
+      ",",
+      "0000",
+      "0000",
+      "0000",
+      "0000",
+      ",",
+      "0000",
+      "0000",
+      "0000",
+      "0000",
+      ",",
+      "0000",
+      "0000",
+      "0000",
+      "0000",
+      ",",
+      "0000",
+      "0000",
+      "0000",
+      "0000",
+      ",",
+      "0000",
+      "0000",
+      "0000",
+      "0000",
+      ",",
+      "0000",
+      "0000",
+      "0000",
+      "0000",
+      ";",
+    ].join("\n"),
+    "utf8",
+  );
+
+  // 8 measures x 4 beats = 32 beats @120bpm -> 16s.
+  const song = readSongFile(smPath, "Test Pack");
+  assert.equal(song.charts.length, 1);
+  assert.equal(song.charts[0].difficulty, "Challenge");
+  assert.equal(song.duration, 16);
+});
+
+test("readSongFile handles the SSC #NOTES: (colon) notes tag variant", () => {
+  const tmp = tempDir();
+  const sscPath = path.join(tmp, "colon.ssc");
+  fs.writeFileSync(
+    sscPath,
+    [
+      "#TITLE:SSC Colon Notes;",
+      "#BPMS:0=120;",
+      "#NOTEDATA:;",
+      "#STEPSTYPE:dance-single;",
+      "#DIFFICULTY:Easy;",
+      "#METER:4;",
+      "#NOTES:",
+      "0000,0000,0000,0000",
+      ";",
+    ].join("\n"),
+    "utf8",
+  );
+
+  // 4 measures x 4 beats = 16 beats @120bpm -> 8s.
+  const song = readSongFile(sscPath, "Test Pack");
+  assert.equal(song.duration, 8);
+});
+
+test("readSongFile prefers a per-chart #OFFSET over the file-level one", () => {
+  const tmp = tempDir();
+  const sscPath = path.join(tmp, "chart-offset.ssc");
+  fs.writeFileSync(
+    sscPath,
+    [
+      "#TITLE:Chart Offset;",
+      "#OFFSET:50;",
+      "#BPMS:0=120;",
+      "#NOTEDATA:;",
+      "#STEPSTYPE:dance-single;",
+      "#DIFFICULTY:Easy;",
+      "#METER:4;",
+      "#OFFSET:0.25;",
+      "#NOTES;",
+      "0000,0000,0000,0000,0000,0000,0000,0000",
+      ";",
+    ].join("\n"),
+    "utf8",
+  );
+
+  // 32 beats @120bpm = 16s + chart offset 0.25 (not the global 50) -> 16s.
+  const song = readSongFile(sscPath, "Test Pack");
+  assert.equal(song.duration, 16);
+
+  const fallbackPath = path.join(tmp, "chart-offset-fallback.ssc");
+  fs.writeFileSync(
+    fallbackPath,
+    [
+      "#TITLE:Chart Offset Fallback;",
+      "#OFFSET:50;",
+      "#BPMS:0=120;",
+      "#NOTEDATA:;",
+      "#STEPSTYPE:dance-single;",
+      "#DIFFICULTY:Easy;",
+      "#METER:4;",
+      "#NOTES;",
+      "0000,0000,0000,0000,0000,0000,0000,0000",
+      ";",
+    ].join("\n"),
+    "utf8",
+  );
+
+  // No chart-level offset -> the file-level 50s applies: 16s + 50s -> 66s.
+  const fallback = readSongFile(fallbackPath, "Test Pack");
+  assert.equal(fallback.duration, 66);
 });

@@ -54,18 +54,6 @@ function formatDuration(totalSeconds) {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-// Accepts "90", "1:30" or "1:02:03"; returns whole seconds or null.
-function parseDurationInput(value) {
-  const v = String(value || "").trim();
-  if (!v) return null;
-  if (/^\d+$/.test(v)) return Number(v);
-  const parts = v.split(":").map((p) => p.trim());
-  if (parts.length < 2 || parts.length > 3) return null;
-  if (parts.some((p) => !/^\d+$/.test(p))) return null;
-  if (parts.length === 2) return Number(parts[0]) * 60 + Number(parts[1]);
-  return Number(parts[0]) * 3600 + Number(parts[1]) * 60 + Number(parts[2]);
-}
-
 function songCard(song) {
   const charts = formatCharts(song.charts);
   const active = !!song.active;
@@ -107,6 +95,8 @@ async function getFilters() {
     const meterMaxSel = $("filter-meter-max");
     const bpmMinSel = $("filter-bpm-min");
     const bpmMaxSel = $("filter-bpm-max");
+    const durationMinSel = $("filter-duration-min");
+    const durationMaxSel = $("filter-duration-max");
 
     packSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
     genreSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
@@ -115,6 +105,8 @@ async function getFilters() {
     meterMaxSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
     bpmMinSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
     bpmMaxSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    durationMinSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    durationMaxSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
 
     const sortAlpha = (a, b) =>
       String(a).localeCompare(String(b), undefined, { sensitivity: "base" });
@@ -179,6 +171,23 @@ async function getFilters() {
       optMax.textContent = `${b.bpm} (${b.count})`;
       bpmMaxSel.appendChild(optMax);
     });
+
+    const durations = (f.durations || [])
+      .map((d) => ({ duration: Number(d.duration), count: d.count }))
+      .filter((d) => Number.isFinite(d.duration) && d.duration > 0)
+      .sort((a, b) => a.duration - b.duration);
+
+    durations.forEach((d) => {
+      const optMin = document.createElement("option");
+      optMin.value = String(d.duration);
+      optMin.textContent = `${formatDuration(d.duration)} (${d.count})`;
+      durationMinSel.appendChild(optMin);
+
+      const optMax = document.createElement("option");
+      optMax.value = String(d.duration);
+      optMax.textContent = `${formatDuration(d.duration)} (${d.count})`;
+      durationMaxSel.appendChild(optMax);
+    });
   } catch (e) {
     console.error("Failed to load filters", e);
   }
@@ -231,8 +240,8 @@ async function loadSongs(page = 1) {
   const meterMax = $("filter-meter-max").value;
   const bpmMin = $("filter-bpm-min").value;
   const bpmMax = $("filter-bpm-max").value;
-  const durationMin = parseDurationInput($("filter-duration-min").value);
-  const durationMax = parseDurationInput($("filter-duration-max").value);
+  const durationMin = $("filter-duration-min").value;
+  const durationMax = $("filter-duration-max").value;
   const sort = $("sort-field").value;
   const order = $("sort-order").value;
   const q = $("search").value.trim();
@@ -249,8 +258,8 @@ async function loadSongs(page = 1) {
   if (meterMax) params.set("meterMax", meterMax);
   if (bpmMin) params.set("bpmMin", bpmMin);
   if (bpmMax) params.set("bpmMax", bpmMax);
-  if (durationMin !== null) params.set("durationMin", durationMin);
-  if (durationMax !== null) params.set("durationMax", durationMax);
+  if (durationMin) params.set("durationMin", durationMin);
+  if (durationMax) params.set("durationMax", durationMax);
   if (sort) params.set("sort", sort);
   if (order) params.set("order", order);
   if (q) params.set("q", q);
@@ -997,13 +1006,12 @@ $("reset-search").addEventListener("click", () => {
     "filter-meter-max",
     "filter-bpm-min",
     "filter-bpm-max",
+    "filter-duration-min",
+    "filter-duration-max",
     "sort-field",
     "sort-order",
   ].forEach((id) => {
     $(id).selectedIndex = 0;
-  });
-  ["filter-duration-min", "filter-duration-max"].forEach((id) => {
-    $(id).value = "";
   });
   loadSongs(1);
 });
