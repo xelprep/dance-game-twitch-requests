@@ -298,7 +298,10 @@ CREATE TABLE IF NOT EXISTS songs (
   genre TEXT DEFAULT '',
   pack TEXT DEFAULT '',
   music TEXT DEFAULT '',
-  last_modified INTEGER NOT NULL
+  last_modified INTEGER NOT NULL,
+  bpm_min INTEGER,
+  bpm_max INTEGER,
+  duration_seconds INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS charts (
@@ -340,6 +343,26 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT
 );
 `);
+
+// Safe migration for pre-existing databases: add the BPM/duration columns and
+// their indexes if they are missing (new databases already have them via the
+// CREATE TABLE above, so the ALTERs are skipped).
+{
+  const songColumns = db
+    .prepare("PRAGMA table_info(songs)")
+    .all()
+    .map((r) => r.name);
+  for (const column of ["bpm_min", "bpm_max", "duration_seconds"]) {
+    if (!songColumns.includes(column)) {
+      db.exec(`ALTER TABLE songs ADD COLUMN ${column} INTEGER`);
+    }
+  }
+  db.exec(`
+CREATE INDEX IF NOT EXISTS idx_songs_bpm_min ON songs(bpm_min);
+CREATE INDEX IF NOT EXISTS idx_songs_bpm_max ON songs(bpm_max);
+CREATE INDEX IF NOT EXISTS idx_songs_duration ON songs(duration_seconds);
+`);
+}
 
 function refreshDatabase() {
   console.log(`Scanning songs: ${SONGS_DIR}`);
@@ -1139,6 +1162,9 @@ function songRow(row) {
     pack: row.pack,
     music: row.music,
     filePath: row.file_path,
+    bpmMin: row.bpm_min ?? null,
+    bpmMax: row.bpm_max ?? null,
+    durationSeconds: row.duration_seconds ?? null,
     charts: getSongCharts(row.id),
   };
 }
@@ -1723,6 +1749,45 @@ function createApi(app, options = {}) {
       params.genre = String(req.query.genre);
     }
 
+    // BPM range: a song matches when its [bpm_min, bpm_max] range overlaps the
+    // requested [bpmMin, bpmMax] window (either side may be omitted).
+    const bpmMin =
+      typeof req.query.bpmMin !== "undefined" && req.query.bpmMin !== ""
+        ? Number(req.query.bpmMin)
+        : null;
+    const bpmMax =
+      typeof req.query.bpmMax !== "undefined" && req.query.bpmMax !== ""
+        ? Number(req.query.bpmMax)
+        : null;
+    if (bpmMin !== null && Number.isFinite(bpmMin)) {
+      where.push("bpm_min IS NOT NULL AND bpm_max IS NOT NULL");
+      where.push("bpm_max >= @bpmMin");
+      params.bpmMin = bpmMin;
+    }
+    if (bpmMax !== null && Number.isFinite(bpmMax)) {
+      where.push("bpm_min IS NOT NULL AND bpm_max IS NOT NULL");
+      where.push("bpm_min <= @bpmMax");
+      params.bpmMax = bpmMax;
+    }
+
+    // Duration range (seconds), inclusive.
+    const durationMin =
+      typeof req.query.durationMin !== "undefined" && req.query.durationMin !== ""
+        ? Number(req.query.durationMin)
+        : null;
+    const durationMax =
+      typeof req.query.durationMax !== "undefined" && req.query.durationMax !== ""
+        ? Number(req.query.durationMax)
+        : null;
+    if (durationMin !== null && Number.isFinite(durationMin)) {
+      where.push("duration_seconds IS NOT NULL AND duration_seconds >= @durationMin");
+      params.durationMin = durationMin;
+    }
+    if (durationMax !== null && Number.isFinite(durationMax)) {
+      where.push("duration_seconds IS NOT NULL AND duration_seconds <= @durationMax");
+      params.durationMax = durationMax;
+    }
+
     // Chart-based filters: style, difficulty, meter range
     const chartWhere = [];
     if (req.query.style) {
@@ -1860,7 +1925,35 @@ function createApi(app, options = {}) {
       )
       .all();
 
-    res.json({ packs, genres, difficulties, meters, styles });
+    // Distinct BPM values (for constant-BPM songs) and ranges (min-max).
+    const bpms = db
+      .prepare(
+        `
+      SELECT
+        CASE WHEN bpm_min = bpm_max THEN CAST(bpm_min AS TEXT)
+             ELSE bpm_min || '-' || bpm_max END AS label,
+        bpm_min, bpm_max, COUNT(*) count
+      FROM songs
+      WHERE bpm_min IS NOT NULL AND bpm_max IS NOT NULL
+      GROUP BY bpm_min, bpm_max
+      ORDER BY bpm_min ASC, bpm_max ASC
+    `,
+      )
+      .all();
+
+    // Duration buckets in 15-second increments.
+    const durations = db
+      .prepare(
+        `
+      SELECT (duration_seconds / 15) * 15 AS seconds, COUNT(*) count
+      FROM songs
+      WHERE duration_seconds IS NOT NULL
+      GROUP BY seconds ORDER BY seconds ASC
+    `,
+      )
+      .all();
+
+    res.json({ packs, genres, difficulties, meters, styles, bpms, durations });
   });
 
   app.get("/api/queue", (_req, res) => res.json(getQueue()));
