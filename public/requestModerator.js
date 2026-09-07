@@ -85,9 +85,27 @@ function formatCharts(charts) {
   return groups.length ? groups.join(" ") : "No chart metadata";
 }
 
+function formatDuration(totalSeconds) {
+  const s = Math.max(0, Math.round(Number(totalSeconds) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(sec).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+}
+
 function songCard(song) {
   const charts = formatCharts(song.charts);
   const active = !!song.active;
+  const bpmLabel =
+    song.bpmMin != null && song.bpmMax != null
+      ? song.bpmMin === song.bpmMax
+        ? `BPM: ${song.bpmMin}`
+        : `BPM: ${song.bpmMin}\u2013${song.bpmMax}`
+      : "";
+  const durationLabel = song.durationSeconds != null ? formatDuration(song.durationSeconds) : "";
+  const statsLabel = [bpmLabel, durationLabel].filter(Boolean).join(" \u2022 ");
 
   const article = document.createElement("article");
   article.className = active ? "song dimmed" : "song";
@@ -98,6 +116,7 @@ function songCard(song) {
         ${song.subtitle ? `<span class="song-subtitle">${esc(song.subtitle)}</span>` : ""}
         <small>${esc(song.artist)}${song.pack ? " • " + esc(song.pack) : ""}</small>
         <small>${esc(charts)}</small>
+        ${statsLabel ? `<small>${esc(statsLabel)}</small>` : ""}
       </div>
       <div class="song-actions">
         <button type="button" class="song-action" ${active ? "disabled" : `onclick="window.addToQueue(${song.id})"`}>${active ? "Already Queued" : "Add to Queue"}</button>
@@ -154,6 +173,10 @@ async function loadSongs(page = 1) {
   const difficulty = $("filter-difficulty") ? $("filter-difficulty").value : "";
   const meterMin = $("filter-meter-min") ? $("filter-meter-min").value : "";
   const meterMax = $("filter-meter-max") ? $("filter-meter-max").value : "";
+  const bpmMin = $("filter-bpm-min") ? $("filter-bpm-min").value : "";
+  const bpmMax = $("filter-bpm-max") ? $("filter-bpm-max").value : "";
+  const durationMin = $("filter-duration-min") ? $("filter-duration-min").value : "";
+  const durationMax = $("filter-duration-max") ? $("filter-duration-max").value : "";
   const sort = $("sort-field") ? $("sort-field").value : "title";
   const order = $("sort-order") ? $("sort-order").value : "asc";
   const q = $("search") ? $("search").value.trim() : "";
@@ -168,6 +191,10 @@ async function loadSongs(page = 1) {
   if (difficulty) params.set("difficulty", difficulty);
   if (meterMin) params.set("meterMin", meterMin);
   if (meterMax) params.set("meterMax", meterMax);
+  if (bpmMin) params.set("bpmMin", bpmMin);
+  if (bpmMax) params.set("bpmMax", bpmMax);
+  if (durationMin) params.set("durationMin", durationMin);
+  if (durationMax) params.set("durationMax", durationMax);
   if (sort) params.set("sort", sort);
   if (order) params.set("order", order);
   if (q) params.set("q", q);
@@ -281,11 +308,7 @@ async function render() {
     if (queueResult.status === "fulfilled") {
       queueResult.value.forEach((r) => ids.add(r.song_id));
     }
-    if (
-      nowResult.status === "fulfilled" &&
-      nowResult.value &&
-      nowResult.value.song_id != null
-    ) {
+    if (nowResult.status === "fulfilled" && nowResult.value && nowResult.value.song_id != null) {
       ids.add(nowResult.value.song_id);
     }
     const key = [...ids].sort((a, b) => a - b).join(",");
@@ -443,6 +466,10 @@ $("reset-search").onclick = () => {
     "filter-difficulty",
     "filter-meter-min",
     "filter-meter-max",
+    "filter-bpm-min",
+    "filter-bpm-max",
+    "filter-duration-min",
+    "filter-duration-max",
     "sort-field",
     "sort-order",
   ].forEach((id) => {
@@ -459,6 +486,10 @@ $("reset-search").onclick = () => {
   "filter-difficulty",
   "filter-meter-min",
   "filter-meter-max",
+  "filter-bpm-min",
+  "filter-bpm-max",
+  "filter-duration-min",
+  "filter-duration-max",
   "sort-field",
   "sort-order",
   "per-page",
@@ -493,12 +524,20 @@ async function getFilters() {
     const diffSel = $("filter-difficulty");
     const meterMinSel = $("filter-meter-min");
     const meterMaxSel = $("filter-meter-max");
+    const bpmMinSel = $("filter-bpm-min");
+    const bpmMaxSel = $("filter-bpm-max");
+    const durationMinSel = $("filter-duration-min");
+    const durationMaxSel = $("filter-duration-max");
 
     packSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
     genreSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
     diffSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
     meterMinSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
     meterMaxSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    bpmMinSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    bpmMaxSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    durationMinSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    durationMaxSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
 
     const sortAlpha = (a, b) =>
       String(a).localeCompare(String(b), undefined, { sensitivity: "base" });
@@ -545,6 +584,37 @@ async function getFilters() {
       optMax.value = String(m.meter);
       optMax.textContent = String(m.meter);
       meterMaxSel.appendChild(optMax);
+    });
+
+    const bpms = [...(filters.bpms || [])].sort(
+      (a, b) => a.bpm_min - b.bpm_min || a.bpm_max - b.bpm_max,
+    );
+    bpms.forEach((b) => {
+      const label = b.bpm_min === b.bpm_max ? String(b.bpm_min) : `${b.bpm_min}\u2013${b.bpm_max}`;
+      const optMin = document.createElement("option");
+      optMin.value = String(b.bpm_min);
+      optMin.textContent = `${label} (${b.count})`;
+      bpmMinSel.appendChild(optMin);
+
+      const optMax = document.createElement("option");
+      optMax.value = String(b.bpm_max);
+      optMax.textContent = `${label} (${b.count})`;
+      bpmMaxSel.appendChild(optMax);
+    });
+
+    const durations = [...(filters.durations || [])].sort((a, b) => a.seconds - b.seconds);
+    durations.forEach((d) => {
+      const label = formatDuration(d.seconds);
+      const optMin = document.createElement("option");
+      optMin.value = String(d.seconds);
+      optMin.textContent = `${label} (${d.count})`;
+      durationMinSel.appendChild(optMin);
+
+      // A max selection covers the whole 15-second bucket starting at d.seconds.
+      const optMax = document.createElement("option");
+      optMax.value = String(d.seconds + 14);
+      optMax.textContent = `${label} (${d.count})`;
+      durationMaxSel.appendChild(optMax);
     });
   } catch (e) {
     console.error("Failed to load filters", e);
