@@ -28,6 +28,6 @@
     "better-sqlite3@13.0.3": true
   },
   "devDependencies": {
-    "prettier": "^3.9.6"
+    "prettier": "^3.9.8"
   }
 }
