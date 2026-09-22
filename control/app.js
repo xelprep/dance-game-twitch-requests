@@ -17,10 +17,20 @@ function esc(v) {
   );
 }
 
-function toast(msg) {
-  $("toast").textContent = msg;
-  $("toast").classList.add("show");
-  setTimeout(() => $("toast").classList.remove("show"), 2200);
+let _toastTimer = null;
+function toast(msg, type) {
+  clearTimeout(_toastTimer);
+  const el = $("toast");
+  el.textContent = msg;
+  el.classList.remove("show", "toast-error");
+  if (type === "error") el.classList.add("toast-error");
+  // Force a reflow so the transition restarts even if already visible.
+  void el.offsetWidth;
+  el.classList.add("show");
+  _toastTimer = setTimeout(
+    () => el.classList.remove("show", "toast-error"),
+    type === "error" ? 5000 : 2200,
+  );
 }
 
 function getSongSearchPerPage() {
@@ -1250,7 +1260,7 @@ async function nominateTempMod(username) {
     toast(`Nomination sent to ${result.displayname} (${result.tempModTime} min)`);
     renderTempMod();
   } catch (e) {
-    toast(e.message);
+    toast(e.message, "error");
     renderTempMod();
   }
 }

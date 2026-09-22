@@ -1466,10 +1466,21 @@ async function sendWhisper(username, message) {
       return { status: 204, ok: true };
     }
     const body = await resp.text().catch(() => "");
+    // Try to extract a human-readable message from the Twitch JSON response
+    // (e.g. "A user cannot whisper themselves." or "The recipient's settings
+    // prevent this sender from whispering them.").
+    let reason = "";
+    try {
+      const parsed = JSON.parse(body);
+      reason = parsed.message || "";
+    } catch (_) {
+      reason = body;
+    }
+    const detail = reason ? `: ${reason}` : "";
     console.error(
       `[whisper] Whisper to ${username} REJECTED by Helix (status ${resp.status}): ${body}`,
     );
-    throw new Error(`Twitch whisper rejected (status ${resp.status})`);
+    throw new Error(`Twitch whisper rejected (${resp.status})${detail}`);
   } catch (e) {
     // Re-throw so callers (which set pendingNomination = null on failure) behave
     // as before. Network errors are already logged above.

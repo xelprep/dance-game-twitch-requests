@@ -285,6 +285,11 @@ input[type="checkbox"] {
   opacity: 1;
   transform: none;
 }
+#toast.toast-error {
+  background: #3a1c1c;
+  border-color: #b33;
+  color: #fbb;
+}
 .filters {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
