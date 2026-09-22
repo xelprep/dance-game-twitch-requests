@@ -168,6 +168,7 @@ Because these are enforced by Twitch at delivery time, a whisper can appear to "
 ```bash
 npm install
 ```
+
 Copy `.env.example` to `.env` and set:
 
 ```text
