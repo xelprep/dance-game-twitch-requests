@@ -4,6 +4,8 @@ installConsoleLogger();
 
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
+const { Worker } = require("worker_threads");
 
 function decodeSMValue(raw) {
   return String(raw || "")
@@ -37,7 +39,9 @@ function parseNotesBlocks(text) {
   const smRe = /#NOTES:\s*([\s\S]*?);/gi;
   let m;
   while ((m = smRe.exec(text))) {
-    const hm = m[1].match(/^\s*([^:\n]*):([^:\n]*):([^:\n]*):([^:\n]*):([^:\n]*):([\s\S]*)$/);
+    const block = m[1];
+    // First try original one-line format.
+    const hm = block.match(/^\s*([^:\n]*):([^:\n]*):([^:\n]*):([^:\n]*):([^:\n]*):([\s\S]*)$/);
     if (hm) {
       const chart = {
         chartType: hm[1].trim(),
@@ -45,6 +49,35 @@ function parseNotesBlocks(text) {
         meter: normalizeMeter(hm[4]),
         radar: hm[5].trim(),
         noteData: hm[6] || "",
+      };
+      if (chart.chartType === "dance-single" || chart.chartType === "dance-double") {
+        charts.push(chart);
+      }
+      continue;
+    }
+    // Fallback: multiline header with possible blank lines/indentation.
+    const lines = block.split(/\r?\n/);
+    const fields = [];
+    let noteDataStartIdx = 0;
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx].trim();
+      if (!line) continue;
+      if (fields.length < 5) {
+        fields.push(line.replace(/:$/, ""));
+      } else {
+        noteDataStartIdx = idx;
+        break;
+      }
+    }
+    const noteData = lines.slice(noteDataStartIdx).join("\n");
+    if (fields.length === 5) {
+      const chart = {
+        chartType: fields[0].trim(),
+        // fields[1] is author (ignored)
+        difficulty: fields[2].trim(),
+        meter: normalizeMeter(fields[3]),
+        radar: fields[4].trim(),
+        noteData,
       };
       if (chart.chartType === "dance-single" || chart.chartType === "dance-double") {
         charts.push(chart);
@@ -403,6 +436,79 @@ function readPackIniDisplayTitle(packDir) {
   return "";
 }
 
+function computeChartCoreBpm(chart, songTags, isSSC) {
+  const timing = chartTiming(chart, songTags, isSSC);
+  if (!timing.bpms || !timing.bpms.length) return null;
+  const bpms = timing.bpms.filter((e) => e.value > 0);
+  if (!bpms.length) return null;
+  if (bpms.length === 1) return Math.round(bpms[0].value);
+
+  const lastBeat = chart.noteData ? findLastBeat(chart.noteData, timing.timeSignatures) : null;
+  const states = buildTimingStates(timing);
+  if (!states || !states.length) return Math.round(bpms[0].value);
+
+  const maxBeat = lastBeat !== null ? lastBeat : states[states.length - 1].beat;
+  if (maxBeat <= 0) return Math.round(bpms[0].value);
+
+  const bpmDurations = new Map();
+
+  for (let i = 0; i < states.length - 1; i++) {
+    const sCurr = states[i];
+    const sNext = states[i + 1];
+
+    if (sCurr.beat >= maxBeat) break;
+
+    const startBeat = sCurr.beat;
+    const endBeat = Math.min(sNext.beat, maxBeat);
+
+    if (endBeat > startBeat && !sCurr.warp && sCurr.bpm > 0) {
+      const beats = endBeat - startBeat;
+      const seconds = (beats * 60) / sCurr.bpm;
+      const roundedBpm = Math.round(sCurr.bpm);
+      bpmDurations.set(roundedBpm, (bpmDurations.get(roundedBpm) || 0) + seconds);
+    }
+  }
+
+  const lastState = states[states.length - 1];
+  if (lastState.beat < maxBeat && !lastState.warp && lastState.bpm > 0) {
+    const beats = maxBeat - lastState.beat;
+    const seconds = (beats * 60) / lastState.bpm;
+    const roundedBpm = Math.round(lastState.bpm);
+    bpmDurations.set(roundedBpm, (bpmDurations.get(roundedBpm) || 0) + seconds);
+  }
+
+  if (bpmDurations.size === 0) {
+    return Math.round(bpms[0].value);
+  }
+
+  let bestBpm = null;
+  let maxDuration = -1;
+
+  for (const [bpm, duration] of bpmDurations.entries()) {
+    if (duration > maxDuration || (Math.abs(duration - maxDuration) < 1e-6 && bpm > bestBpm)) {
+      maxDuration = duration;
+      bestBpm = bpm;
+    }
+  }
+
+  return bestBpm;
+}
+
+function computeCoreBpm(charts, songTags, isSSC) {
+  const { bpmMin, bpmMax } = parseBpm(songTags);
+  if (bpmMin !== null && bpmMin === bpmMax) {
+    return bpmMin;
+  }
+
+  for (const chart of charts || []) {
+    const core = computeChartCoreBpm(chart, songTags, isSSC);
+    if (core !== null) return core;
+  }
+
+  if (bpmMin !== null) return bpmMin;
+  return null;
+}
+
 function readSongFile(filePath, packOverride) {
   const text = fs.readFileSync(filePath, "utf8");
   const tags = parseTags(text);
@@ -414,6 +520,7 @@ function readSongFile(filePath, packOverride) {
 
   const charts = parseNotesBlocks(text);
   const { bpmMin, bpmMax } = parseBpm(headerTags);
+  const coreBpm = computeCoreBpm(charts, headerTags, isSSC);
 
   return {
     filePath,
@@ -426,6 +533,7 @@ function readSongFile(filePath, packOverride) {
     lastModified: stat.mtimeMs,
     bpmMin,
     bpmMax,
+    coreBpm,
     durationSeconds: computeDuration(charts, headerTags, isSSC),
     charts,
   };
@@ -460,17 +568,139 @@ function collectSongFiles(songsDir) {
   return files.sort();
 }
 
-function scanSongs(songsDir, db) {
+function resolveThreadCount(userOption) {
+  const cpus = os.cpus()?.length || 1;
+  const raw = userOption !== undefined ? userOption : process.env.SCANNER_THREADS;
+  if (
+    raw === undefined ||
+    raw === null ||
+    String(raw).trim() === "" ||
+    String(raw).trim() === "-1"
+  ) {
+    return cpus;
+  }
+  const parsed = parseInt(raw, 10);
+  if (isNaN(parsed) || parsed <= 0) {
+    return cpus;
+  }
+  return Math.max(1, Math.min(parsed, cpus));
+}
+
+function formatDuration(ms) {
+  if (ms >= 1000) {
+    return `${(ms / 1000).toFixed(2)}s`;
+  }
+  return `${Math.round(ms)}ms`;
+}
+
+async function parseSongFilesParallel(tasks, numThreads, onProgress) {
+  if (tasks.length === 0) return [];
+  const activeWorkersCount = Math.min(numThreads, tasks.length);
+
+  if (activeWorkersCount === 1) {
+    const results = [];
+    let completed = 0;
+    for (const task of tasks) {
+      try {
+        const song = readSongFile(task.filePath, task.pack);
+        results.push(song);
+      } catch (err) {
+        // ignore broken file
+      }
+      completed++;
+      if (onProgress) onProgress(completed, tasks.length);
+    }
+    return results;
+  }
+
+  return new Promise((resolve) => {
+    const workerScript = path.join(__dirname, "scannerWorker.js");
+    const workers = [];
+    const results = [];
+    let nextTaskIndex = 0;
+    let completedCount = 0;
+
+    function assignWork(worker) {
+      if (nextTaskIndex < tasks.length) {
+        const taskIndex = nextTaskIndex++;
+        const task = tasks[taskIndex];
+        worker.postMessage({ id: taskIndex, filePath: task.filePath, pack: task.pack });
+      }
+    }
+
+    for (let i = 0; i < activeWorkersCount; i++) {
+      const worker = new Worker(workerScript);
+      workers.push(worker);
+
+      const handleDone = () => {
+        completedCount++;
+        if (onProgress) onProgress(completedCount, tasks.length);
+        if (completedCount === tasks.length) {
+          for (const w of workers) {
+            w.terminate();
+          }
+          resolve(results);
+        } else {
+          assignWork(worker);
+        }
+      };
+
+      worker.on("message", (msg) => {
+        if (msg && msg.ok && msg.song) {
+          results.push(msg.song);
+        }
+        handleDone();
+      });
+
+      worker.on("error", () => {
+        handleDone();
+      });
+
+      assignWork(worker);
+    }
+  });
+}
+
+async function scanSongs(songsDir, db, options = {}) {
+  const startTime = performance.now();
+  const numThreads = resolveThreadCount(options.threads);
+
+  if (!options.silent) {
+    console.log(
+      `Scanning songs: ${songsDir} (${numThreads} ${numThreads === 1 ? "thread" : "threads"})`,
+    );
+  }
+
   const files = collectSongFiles(songsDir);
+  const tasks = files.map((filePath) => {
+    const normalizedPath = path.resolve(filePath);
+    const relativePath = path.relative(songsDir, normalizedPath);
+    const packDir = path.join(songsDir, relativePath.split(path.sep)[0] || "");
+    const pack = readPackIniDisplayTitle(packDir) || relativePath.split(path.sep)[0] || "";
+    return { filePath: normalizedPath, pack };
+  });
+
+  const onProgress = (completed, total) => {
+    if (options.silent) return;
+    const pct = ((completed / total) * 100).toFixed(1);
+    const elapsedSec = ((performance.now() - startTime) / 1000).toFixed(2);
+    const progressLine = `Scanning songs: ${completed}/${total} (${pct}%) - ${elapsedSec}s elapsed`;
+    if (process.stdout.isTTY) {
+      process.stdout.write(`\r${progressLine}`);
+    }
+  };
+
+  const parsedSongs = await parseSongFilesParallel(tasks, numThreads, onProgress);
+
   const seen = new Set();
 
   const upsertSong = db.prepare(`
     INSERT INTO songs
       (file_path, title, subtitle, artist, genre, pack, music, last_modified,
-       bpm_min, bpm_max, duration_seconds)
+       bpm_min, bpm_max, core_bpm, duration_seconds)
     VALUES
       (@filePath, @title, @subtitle, @artist, @genre, @pack, @music, @lastModified,
-       @bpmMin, @bpmMax, @durationSeconds)
+       @bpmMin, @bpmMax, @coreBpm, @durationSeconds)
     ON CONFLICT(file_path) DO UPDATE SET
       title = excluded.title,
       subtitle = excluded.subtitle,
@@ -481,6 +711,7 @@ function scanSongs(songsDir, db) {
       last_modified = excluded.last_modified,
       bpm_min = excluded.bpm_min,
       bpm_max = excluded.bpm_max,
+      core_bpm = excluded.core_bpm,
       duration_seconds = excluded.duration_seconds
   `);
 
@@ -493,13 +724,9 @@ function scanSongs(songsDir, db) {
   `);
 
   const tx = db.transaction(() => {
-    for (const filePath of files) {
-      const normalizedPath = path.resolve(filePath);
-      const relativePath = path.relative(songsDir, normalizedPath);
-      const packDir = path.join(songsDir, relativePath.split(path.sep)[0] || "");
-      const pack = readPackIniDisplayTitle(packDir) || relativePath.split(path.sep)[0] || "";
-      const song = readSongFile(normalizedPath, pack);
-
+    for (const song of parsedSongs) {
+      if (!song || !song.filePath) continue;
+      const normalizedPath = path.resolve(song.filePath);
       upsertSong.run(song);
       const row = getSong.get(normalizedPath);
       if (!row) continue;
@@ -507,7 +734,7 @@ function scanSongs(songsDir, db) {
       seen.add(normalizedPath);
       clearCharts.run(row.id);
 
-      for (const chart of song.charts) {
+      for (const chart of song.charts || []) {
         addChart.run(row.id, chart.chartType, chart.difficulty, chart.meter, chart.radar);
       }
     }
@@ -530,16 +757,33 @@ function scanSongs(songsDir, db) {
 
   tx();
 
+  const elapsedTimeMs = performance.now() - startTime;
+  const timeStr = formatDuration(elapsedTimeMs);
+
+  if (!options.silent && process.stdout.isTTY) {
+    process.stdout.write("\r\x1b[K"); // clear progress line
+  }
+
+  const songCount = db.prepare("SELECT COUNT(*) AS n FROM songs").get().n;
+  const chartCount = db.prepare("SELECT COUNT(*) AS n FROM charts").get().n;
+
+  if (!options.silent) {
+    console.log(`Scan complete: ${songCount} songs, ${chartCount} charts in ${timeStr}.`);
+  }
+
   return {
-    songs: db.prepare("SELECT COUNT(*) AS n FROM songs").get().n,
-    charts: db.prepare("SELECT COUNT(*) AS n FROM charts").get().n,
+    songs: songCount,
+    charts: chartCount,
+    elapsedTimeMs,
   };
 }
 
 module.exports = {
   scanSongs,
+  resolveThreadCount,
   readSongFile,
   parseBpm,
+  computeCoreBpm,
   parseBeatValues,
   parseTimeSignatures,
   findLastBeat,

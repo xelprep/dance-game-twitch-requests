@@ -9,8 +9,10 @@ const Database = require("better-sqlite3");
 
 const {
   scanSongs,
+  resolveThreadCount,
   readSongFile,
   parseBpm,
+  computeCoreBpm,
   parseTimeSignatures,
   findLastBeat,
   buildTimingStates,
@@ -49,7 +51,40 @@ test("readSongFile parses metadata and chart data from .sm files", () => {
   assert.equal(song.charts[0].meter, "10");
 });
 
-test("scanSongs prefers .ssc files when both .sm and .ssc exist", () => {
+test("readSongFile parses metadata and chart data from multiline .sm header", () => {
+  const tmp = tempDir();
+  const filePath = path.join(tmp, "song_multiline.sm");
+  fs.writeFileSync(
+    filePath,
+    `#TITLE:Multiline Song;
+#SUBTITLE:Test;
+#ARTIST:Artist;
+#GENRE:Genre;
+#MUSIC:music.ogg;
+#NOTES:
+    dance-single:
+    Janus5k:
+    Challenge:
+    14:
+    1.000,1.000,0.157,0.136,1.000:
+0000
+0000
+0000
+0000;`,
+    "utf8",
+  );
+
+  const song = readSongFile(filePath, "Test Pack");
+
+  assert.equal(song.title, "Multiline Song");
+  assert.equal(song.charts.length, 1);
+  assert.equal(song.charts[0].chartType, "dance-single");
+  assert.equal(song.charts[0].difficulty, "Challenge");
+  assert.equal(song.charts[0].meter, "14");
+  assert.equal(song.charts[0].radar, "1.000,1.000,0.157,0.136,1.000");
+});
+
+test("scanSongs prefers .ssc files when both .sm and .ssc exist", async () => {
   const tmp = tempDir();
   const base = path.join(tmp, "pack", "Song A");
   fs.mkdirSync(base, { recursive: true });
@@ -75,6 +110,7 @@ test("scanSongs prefers .ssc files when both .sm and .ssc exist", () => {
       last_modified INTEGER NOT NULL,
       bpm_min INTEGER,
       bpm_max INTEGER,
+      core_bpm INTEGER,
       duration_seconds INTEGER
     );
     CREATE TABLE charts (
@@ -109,7 +145,7 @@ test("scanSongs prefers .ssc files when both .sm and .ssc exist", () => {
     );
   `);
 
-  const result = scanSongs(tmp, db);
+  const result = await scanSongs(tmp, db);
 
   assert.equal(result.songs, 1);
   const songRow = db.prepare("SELECT title, pack FROM songs").get();
@@ -117,7 +153,7 @@ test("scanSongs prefers .ssc files when both .sm and .ssc exist", () => {
   assert.equal(songRow.pack, "pack");
 });
 
-test("scanSongs deletes stale songs and their related records", () => {
+test("scanSongs deletes stale songs and their related records", async () => {
   const tmp = tempDir();
   const packDir = path.join(tmp, "pack");
   const songDir = path.join(packDir, "Song 1");
@@ -142,6 +178,7 @@ test("scanSongs deletes stale songs and their related records", () => {
       last_modified INTEGER NOT NULL,
       bpm_min INTEGER,
       bpm_max INTEGER,
+      core_bpm INTEGER,
       duration_seconds INTEGER
     );
     CREATE TABLE charts (
@@ -176,9 +213,9 @@ test("scanSongs deletes stale songs and their related records", () => {
     );
   `);
 
-  scanSongs(tmp, db);
+  await scanSongs(tmp, db);
   fs.rmSync(songDir, { recursive: true, force: true });
-  scanSongs(tmp, db);
+  await scanSongs(tmp, db);
 
   const count = db.prepare("SELECT COUNT(*) AS n FROM songs").get().n;
   assert.equal(count, 0);
@@ -426,7 +463,7 @@ test("readSongFile uses LASTSECONDHINT and BPMS fallback for .ssc files", () => 
   assert.equal(song.durationSeconds, 96);
 });
 
-test("scanSongs persists bpm and duration columns", () => {
+test("scanSongs persists bpm and duration columns", async () => {
   const tmp = tempDir();
   const songDir = path.join(tmp, "pack", "Timing Song");
   writeSongFile(
@@ -465,6 +502,7 @@ test("scanSongs persists bpm and duration columns", () => {
       last_modified INTEGER NOT NULL,
       bpm_min INTEGER,
       bpm_max INTEGER,
+      core_bpm INTEGER,
       duration_seconds INTEGER
     );
     CREATE TABLE charts (
@@ -499,10 +537,126 @@ test("scanSongs persists bpm and duration columns", () => {
     );
   `);
 
-  const result = scanSongs(tmp, db);
+  const result = await scanSongs(tmp, db);
+
   assert.equal(result.songs, 1);
   const row = db.prepare("SELECT bpm_min, bpm_max, duration_seconds FROM songs").get();
   assert.equal(row.bpm_min, 120);
   assert.equal(row.bpm_max, 120);
   assert.equal(row.duration_seconds, 2);
+});
+
+test("resolveThreadCount handles -1, environment variables, user options, and clamping", () => {
+  const cpus = os.cpus()?.length || 1;
+
+  // Default / -1 resolves to all available cpus
+  assert.equal(resolveThreadCount("-1"), cpus);
+  assert.equal(resolveThreadCount(-1), cpus);
+  assert.equal(resolveThreadCount(undefined), cpus);
+
+  // User restriction
+  assert.equal(resolveThreadCount("1"), 1);
+  assert.equal(resolveThreadCount(1), 1);
+  if (cpus > 1) {
+    assert.equal(resolveThreadCount(2), 2);
+  }
+
+  // Clamped to CPU count
+  assert.equal(resolveThreadCount(9999), cpus);
+
+  // Invalid values fall back to cpus
+  assert.equal(resolveThreadCount("invalid"), cpus);
+  assert.equal(resolveThreadCount(0), cpus);
+});
+
+test("scanSongs returns elapsedTimeMs and supports multithreading", async () => {
+  const tmp = tempDir();
+  for (let i = 1; i <= 4; i++) {
+    const songDir = path.join(tmp, "pack", `Song ${i}`);
+    writeSongFile(
+      songDir,
+      `song${i}.sm`,
+      `#TITLE:Song ${i};\n#NOTES:dance-single:1:Easy:4:1.0:0.0:0.0;\n`,
+    );
+  }
+
+  const db = new Database(":memory:");
+  db.exec(`
+    CREATE TABLE songs (
+      id INTEGER PRIMARY KEY,
+      file_path TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      subtitle TEXT DEFAULT '',
+      artist TEXT DEFAULT '',
+      genre TEXT DEFAULT '',
+      pack TEXT DEFAULT '',
+      music TEXT DEFAULT '',
+      last_modified INTEGER NOT NULL,
+      bpm_min INTEGER,
+      bpm_max INTEGER,
+      core_bpm INTEGER,
+      duration_seconds INTEGER
+    );
+    CREATE TABLE charts (
+      id INTEGER PRIMARY KEY,
+      song_id INTEGER NOT NULL,
+      chart_type TEXT DEFAULT '',
+      difficulty TEXT DEFAULT '',
+      meter TEXT DEFAULT '',
+      radar TEXT DEFAULT ''
+    );
+    CREATE TABLE requests (
+      id INTEGER PRIMARY KEY,
+      song_id INTEGER NOT NULL,
+      requested_by TEXT NOT NULL,
+      requested_display TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      created_at INTEGER NOT NULL,
+      started_at INTEGER,
+      completed_at INTEGER
+    );
+    CREATE TABLE blocked (
+      id INTEGER PRIMARY KEY,
+      song_id INTEGER REFERENCES songs(id),
+      username TEXT,
+      reason TEXT DEFAULT '',
+      created_at INTEGER NOT NULL,
+      UNIQUE(song_id, username)
+    );
+    CREATE TABLE settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
+
+  const result = await scanSongs(tmp, db, { threads: 2 });
+  assert.equal(result.songs, 4);
+  assert.equal(typeof result.elapsedTimeMs, "number");
+  assert.ok(result.elapsedTimeMs >= 0);
+});
+
+test("computeCoreBpm calculates dominant BPM by duration and defers to higher BPM on ties", () => {
+  // Constant BPM song
+  assert.equal(computeCoreBpm([], { DISPLAYBPM: "150", BPMS: "0=150" }, false), 150);
+
+  // Variable BPM song: 120 BPM for beats 0..4 (2s), 180 BPM for beats 4..20 (5.33s)
+  const chartsVar = [
+    {
+      chartType: "dance-single",
+      noteData:
+        "0000\n0000\n0000\n0000,\n0000\n0000\n0000\n0000,\n0000\n0000\n0000\n0000,\n0000\n0000\n0000\n0000,\n0000\n0000\n0000\n1000",
+      chartTags: { BPMS: "0=120,4=180" },
+    },
+  ];
+  assert.equal(computeCoreBpm(chartsVar, { BPMS: "0=120,4=180" }, true), 180);
+
+  // Equal duration tie: 140 BPM for 4 beats (1.714s) vs 280 BPM for 8 beats (1.714s). Higher BPM (280) wins!
+  const chartsTie = [
+    {
+      chartType: "dance-single",
+      noteData: "0000\n0000\n0000\n0000,\n0000\n0000\n0000\n0000,\n0000\n0000\n0000\n0000,\n1000",
+      chartTags: { BPMS: "0=140,4=280" },
+    },
+  ];
+  assert.equal(computeCoreBpm(chartsTie, { BPMS: "0=140,4=280" }, true), 280);
 });

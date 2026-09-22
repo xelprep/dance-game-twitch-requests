@@ -232,19 +232,19 @@ test("songs API marks queued and playing songs when markActive is set", async ()
 
 test("songs API filters by BPM range and duration range", async () => {
   resetSettings();
-  const insertSong = (title, bpmMin, bpmMax, duration) =>
+  const insertSong = (title, bpmMin, bpmMax, coreBpm, duration) =>
     db
       .prepare(
-        "INSERT INTO songs (file_path, title, last_modified, bpm_min, bpm_max, duration_seconds) VALUES (?, ?, 0, ?, ?, ?)",
+        "INSERT INTO songs (file_path, title, last_modified, bpm_min, bpm_max, core_bpm, duration_seconds) VALUES (?, ?, 0, ?, ?, ?, ?)",
       )
-      .run(`${title}.sm`, title, bpmMin, bpmMax, duration).lastInsertRowid;
+      .run(`${title}.sm`, title, bpmMin, bpmMax, coreBpm, duration).lastInsertRowid;
 
   const songIds = [
-    insertSong("Bpm Filter 100", 100, 100, 120),
-    insertSong("Bpm Filter 120-150", 120, 150, 300),
-    insertSong("Bpm Filter No Data", null, null, null),
+    insertSong("Bpm Filter 100", 100, 100, 100, 120),
+    insertSong("Bpm Filter 140", 120, 150, 140, 300),
+    insertSong("Bpm Filter No Data", null, null, null, null),
   ];
-  const titles = ["Bpm Filter 100", "Bpm Filter 120-150", "Bpm Filter No Data"];
+  const titles = ["Bpm Filter 100", "Bpm Filter 140", "Bpm Filter No Data"];
 
   const server = await startPublicModeratorApp();
   const port = server.address().port;
@@ -269,12 +269,12 @@ test("songs API filters by BPM range and duration range", async () => {
     const all = await getTitles("");
     assert.ok(titles.every((title) => all.titles.includes(title)));
     assert.equal(all.songs[titles[0]].bpmMin, 100);
-    assert.equal(all.songs[titles[1]].bpmMax, 150);
+    assert.equal(all.songs[titles[1]].coreBpm, 140);
     assert.equal(all.songs[titles[2]].durationSeconds, null);
 
-    // Overlap filter: only the 120-150 range overlaps [110, 160].
+    // Core BPM filter: core_bpm=140 is matched by [110, 160].
     assert.deepEqual((await getTitles("?bpmMin=110&bpmMax=160")).titles, [titles[1]]);
-    // One-sided windows keep both 100 and 120-150, never the NULL row.
+    // One-sided windows keep both 100 and 140, never the NULL row.
     assert.deepEqual((await getTitles("?bpmMin=100")).titles, [titles[0], titles[1]]);
     assert.deepEqual((await getTitles("?bpmMax=100")).titles, [titles[0]]);
 
@@ -288,19 +288,19 @@ test("songs API filters by BPM range and duration range", async () => {
   }
 });
 
-test("song-filters returns bpm labels and 15-second duration buckets", async () => {
+test("song-filters returns 10-BPM buckets and 15-second duration buckets", async () => {
   resetSettings();
-  const insertSong = (title, bpmMin, bpmMax, duration) =>
+  const insertSong = (title, bpmMin, bpmMax, coreBpm, duration) =>
     db
       .prepare(
-        "INSERT INTO songs (file_path, title, last_modified, bpm_min, bpm_max, duration_seconds) VALUES (?, ?, 0, ?, ?, ?)",
+        "INSERT INTO songs (file_path, title, last_modified, bpm_min, bpm_max, core_bpm, duration_seconds) VALUES (?, ?, 0, ?, ?, ?, ?)",
       )
-      .run(`${title}.sm`, title, bpmMin, bpmMax, duration).lastInsertRowid;
+      .run(`${title}.sm`, title, bpmMin, bpmMax, coreBpm, duration).lastInsertRowid;
 
   const songIds = [
-    insertSong("Bpm Bucket 100", 100, 100, 122),
-    insertSong("Bpm Bucket 120-150 A", 120, 150, 307),
-    insertSong("Bpm Bucket 120-150 B", 120, 150, 310),
+    insertSong("Bpm Bucket 100", 100, 100, 100, 122),
+    insertSong("Bpm Bucket 140 A", 120, 150, 140, 307),
+    insertSong("Bpm Bucket 140 B", 120, 150, 140, 310),
   ];
 
   const server = await startPublicModeratorApp();
@@ -313,15 +313,13 @@ test("song-filters returns bpm labels and 15-second duration buckets", async () 
     assert.equal(res.status, 200);
     const json = await res.json();
 
-    const constant = json.bpms.find((entry) => entry.bpm_min === 100 && entry.bpm_max === 100);
-    assert.ok(constant);
-    assert.equal(constant.label, "100");
-    assert.equal(constant.count, 1);
+    const bucket100 = json.bpms.find((entry) => entry.bpm === 100);
+    assert.ok(bucket100);
+    assert.equal(bucket100.count, 1);
 
-    const range = json.bpms.find((entry) => entry.bpm_min === 120 && entry.bpm_max === 150);
-    assert.ok(range);
-    assert.equal(range.label, "120-150");
-    assert.equal(range.count, 2);
+    const bucket140 = json.bpms.find((entry) => entry.bpm === 140);
+    assert.ok(bucket140);
+    assert.equal(bucket140.count, 2);
 
     // 122s -> 120 bucket; 307s and 310s -> 300 bucket.
     const bucket120 = json.durations.find((entry) => entry.seconds === 120);

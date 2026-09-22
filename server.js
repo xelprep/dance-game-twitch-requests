@@ -301,6 +301,7 @@ CREATE TABLE IF NOT EXISTS songs (
   last_modified INTEGER NOT NULL,
   bpm_min INTEGER,
   bpm_max INTEGER,
+  core_bpm INTEGER,
   duration_seconds INTEGER
 );
 
@@ -352,7 +353,7 @@ CREATE TABLE IF NOT EXISTS settings (
     .prepare("PRAGMA table_info(songs)")
     .all()
     .map((r) => r.name);
-  for (const column of ["bpm_min", "bpm_max", "duration_seconds"]) {
+  for (const column of ["bpm_min", "bpm_max", "core_bpm", "duration_seconds"]) {
     if (!songColumns.includes(column)) {
       db.exec(`ALTER TABLE songs ADD COLUMN ${column} INTEGER`);
     }
@@ -360,15 +361,13 @@ CREATE TABLE IF NOT EXISTS settings (
   db.exec(`
 CREATE INDEX IF NOT EXISTS idx_songs_bpm_min ON songs(bpm_min);
 CREATE INDEX IF NOT EXISTS idx_songs_bpm_max ON songs(bpm_max);
+CREATE INDEX IF NOT EXISTS idx_songs_core_bpm ON songs(core_bpm);
 CREATE INDEX IF NOT EXISTS idx_songs_duration ON songs(duration_seconds);
 `);
 }
 
-function refreshDatabase() {
-  console.log(`Scanning songs: ${SONGS_DIR}`);
-  const result = scanSongs(SONGS_DIR, db);
-  console.log(`Scan complete: ${result.songs} songs, ${result.charts} charts.`);
-  return result;
+async function refreshDatabase() {
+  return await scanSongs(SONGS_DIR, db);
 }
 
 // Temp-mod sessions are not persisted across restarts; initialize the state here
@@ -388,36 +387,6 @@ if (secureModeResult.secureMode) {
 // from a clean slate regardless of SECURE_MODE.
 activeTempMod = null;
 pendingNomination = null;
-
-// Only scan songs on real startup, not during test mode
-if (SHOULD_START_APP) {
-  const result = refreshDatabase();
-
-  if (result.songs === 0) {
-    console.error(`
-====================================================================
-ERROR: No songs found in ${SONGS_DIR}
-====================================================================
-
-The application cannot start without a song library. Please check:
-
-  1. SONGS_DIR is set correctly in your .env file.
-     Current value: ${SONGS_DIR}
-     Does this directory exist on your system?
-
-  2. The directory contains subdirectories with .sm or .ssc files.
-     The scanner looks for dance game SimFiles (.sm / .ssc) inside
-     nested folders (pack > song).
-
-  3. If you are using a Docker container, make sure your Songs
-     directory is mounted as a volume.
-
-Fix the path or add songs, then restart the application.
-====================================================================
-`);
-    process.exit(1);
-  }
-}
 
 function transliterateLatin(s) {
   return String(s || "")
@@ -1164,7 +1133,9 @@ function songRow(row) {
     filePath: row.file_path,
     bpmMin: row.bpm_min ?? null,
     bpmMax: row.bpm_max ?? null,
+    coreBpm: row.core_bpm ?? row.bpm_min ?? null,
     durationSeconds: row.duration_seconds ?? null,
+
     charts: getSongCharts(row.id),
   };
 }
@@ -1760,13 +1731,15 @@ function createApi(app, options = {}) {
         ? Number(req.query.bpmMax)
         : null;
     if (bpmMin !== null && Number.isFinite(bpmMin)) {
-      where.push("bpm_min IS NOT NULL AND bpm_max IS NOT NULL");
-      where.push("bpm_max >= @bpmMin");
+      where.push(
+        "COALESCE(core_bpm, bpm_min) IS NOT NULL AND COALESCE(core_bpm, bpm_min) >= @bpmMin",
+      );
       params.bpmMin = bpmMin;
     }
     if (bpmMax !== null && Number.isFinite(bpmMax)) {
-      where.push("bpm_min IS NOT NULL AND bpm_max IS NOT NULL");
-      where.push("bpm_min <= @bpmMax");
+      where.push(
+        "COALESCE(core_bpm, bpm_max) IS NOT NULL AND COALESCE(core_bpm, bpm_max) <= @bpmMax",
+      );
       params.bpmMax = bpmMax;
     }
 
@@ -1925,18 +1898,17 @@ function createApi(app, options = {}) {
       )
       .all();
 
-    // Distinct BPM values (for constant-BPM songs) and ranges (min-max).
+    // BPM buckets in 10-BPM increments.
     const bpms = db
       .prepare(
         `
       SELECT
-        CASE WHEN bpm_min = bpm_max THEN CAST(bpm_min AS TEXT)
-             ELSE bpm_min || '-' || bpm_max END AS label,
-        bpm_min, bpm_max, COUNT(*) count
+        (COALESCE(core_bpm, bpm_min) / 10) * 10 AS bpm,
+        COUNT(*) AS count
       FROM songs
-      WHERE bpm_min IS NOT NULL AND bpm_max IS NOT NULL
-      GROUP BY bpm_min, bpm_max
-      ORDER BY bpm_min ASC, bpm_max ASC
+      WHERE COALESCE(core_bpm, bpm_min) IS NOT NULL
+      GROUP BY bpm
+      ORDER BY bpm ASC
     `,
       )
       .all();
@@ -2521,9 +2493,9 @@ function createApi(app, options = {}) {
       res.json({ ok: info.changes > 0 });
     });
 
-    app.post("/api/rescan", (_req, res) => {
+    app.post("/api/rescan", async (_req, res) => {
       try {
-        const result = refreshDatabase();
+        const result = await refreshDatabase();
         res.json({ ok: true, ...result });
       } catch (e) {
         res.status(500).json({ error: e.message });
@@ -2873,44 +2845,42 @@ async function performRestart() {
 }
 
 // Create HTTPS servers for both public viewer site and streamer control panel.
-if (SHOULD_START_APP) {
-  (async () => {
-    const target = getNetworkSettings();
-    try {
-      // Startup check: if either configured port is already taken, log a
-      // helpful message and quit gracefully instead of crashing with EADDRINUSE.
-      const problem = await checkPortsAvailable(target);
-      if (problem) {
-        console.error("====================================================================");
-        console.error(`ERROR: Cannot start the servers: ${networkProblemMessage(problem)}`);
-        console.error(
-          "The app is exiting. Free up the port (or change the address/ports in the streamer",
-        );
-        console.error("control panel → Network section on the next start) and try again.");
-        console.error("====================================================================");
-        process.exit(1);
-      }
-
-      const tlsOptions = await getControlTlsOptions({ host: target.host });
-      const publicServer = https.createServer(tlsOptions, publicApp);
-      await listenServer(publicServer, target.publicPort, target.host);
-      runningServers.push({ role: "public", server: publicServer });
-      const controlServer = https.createServer(tlsOptions, controlApp);
-      await listenServer(controlServer, target.controlPort, target.host);
-      runningServers.push({ role: "control", server: controlServer });
-
-      console.log(`Public request site: ${serverLabelUrl(target.host, target.publicPort)}`);
-      console.log(`Streamer control panel: ${serverLabelUrl(target.host, target.controlPort)}`);
-    } catch (e) {
-      for (const entry of runningServers.slice()) {
-        await stopHttpsServer(entry).catch(() => {});
-      }
-      runningServers.length = 0;
-      console.error("Failed to start HTTPS servers:");
-      console.error(restartFailureMessage(e, target));
+async function startNetworkServers() {
+  const target = getNetworkSettings();
+  try {
+    // Startup check: if either configured port is already taken, log a
+    // helpful message and quit gracefully instead of crashing with EADDRINUSE.
+    const problem = await checkPortsAvailable(target);
+    if (problem) {
+      console.error("====================================================================");
+      console.error(`ERROR: Cannot start the servers: ${networkProblemMessage(problem)}`);
+      console.error(
+        "The app is exiting. Free up the port (or change the address/ports in the streamer",
+      );
+      console.error("control panel → Network section on the next start) and try again.");
+      console.error("====================================================================");
       process.exit(1);
     }
-  })();
+
+    const tlsOptions = await getControlTlsOptions({ host: target.host });
+    const publicServer = https.createServer(tlsOptions, publicApp);
+    await listenServer(publicServer, target.publicPort, target.host);
+    runningServers.push({ role: "public", server: publicServer });
+    const controlServer = https.createServer(tlsOptions, controlApp);
+    await listenServer(controlServer, target.controlPort, target.host);
+    runningServers.push({ role: "control", server: controlServer });
+
+    console.log(`Public request site: ${serverLabelUrl(target.host, target.publicPort)}`);
+    console.log(`Streamer control panel: ${serverLabelUrl(target.host, target.controlPort)}`);
+  } catch (e) {
+    for (const entry of runningServers.slice()) {
+      await stopHttpsServer(entry).catch(() => {});
+    }
+    runningServers.length = 0;
+    console.error("Failed to start HTTPS servers:");
+    console.error(restartFailureMessage(e, target));
+    process.exit(1);
+  }
 }
 
 module.exports = {
@@ -3799,34 +3769,67 @@ async function stopTmiClient() {
 }
 
 // Load config from disk or environment and start client if present.
+function initializeTwitch() {
+  // Environment variables take precedence; if present write them to persistent config.
+  const envUsername = process.env.TWITCH_USERNAME;
+  const envOauth = process.env.TWITCH_OAUTH_TOKEN;
+  const envChannel = (process.env.TWITCH_CHANNEL || "").replace(/^#/, "");
+  const envClientId = process.env.TWITCH_CLIENT_ID || null;
+  const envClientSecret = process.env.TWITCH_CLIENT_SECRET || null;
+
+  if (envUsername && envOauth && envChannel) {
+    saveTwitchConfig({
+      username: envUsername,
+      accessToken: String(envOauth).replace(/^oauth:/, ""),
+      channel: envChannel,
+      clientId: envClientId,
+      clientSecret: envClientSecret,
+    });
+  }
+
+  const cfg = loadTwitchConfig();
+  if (cfg && cfg.accessToken && cfg.channel) {
+    startTmiClient(cfg);
+    scheduleTwitchRefresh();
+  } else {
+    console.warn(
+      "Twitch bot disabled: set TWITCH_USERNAME, TWITCH_OAUTH_TOKEN and TWITCH_CHANNEL, or use the control panel to connect.",
+    );
+  }
+}
+
+// Unified app startup: scan songs first, then start network servers and Twitch bot.
 if (SHOULD_START_APP) {
-  (function initializeTwitch() {
-    // Environment variables take precedence; if present write them to persistent config.
-    const envUsername = process.env.TWITCH_USERNAME;
-    const envOauth = process.env.TWITCH_OAUTH_TOKEN;
-    const envChannel = (process.env.TWITCH_CHANNEL || "").replace(/^#/, "");
-    const envClientId = process.env.TWITCH_CLIENT_ID || null;
-    const envClientSecret = process.env.TWITCH_CLIENT_SECRET || null;
+  (async () => {
+    const result = await refreshDatabase();
 
-    if (envUsername && envOauth && envChannel) {
-      saveTwitchConfig({
-        username: envUsername,
-        accessToken: String(envOauth).replace(/^oauth:/, ""),
-        channel: envChannel,
-        clientId: envClientId,
-        clientSecret: envClientSecret,
-      });
+    if (result.songs === 0) {
+      console.error(`
+====================================================================
+ERROR: No songs found in ${SONGS_DIR}
+====================================================================
+
+The application cannot start without a song library. Please check:
+
+  1. SONGS_DIR is set correctly in your .env file.
+     Current value: ${SONGS_DIR}
+     Does this directory exist on your system?
+
+  2. The directory contains subdirectories with .sm or .ssc files.
+     The scanner looks for dance game SimFiles (.sm / .ssc) inside
+     nested folders (pack > song).
+
+  3. If you are using a Docker container, make sure your Songs
+     directory is mounted as a volume.
+
+Fix the path or add songs, then restart the application.
+====================================================================
+`);
+      process.exit(1);
     }
 
-    const cfg = loadTwitchConfig();
-    if (cfg && cfg.accessToken && cfg.channel) {
-      startTmiClient(cfg);
-      scheduleTwitchRefresh();
-    } else {
-      console.warn(
-        "Twitch bot disabled: set TWITCH_USERNAME, TWITCH_OAUTH_TOKEN and TWITCH_CHANNEL, or use the control panel to connect.",
-      );
-    }
+    await startNetworkServers();
+    initializeTwitch();
   })();
 }
 

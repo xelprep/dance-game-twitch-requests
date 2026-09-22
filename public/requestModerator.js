@@ -105,7 +105,8 @@ function songCard(song) {
         : `BPM: ${song.bpmMin}\u2013${song.bpmMax}`
       : "";
   const durationLabel = song.durationSeconds != null ? formatDuration(song.durationSeconds) : "";
-  const statsLabel = [bpmLabel, durationLabel].filter(Boolean).join(" \u2022 ");
+  const coreBpmLabel = song.coreBpm != null ? `Core BPM: ${song.coreBpm}` : "";
+  const statsLabel = [bpmLabel, coreBpmLabel, durationLabel].filter(Boolean).join(" \u2022 ");
 
   const article = document.createElement("article");
   article.className = active ? "song dimmed" : "song";
@@ -587,17 +588,18 @@ async function getFilters() {
     });
 
     const bpms = [...(filters.bpms || [])].sort(
-      (a, b) => a.bpm_min - b.bpm_min || a.bpm_max - b.bpm_max,
+      (a, b) => (a.bpm ?? a.bpm_min) - (b.bpm ?? b.bpm_min),
     );
     bpms.forEach((b) => {
-      const label = b.bpm_min === b.bpm_max ? String(b.bpm_min) : `${b.bpm_min}\u2013${b.bpm_max}`;
+      const val = b.bpm ?? b.bpm_min;
+      const label = `${val} BPM`;
       const optMin = document.createElement("option");
-      optMin.value = String(b.bpm_min);
+      optMin.value = String(val);
       optMin.textContent = `${label} (${b.count})`;
       bpmMinSel.appendChild(optMin);
 
       const optMax = document.createElement("option");
-      optMax.value = String(b.bpm_max);
+      optMax.value = String(val);
       optMax.textContent = `${label} (${b.count})`;
       bpmMaxSel.appendChild(optMax);
     });
@@ -610,9 +612,8 @@ async function getFilters() {
       optMin.textContent = `${label} (${d.count})`;
       durationMinSel.appendChild(optMin);
 
-      // A max selection covers the whole 15-second bucket starting at d.seconds.
       const optMax = document.createElement("option");
-      optMax.value = String(d.seconds + 14);
+      optMax.value = String(d.seconds);
       optMax.textContent = `${label} (${d.count})`;
       durationMaxSel.appendChild(optMax);
     });

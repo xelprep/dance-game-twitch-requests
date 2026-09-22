@@ -26,7 +26,9 @@ const {
   getOnlineUsers,
 } = require("../../server.js");
 
-scanSongs(tmpSongsDir, db);
+test.before(async () => {
+  await scanSongs(tmpSongsDir, db);
+});
 
 function createMockClient() {
   const sent = [];
