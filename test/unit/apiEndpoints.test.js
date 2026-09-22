@@ -185,10 +185,11 @@ test("song-filters meters dedupe leading-zero variants of the same meter", async
 test("songs API marks queued and playing songs when markActive is set", async () => {
   resetSettings();
   const titles = ["Mark Queued Song", "Mark Playing Song", "Plain Song"];
-  const songIds = titles.map((title) =>
-    db
-      .prepare("INSERT INTO songs (file_path, title, last_modified) VALUES (?, ?, 0)")
-      .run(`${title}.sm`, title).lastInsertRowid,
+  const songIds = titles.map(
+    (title) =>
+      db
+        .prepare("INSERT INTO songs (file_path, title, last_modified) VALUES (?, ?, 0)")
+        .run(`${title}.sm`, title).lastInsertRowid,
   );
   const insertRequest = (songId, status) =>
     db
@@ -225,6 +226,110 @@ test("songs API marks queued and playing songs when markActive is set", async ()
   } finally {
     server.close();
     db.prepare("DELETE FROM requests WHERE song_id IN (?, ?, ?)").run(...songIds);
+    db.prepare("DELETE FROM songs WHERE id IN (?, ?, ?)").run(...songIds);
+  }
+});
+
+test("songs API filters by BPM range and duration range", async () => {
+  resetSettings();
+  const insertSong = (title, bpmMin, bpmMax, coreBpm, duration) =>
+    db
+      .prepare(
+        "INSERT INTO songs (file_path, title, last_modified, bpm_min, bpm_max, core_bpm, duration_seconds) VALUES (?, ?, 0, ?, ?, ?, ?)",
+      )
+      .run(`${title}.sm`, title, bpmMin, bpmMax, coreBpm, duration).lastInsertRowid;
+
+  const songIds = [
+    insertSong("Bpm Filter 100", 100, 100, 100, 120),
+    insertSong("Bpm Filter 140", 120, 150, 140, 300),
+    insertSong("Bpm Filter No Data", null, null, null, null),
+  ];
+  const titles = ["Bpm Filter 100", "Bpm Filter 140", "Bpm Filter No Data"];
+
+  const server = await startPublicModeratorApp();
+  const port = server.address().port;
+  const getTitles = async (query) => {
+    const url = new URL(`http://127.0.0.1:${port}/api/songs`);
+    url.searchParams.set("perPage", "100");
+    for (const [key, value] of new URLSearchParams(query.replace(/^\?/, ""))) {
+      url.searchParams.set(key, value);
+    }
+    const json = await (
+      await fetch(url, {
+        headers: { Accept: "application/json" },
+      })
+    ).json();
+    return {
+      titles: json.songs.map((song) => song.title),
+      songs: Object.fromEntries(json.songs.map((song) => [song.title, song])),
+    };
+  };
+
+  try {
+    const all = await getTitles("");
+    assert.ok(titles.every((title) => all.titles.includes(title)));
+    assert.equal(all.songs[titles[0]].bpmMin, 100);
+    assert.equal(all.songs[titles[1]].coreBpm, 140);
+    assert.equal(all.songs[titles[2]].durationSeconds, null);
+
+    // Core BPM filter: core_bpm=140 is matched by [110, 160].
+    assert.deepEqual((await getTitles("?bpmMin=110&bpmMax=160")).titles, [titles[1]]);
+    // One-sided windows keep both 100 and 140, never the NULL row.
+    assert.deepEqual((await getTitles("?bpmMin=100")).titles, [titles[0], titles[1]]);
+    assert.deepEqual((await getTitles("?bpmMax=100")).titles, [titles[0]]);
+
+    // Duration range filters exclude NULL durations.
+    assert.deepEqual((await getTitles("?durationMin=100&durationMax=200")).titles, [titles[0]]);
+    assert.deepEqual((await getTitles("?durationMin=200")).titles, [titles[1]]);
+    assert.deepEqual((await getTitles("?durationMax=100")).titles, []);
+  } finally {
+    server.close();
+    db.prepare("DELETE FROM songs WHERE id IN (?, ?, ?)").run(...songIds);
+  }
+});
+
+test("song-filters returns 10-BPM buckets and 15-second duration buckets", async () => {
+  resetSettings();
+  const insertSong = (title, bpmMin, bpmMax, coreBpm, duration) =>
+    db
+      .prepare(
+        "INSERT INTO songs (file_path, title, last_modified, bpm_min, bpm_max, core_bpm, duration_seconds) VALUES (?, ?, 0, ?, ?, ?, ?)",
+      )
+      .run(`${title}.sm`, title, bpmMin, bpmMax, coreBpm, duration).lastInsertRowid;
+
+  const songIds = [
+    insertSong("Bpm Bucket 100", 100, 100, 100, 122),
+    insertSong("Bpm Bucket 140 A", 120, 150, 140, 307),
+    insertSong("Bpm Bucket 140 B", 120, 150, 140, 310),
+  ];
+
+  const server = await startPublicModeratorApp();
+  const port = server.address().port;
+
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/song-filters`, {
+      headers: { Accept: "application/json" },
+    });
+    assert.equal(res.status, 200);
+    const json = await res.json();
+
+    const bucket100 = json.bpms.find((entry) => entry.bpm === 100);
+    assert.ok(bucket100);
+    assert.equal(bucket100.count, 1);
+
+    const bucket140 = json.bpms.find((entry) => entry.bpm === 140);
+    assert.ok(bucket140);
+    assert.equal(bucket140.count, 2);
+
+    // 122s -> 120 bucket; 307s and 310s -> 300 bucket.
+    const bucket120 = json.durations.find((entry) => entry.seconds === 120);
+    assert.ok(bucket120);
+    assert.equal(bucket120.count, 1);
+    const bucket300 = json.durations.find((entry) => entry.seconds === 300);
+    assert.ok(bucket300);
+    assert.equal(bucket300.count, 2);
+  } finally {
+    server.close();
     db.prepare("DELETE FROM songs WHERE id IN (?, ?, ?)").run(...songIds);
   }
 });

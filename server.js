@@ -298,7 +298,11 @@ CREATE TABLE IF NOT EXISTS songs (
   genre TEXT DEFAULT '',
   pack TEXT DEFAULT '',
   music TEXT DEFAULT '',
-  last_modified INTEGER NOT NULL
+  last_modified INTEGER NOT NULL,
+  bpm_min INTEGER,
+  bpm_max INTEGER,
+  core_bpm INTEGER,
+  duration_seconds INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS charts (
@@ -341,11 +345,29 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `);
 
-function refreshDatabase() {
-  console.log(`Scanning songs: ${SONGS_DIR}`);
-  const result = scanSongs(SONGS_DIR, db);
-  console.log(`Scan complete: ${result.songs} songs, ${result.charts} charts.`);
-  return result;
+// Safe migration for pre-existing databases: add the BPM/duration columns and
+// their indexes if they are missing (new databases already have them via the
+// CREATE TABLE above, so the ALTERs are skipped).
+{
+  const songColumns = db
+    .prepare("PRAGMA table_info(songs)")
+    .all()
+    .map((r) => r.name);
+  for (const column of ["bpm_min", "bpm_max", "core_bpm", "duration_seconds"]) {
+    if (!songColumns.includes(column)) {
+      db.exec(`ALTER TABLE songs ADD COLUMN ${column} INTEGER`);
+    }
+  }
+  db.exec(`
+CREATE INDEX IF NOT EXISTS idx_songs_bpm_min ON songs(bpm_min);
+CREATE INDEX IF NOT EXISTS idx_songs_bpm_max ON songs(bpm_max);
+CREATE INDEX IF NOT EXISTS idx_songs_core_bpm ON songs(core_bpm);
+CREATE INDEX IF NOT EXISTS idx_songs_duration ON songs(duration_seconds);
+`);
+}
+
+async function refreshDatabase() {
+  return await scanSongs(SONGS_DIR, db);
 }
 
 // Temp-mod sessions are not persisted across restarts; initialize the state here
@@ -365,36 +387,6 @@ if (secureModeResult.secureMode) {
 // from a clean slate regardless of SECURE_MODE.
 activeTempMod = null;
 pendingNomination = null;
-
-// Only scan songs on real startup, not during test mode
-if (SHOULD_START_APP) {
-  const result = refreshDatabase();
-
-  if (result.songs === 0) {
-    console.error(`
-====================================================================
-ERROR: No songs found in ${SONGS_DIR}
-====================================================================
-
-The application cannot start without a song library. Please check:
-
-  1. SONGS_DIR is set correctly in your .env file.
-     Current value: ${SONGS_DIR}
-     Does this directory exist on your system?
-
-  2. The directory contains subdirectories with .sm or .ssc files.
-     The scanner looks for dance game SimFiles (.sm / .ssc) inside
-     nested folders (pack > song).
-
-  3. If you are using a Docker container, make sure your Songs
-     directory is mounted as a volume.
-
-Fix the path or add songs, then restart the application.
-====================================================================
-`);
-    process.exit(1);
-  }
-}
 
 function transliterateLatin(s) {
   return String(s || "")
@@ -1139,6 +1131,11 @@ function songRow(row) {
     pack: row.pack,
     music: row.music,
     filePath: row.file_path,
+    bpmMin: row.bpm_min ?? null,
+    bpmMax: row.bpm_max ?? null,
+    coreBpm: row.core_bpm ?? row.bpm_min ?? null,
+    durationSeconds: row.duration_seconds ?? null,
+
     charts: getSongCharts(row.id),
   };
 }
@@ -1723,6 +1720,47 @@ function createApi(app, options = {}) {
       params.genre = String(req.query.genre);
     }
 
+    // BPM range: a song matches when its [bpm_min, bpm_max] range overlaps the
+    // requested [bpmMin, bpmMax] window (either side may be omitted).
+    const bpmMin =
+      typeof req.query.bpmMin !== "undefined" && req.query.bpmMin !== ""
+        ? Number(req.query.bpmMin)
+        : null;
+    const bpmMax =
+      typeof req.query.bpmMax !== "undefined" && req.query.bpmMax !== ""
+        ? Number(req.query.bpmMax)
+        : null;
+    if (bpmMin !== null && Number.isFinite(bpmMin)) {
+      where.push(
+        "COALESCE(core_bpm, bpm_min) IS NOT NULL AND COALESCE(core_bpm, bpm_min) >= @bpmMin",
+      );
+      params.bpmMin = bpmMin;
+    }
+    if (bpmMax !== null && Number.isFinite(bpmMax)) {
+      where.push(
+        "COALESCE(core_bpm, bpm_max) IS NOT NULL AND COALESCE(core_bpm, bpm_max) <= @bpmMax",
+      );
+      params.bpmMax = bpmMax;
+    }
+
+    // Duration range (seconds), inclusive.
+    const durationMin =
+      typeof req.query.durationMin !== "undefined" && req.query.durationMin !== ""
+        ? Number(req.query.durationMin)
+        : null;
+    const durationMax =
+      typeof req.query.durationMax !== "undefined" && req.query.durationMax !== ""
+        ? Number(req.query.durationMax)
+        : null;
+    if (durationMin !== null && Number.isFinite(durationMin)) {
+      where.push("duration_seconds IS NOT NULL AND duration_seconds >= @durationMin");
+      params.durationMin = durationMin;
+    }
+    if (durationMax !== null && Number.isFinite(durationMax)) {
+      where.push("duration_seconds IS NOT NULL AND duration_seconds <= @durationMax");
+      params.durationMax = durationMax;
+    }
+
     // Chart-based filters: style, difficulty, meter range
     const chartWhere = [];
     if (req.query.style) {
@@ -1860,7 +1898,34 @@ function createApi(app, options = {}) {
       )
       .all();
 
-    res.json({ packs, genres, difficulties, meters, styles });
+    // BPM buckets in 10-BPM increments.
+    const bpms = db
+      .prepare(
+        `
+      SELECT
+        (COALESCE(core_bpm, bpm_min) / 10) * 10 AS bpm,
+        COUNT(*) AS count
+      FROM songs
+      WHERE COALESCE(core_bpm, bpm_min) IS NOT NULL
+      GROUP BY bpm
+      ORDER BY bpm ASC
+    `,
+      )
+      .all();
+
+    // Duration buckets in 15-second increments.
+    const durations = db
+      .prepare(
+        `
+      SELECT (duration_seconds / 15) * 15 AS seconds, COUNT(*) count
+      FROM songs
+      WHERE duration_seconds IS NOT NULL
+      GROUP BY seconds ORDER BY seconds ASC
+    `,
+      )
+      .all();
+
+    res.json({ packs, genres, difficulties, meters, styles, bpms, durations });
   });
 
   app.get("/api/queue", (_req, res) => res.json(getQueue()));
@@ -2428,9 +2493,9 @@ function createApi(app, options = {}) {
       res.json({ ok: info.changes > 0 });
     });
 
-    app.post("/api/rescan", (_req, res) => {
+    app.post("/api/rescan", async (_req, res) => {
       try {
-        const result = refreshDatabase();
+        const result = await refreshDatabase();
         res.json({ ok: true, ...result });
       } catch (e) {
         res.status(500).json({ error: e.message });
@@ -2780,44 +2845,42 @@ async function performRestart() {
 }
 
 // Create HTTPS servers for both public viewer site and streamer control panel.
-if (SHOULD_START_APP) {
-  (async () => {
-    const target = getNetworkSettings();
-    try {
-      // Startup check: if either configured port is already taken, log a
-      // helpful message and quit gracefully instead of crashing with EADDRINUSE.
-      const problem = await checkPortsAvailable(target);
-      if (problem) {
-        console.error("====================================================================");
-        console.error(`ERROR: Cannot start the servers: ${networkProblemMessage(problem)}`);
-        console.error(
-          "The app is exiting. Free up the port (or change the address/ports in the streamer",
-        );
-        console.error("control panel → Network section on the next start) and try again.");
-        console.error("====================================================================");
-        process.exit(1);
-      }
-
-      const tlsOptions = await getControlTlsOptions({ host: target.host });
-      const publicServer = https.createServer(tlsOptions, publicApp);
-      await listenServer(publicServer, target.publicPort, target.host);
-      runningServers.push({ role: "public", server: publicServer });
-      const controlServer = https.createServer(tlsOptions, controlApp);
-      await listenServer(controlServer, target.controlPort, target.host);
-      runningServers.push({ role: "control", server: controlServer });
-
-      console.log(`Public request site: ${serverLabelUrl(target.host, target.publicPort)}`);
-      console.log(`Streamer control panel: ${serverLabelUrl(target.host, target.controlPort)}`);
-    } catch (e) {
-      for (const entry of runningServers.slice()) {
-        await stopHttpsServer(entry).catch(() => {});
-      }
-      runningServers.length = 0;
-      console.error("Failed to start HTTPS servers:");
-      console.error(restartFailureMessage(e, target));
+async function startNetworkServers() {
+  const target = getNetworkSettings();
+  try {
+    // Startup check: if either configured port is already taken, log a
+    // helpful message and quit gracefully instead of crashing with EADDRINUSE.
+    const problem = await checkPortsAvailable(target);
+    if (problem) {
+      console.error("====================================================================");
+      console.error(`ERROR: Cannot start the servers: ${networkProblemMessage(problem)}`);
+      console.error(
+        "The app is exiting. Free up the port (or change the address/ports in the streamer",
+      );
+      console.error("control panel → Network section on the next start) and try again.");
+      console.error("====================================================================");
       process.exit(1);
     }
-  })();
+
+    const tlsOptions = await getControlTlsOptions({ host: target.host });
+    const publicServer = https.createServer(tlsOptions, publicApp);
+    await listenServer(publicServer, target.publicPort, target.host);
+    runningServers.push({ role: "public", server: publicServer });
+    const controlServer = https.createServer(tlsOptions, controlApp);
+    await listenServer(controlServer, target.controlPort, target.host);
+    runningServers.push({ role: "control", server: controlServer });
+
+    console.log(`Public request site: ${serverLabelUrl(target.host, target.publicPort)}`);
+    console.log(`Streamer control panel: ${serverLabelUrl(target.host, target.controlPort)}`);
+  } catch (e) {
+    for (const entry of runningServers.slice()) {
+      await stopHttpsServer(entry).catch(() => {});
+    }
+    runningServers.length = 0;
+    console.error("Failed to start HTTPS servers:");
+    console.error(restartFailureMessage(e, target));
+    process.exit(1);
+  }
 }
 
 module.exports = {
@@ -3706,34 +3769,67 @@ async function stopTmiClient() {
 }
 
 // Load config from disk or environment and start client if present.
+function initializeTwitch() {
+  // Environment variables take precedence; if present write them to persistent config.
+  const envUsername = process.env.TWITCH_USERNAME;
+  const envOauth = process.env.TWITCH_OAUTH_TOKEN;
+  const envChannel = (process.env.TWITCH_CHANNEL || "").replace(/^#/, "");
+  const envClientId = process.env.TWITCH_CLIENT_ID || null;
+  const envClientSecret = process.env.TWITCH_CLIENT_SECRET || null;
+
+  if (envUsername && envOauth && envChannel) {
+    saveTwitchConfig({
+      username: envUsername,
+      accessToken: String(envOauth).replace(/^oauth:/, ""),
+      channel: envChannel,
+      clientId: envClientId,
+      clientSecret: envClientSecret,
+    });
+  }
+
+  const cfg = loadTwitchConfig();
+  if (cfg && cfg.accessToken && cfg.channel) {
+    startTmiClient(cfg);
+    scheduleTwitchRefresh();
+  } else {
+    console.warn(
+      "Twitch bot disabled: set TWITCH_USERNAME, TWITCH_OAUTH_TOKEN and TWITCH_CHANNEL, or use the control panel to connect.",
+    );
+  }
+}
+
+// Unified app startup: scan songs first, then start network servers and Twitch bot.
 if (SHOULD_START_APP) {
-  (function initializeTwitch() {
-    // Environment variables take precedence; if present write them to persistent config.
-    const envUsername = process.env.TWITCH_USERNAME;
-    const envOauth = process.env.TWITCH_OAUTH_TOKEN;
-    const envChannel = (process.env.TWITCH_CHANNEL || "").replace(/^#/, "");
-    const envClientId = process.env.TWITCH_CLIENT_ID || null;
-    const envClientSecret = process.env.TWITCH_CLIENT_SECRET || null;
+  (async () => {
+    const result = await refreshDatabase();
 
-    if (envUsername && envOauth && envChannel) {
-      saveTwitchConfig({
-        username: envUsername,
-        accessToken: String(envOauth).replace(/^oauth:/, ""),
-        channel: envChannel,
-        clientId: envClientId,
-        clientSecret: envClientSecret,
-      });
+    if (result.songs === 0) {
+      console.error(`
+====================================================================
+ERROR: No songs found in ${SONGS_DIR}
+====================================================================
+
+The application cannot start without a song library. Please check:
+
+  1. SONGS_DIR is set correctly in your .env file.
+     Current value: ${SONGS_DIR}
+     Does this directory exist on your system?
+
+  2. The directory contains subdirectories with .sm or .ssc files.
+     The scanner looks for dance game SimFiles (.sm / .ssc) inside
+     nested folders (pack > song).
+
+  3. If you are using a Docker container, make sure your Songs
+     directory is mounted as a volume.
+
+Fix the path or add songs, then restart the application.
+====================================================================
+`);
+      process.exit(1);
     }
 
-    const cfg = loadTwitchConfig();
-    if (cfg && cfg.accessToken && cfg.channel) {
-      startTmiClient(cfg);
-      scheduleTwitchRefresh();
-    } else {
-      console.warn(
-        "Twitch bot disabled: set TWITCH_USERNAME, TWITCH_OAUTH_TOKEN and TWITCH_CHANNEL, or use the control panel to connect.",
-      );
-    }
+    await startNetworkServers();
+    initializeTwitch();
   })();
 }
 

@@ -27,8 +27,9 @@ const {
   scanSongs,
 } = require("../../server.js");
 
-// Scan the seed songs directory to populate the database
-scanSongs(tmpSongsDir, db);
+test.before(async () => {
+  await scanSongs(tmpSongsDir, db);
+});
 
 function resetRequests() {
   db.prepare("DELETE FROM requests").run();

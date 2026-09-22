@@ -168,12 +168,19 @@ Because these are enforced by Twitch at delivery time, a whisper can appear to "
 ```bash
 npm install
 ```
-
 Copy `.env.example` to `.env` and set:
 
 ```text
 SONGS_DIR=C:\Path\To\Songs
 ```
+
+Optionally Set:
+
+```text
+SCANNER_THREADS=-1
+```
+
+This controls the number of worker threads used for parallel song library scanning. Defaults to `-1` (use all available CPU cores on the host machine). Set to a positive integer (e.g. `SCANNER_THREADS=2`) to restrict thread usage.
 
 Also Set:
 
@@ -280,9 +287,17 @@ data/songs.db
 
 It remains local to the streaming PC. No song audio is uploaded or served.
 
-## Rescanning
+## Rescanning & Multithreaded Scanner
 
-The app scans at startup. If you add or remove songs while it is running, click the "Rescan Songs" button on the streamer control panel or restart the app.
+The app scans your `SONGS_DIR` library on startup using a **multithreaded scanner** powered by Node worker threads.
+
+- **Parallel Parsing**: Parsing `.sm` and `.ssc` simfile metadata is distributed across multiple worker threads to significantly accelerate song scanning speed on multi-core host CPUs.
+- **Progress Indicator & Elapsed Time**: The console displays a live progress indicator (`Scanning songs: 150/1000 (15.0%) - 0.23s elapsed`) and logs the total elapsed time upon scan completion (`Scan complete: 1000 songs, 4200 charts in 0.85s.`).
+- **Configurable Concurrency**: Set `SCANNER_THREADS` in `.env` to control worker thread count:
+  - `SCANNER_THREADS=-1` (default): Automatically uses all available CPU threads on the host machine.
+  - `SCANNER_THREADS=N`: Restricts scanning to `N` worker threads.
+
+If you add or remove songs while the app is running, click the "Rescan Songs" button on the streamer control panel or restart the app.
 
 ## Making the web page public
 
