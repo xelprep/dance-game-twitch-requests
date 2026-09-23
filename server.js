@@ -24,7 +24,15 @@ const { scanSongs } = require("./scanner");
 const DEFAULT_PUBLIC_PORT = 3000;
 const DEFAULT_CONTROL_PORT = 3001;
 const DEFAULT_BIND_HOST = "0.0.0.0";
-const SONGS_DIR = path.resolve(process.env.SONGS_DIR || "./Songs");
+// SONGS_DIR is required. There is intentionally NO fallback to the repo's
+// ./Songs folder — that folder is a dev-testing fixture only. An empty
+// value stays null and the app refuses to start (checked at startup below).
+const SONGS_DIR = (process.env.SONGS_DIR || "").trim() ? path.resolve(process.env.SONGS_DIR) : null;
+// Optional additional songs directory (StepMania-style extra songs folder).
+// Empty = disabled. Packs with the same name are merged across directories;
+// duplicate songs are added once, with the copy that has the most charts
+// providing the song row and all charts from every copy kept.
+const ADDITIONAL_SONGS_DIR = (process.env.ADDITIONAL_SONGS_DIR || "").trim();
 const PREFIX = process.env.BOT_PREFIX || "!";
 const SEARCH_COMMAND = (process.env.SEARCH_COMMAND || "search").toLowerCase();
 const REQUEST_ID_COMMAND = (process.env.REQUEST_ID_COMMAND || "requestid").toLowerCase();
@@ -367,7 +375,8 @@ CREATE INDEX IF NOT EXISTS idx_songs_duration ON songs(duration_seconds);
 }
 
 async function refreshDatabase() {
-  return await scanSongs(SONGS_DIR, db);
+  const additionalDirs = ADDITIONAL_SONGS_DIR ? [path.resolve(ADDITIONAL_SONGS_DIR)] : [];
+  return await scanSongs(SONGS_DIR, db, { additionalDirs });
 }
 
 // Temp-mod sessions are not persisted across restarts; initialize the state here
@@ -3812,12 +3821,38 @@ function initializeTwitch() {
 // Unified app startup: scan songs first, then start network servers and Twitch bot.
 if (SHOULD_START_APP) {
   (async () => {
+    if (!SONGS_DIR) {
+      console.error(`
+====================================================================
+ERROR: SONGS_DIR is not set
+====================================================================
+
+The application cannot start without a song library. Set SONGS_DIR in
+your .env file to the path of your main Songs folder, e.g.:
+
+  SONGS_DIR=C:\\Games\\DanceGame\\Songs
+
+The Songs folder inside this repository is a development fixture only
+and is intentionally NOT used as a fallback.
+
+ADDITIONAL_SONGS_DIR is optional and can stay empty.
+
+Fix your .env file, then restart the application.
+====================================================================
+`);
+      process.exit(1);
+    }
+
     const result = await refreshDatabase();
 
     if (result.songs === 0) {
+      const scannedDirs = [
+        SONGS_DIR,
+        ...(ADDITIONAL_SONGS_DIR ? [path.resolve(ADDITIONAL_SONGS_DIR)] : []),
+      ];
       console.error(`
 ====================================================================
-ERROR: No songs found in ${SONGS_DIR}
+ERROR: No songs found in ${scannedDirs.join(" or ")}
 ====================================================================
 
 The application cannot start without a song library. Please check:
@@ -3825,7 +3860,7 @@ The application cannot start without a song library. Please check:
   1. SONGS_DIR is set correctly in your .env file.
      Current value: ${SONGS_DIR}
      Does this directory exist on your system?
-
+${ADDITIONAL_SONGS_DIR ? `\n     ADDITIONAL_SONGS_DIR is also set to: ${path.resolve(ADDITIONAL_SONGS_DIR)}\n     Does that directory exist on your system?\n` : ""}
   2. The directory contains subdirectories with .sm or .ssc files.
      The scanner looks for dance game SimFiles (.sm / .ssc) inside
      nested folders (pack > song).

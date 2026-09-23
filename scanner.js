@@ -639,7 +639,7 @@ async function parseSongFilesParallel(tasks, numThreads, onProgress) {
           for (const w of workers) {
             w.terminate();
           }
-          resolve(results);
+          resolve(results.filter(Boolean));
         } else {
           assignWork(worker);
         }
@@ -647,7 +647,9 @@ async function parseSongFilesParallel(tasks, numThreads, onProgress) {
 
       worker.on("message", (msg) => {
         if (msg && msg.ok && msg.song) {
-          results.push(msg.song);
+          // Index by task id so the final list preserves task order even
+          // though workers finish out of order (deterministic dedup priority).
+          results[msg.id] = msg.song;
         }
         handleDone();
       });
@@ -661,24 +663,124 @@ async function parseSongFilesParallel(tasks, numThreads, onProgress) {
   });
 }
 
+// Identity key for a song, matching how StepMania names songs
+// (title-artist-music). Returns null when the music file is unknown, in
+// which case callers fall back to the song folder name.
+function songIdentityKey(song) {
+  const music = String(song.music || "")
+    .trim()
+    .toLowerCase();
+  if (!music) return null;
+  const title = String(song.title || "")
+    .trim()
+    .toLowerCase();
+  const artist = String(song.artist || "")
+    .trim()
+    .toLowerCase();
+  return `${title}\u0000${artist}\u0000${music}`;
+}
+
+// Merge duplicate songs found across the songs directories.
+//
+// Packs with the same name are merged under one pack (users often keep the
+// same pack in more than one songs folder, e.g. tournament downloads that
+// land in the "wrong" folder). Within a merged pack, copies of the same
+// song (same title/artist/music, or same song folder when the music tag is
+// missing) are collapsed into one entry:
+//   - the song row (title, bpm, duration, file_path, ...) comes from the
+//     copy with the most charts (first directory wins ties), and
+//   - the chart list is the union of all copies' charts, so no chart is
+//     ever dropped (e.g. an "Edit" chart added in only one folder).
+// The same song in two *different* packs is intentionally kept twice so
+// users filtering by pack can still find it in the pack they expect.
+function mergeDuplicateSongs(songs) {
+  const byPack = new Map(); // pack name key -> songs in that pack
+  for (const song of songs) {
+    if (!song || !song.filePath) continue;
+    const packKey = String(song.pack || "")
+      .trim()
+      .toLowerCase();
+    if (!byPack.has(packKey)) byPack.set(packKey, []);
+    byPack.get(packKey).push(song);
+  }
+
+  const merged = [];
+  for (const packSongs of byPack.values()) {
+    const byIdentity = new Map(); // identity key -> copies of the same song
+    for (const song of packSongs) {
+      const key =
+        songIdentityKey(song) ||
+        `folder:${path.basename(path.dirname(song.filePath)).toLowerCase()}`;
+      if (!byIdentity.has(key)) byIdentity.set(key, []);
+      byIdentity.get(key).push(song);
+    }
+
+    for (const copies of byIdentity.values()) {
+      if (copies.length === 1) {
+        merged.push(copies[0]);
+        continue;
+      }
+      // Most charts wins; ties keep the first directory's copy.
+      const primary = copies.reduce((best, song) =>
+        (song.charts || []).length > (best.charts || []).length ? song : best,
+      );
+      // Union of all copies' charts, primary first so its values win when
+      // two copies share a chart type/difficulty/meter.
+      const seenCharts = new Set();
+      const charts = [];
+      for (const song of [primary, ...copies.filter((s) => s !== primary)]) {
+        for (const chart of song.charts || []) {
+          const chartKey = [chart.chartType, chart.difficulty, chart.meter].join("\u0000");
+          if (seenCharts.has(chartKey)) continue;
+          seenCharts.add(chartKey);
+          charts.push(chart);
+        }
+      }
+      merged.push({ ...primary, charts });
+    }
+  }
+
+  return merged;
+}
+
 async function scanSongs(songsDir, db, options = {}) {
   const startTime = performance.now();
   const numThreads = resolveThreadCount(options.threads);
 
+  const resolvedSongsDir = path.resolve(songsDir);
+  const additionalDirs = (options.additionalDirs || [])
+    .map((dir) => (dir ? path.resolve(dir) : ""))
+    .filter(Boolean);
+  const songsDirs = [resolvedSongsDir, ...additionalDirs];
+
   if (!options.silent) {
     console.log(
-      `Scanning songs: ${songsDir} (${numThreads} ${numThreads === 1 ? "thread" : "threads"})`,
+      `Scanning songs: ${songsDirs.join(", ")} (${numThreads} ${numThreads === 1 ? "thread" : "threads"})`,
     );
   }
 
-  const files = collectSongFiles(songsDir);
-  const tasks = files.map((filePath) => {
-    const normalizedPath = path.resolve(filePath);
-    const relativePath = path.relative(songsDir, normalizedPath);
-    const packDir = path.join(songsDir, relativePath.split(path.sep)[0] || "");
-    const pack = readPackIniDisplayTitle(packDir) || relativePath.split(path.sep)[0] || "";
-    return { filePath: normalizedPath, pack };
-  });
+  // Collect files across all songs directories. The same file can be
+  // reached more than once (e.g. an additional directory listed twice or
+  // nested inside the main one); each file is only scanned once. Packs and
+  // songs that appear in more than one directory are merged later in
+  // mergeDuplicateSongs.
+  const tasks = [];
+  const seenPaths = new Set();
+
+  for (const dir of songsDirs) {
+    for (const filePath of collectSongFiles(dir)) {
+      const normalizedPath = path.resolve(filePath);
+      if (seenPaths.has(normalizedPath)) continue;
+
+      const relativePath = path.relative(dir, normalizedPath);
+      const folderName = relativePath.split(path.sep)[0] || "";
+      const packDir = path.join(dir, folderName);
+      const pack = readPackIniDisplayTitle(packDir) || folderName;
+
+      seenPaths.add(normalizedPath);
+      tasks.push({ filePath: normalizedPath, pack });
+    }
+  }
 
   const onProgress = (completed, total) => {
     if (options.silent) return;
@@ -723,8 +825,11 @@ async function scanSongs(songsDir, db, options = {}) {
     VALUES (?, ?, ?, ?, ?)
   `);
 
+  // Collapse duplicate packs/songs found across the songs directories.
+  const mergedSongs = mergeDuplicateSongs(parsedSongs);
+
   const tx = db.transaction(() => {
-    for (const song of parsedSongs) {
+    for (const song of mergedSongs) {
       if (!song || !song.filePath) continue;
       const normalizedPath = path.resolve(song.filePath);
       upsertSong.run(song);
