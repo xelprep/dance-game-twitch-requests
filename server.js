@@ -295,10 +295,29 @@ function resolveDatabasePath(env = process.env) {
 }
 
 const DB_PATH = resolveDatabasePath();
-if (DB_PATH !== ":memory:") {
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+let db;
+try {
+  if (DB_PATH !== ":memory:") {
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+  }
+  db = new Database(DB_PATH);
+} catch (err) {
+  console.error(`
+====================================================================
+ERROR: Unable to open the song database at ${DB_PATH}
+====================================================================
+
+${err && err.message ? err.message : err}
+
+Check that the path (DATABASE_PATH / DB_PATH / DB_DIR in your .env)
+points to a location that exists or can be created, and that the
+process has read/write permission there.
+
+Fix the path or permissions, then restart the application.
+====================================================================
+`);
+  process.exit(1);
 }
-const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
