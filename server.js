@@ -2700,6 +2700,38 @@ publicApp.get("/overlay/queue/stream", (req, res) => {
   res.write(`data: ${JSON.stringify(buildOverlayState())}\n\n`);
 });
 
+// Server-Sent Events (SSE) endpoint for the OBS chat overlay. Clients connect
+// to /overlay/chat/stream and receive one `message` event per chat message:
+// { username, color, message, self }. No filtering is applied: "!" messages
+// double as TTS mute markers for many streamers, and the streamer's own
+// messages are intentionally kept visible.
+const sseChatClients = new Set();
+function broadcastChatMessage(entry) {
+  try {
+    const payload = `data: ${JSON.stringify(entry)}\n\n`;
+    for (const res of Array.from(sseChatClients)) {
+      try {
+        res.write(payload);
+      } catch (e) {
+        sseChatClients.delete(res);
+      }
+    }
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+publicApp.get("/overlay/chat/stream", (req, res) => {
+  res.set({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  res.flushHeaders && res.flushHeaders();
+  sseChatClients.add(res);
+  req.on("close", () => sseChatClients.delete(res));
+});
+
 // Expose a small helper name used by patched functions above.
 const broadcastQueueUpdateRef = broadcastQueueUpdate; // no-op to keep reference semantics
 
@@ -3767,6 +3799,18 @@ async function startTmiClient(cfg) {
   }
 
   client.on("message", async (_channel, tags, message, self) => {
+    // Mirror every chat message to the OBS chat overlay before command
+    // handling, so the overlay stays live even if a command errors.
+    try {
+      broadcastChatMessage({
+        username: tags && tags.username ? tags.username : "unknown",
+        color: tags && tags.color ? tags.color : null,
+        message: String(message),
+        self: Boolean(self),
+      });
+    } catch (e) {
+      /* ignore overlay broadcast errors */
+    }
     try {
       await handleChatMessage(client, cfg, _channel, tags, message, self);
     } catch (err) {

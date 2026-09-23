@@ -1,0 +1,73 @@
+/* Scrolling Twitch chat mirror for OBS. Transparent background; the newest
+   message sits at the bottom and older messages fade out. */
+
+/* All @font-face rules live in /fonts/fonts.css (linked from chatOverlay.html):
+   Inter + Noto Sans JP/KR/SC + Noto Color Emoji, unicode-range sliced so only
+   needed files are fetched. This pins rendering to the same font files in OBS
+   on every OS, matching the request queue overlay. */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+body {
+  background: transparent;
+  /* Same stack as the request queue overlay: Inter for Latin/Cyrillic/Greek,
+     Noto Sans JP/KR/SC for CJK, Noto Color Emoji last so it only picks up
+     emoji code points. Remaining gaps fall back to system fonts. */
+  font-family:
+    Inter,
+    "Noto Sans JP",
+    "Noto Sans KR",
+    "Noto Sans SC",
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif,
+    "Noto Color Emoji";
+}
+.chat {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%;
+  padding: 8px 12px 20px 12px;
+  overflow: hidden;
+  font-size: 28px;
+  line-height: 1.35;
+}
+.chat-line {
+  overflow-wrap: break-word;
+  word-break: break-word;
+  /* Tight, low-spread shadow: enough to lift text off busy stream
+     backgrounds without the heavy glow that made darker username
+     colors hard to read. */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+.chat-user {
+  font-weight: 700;
+  /* Twitch purple fallback for users without a custom chat color; white
+     blended too much with the message text next to it. */
+  color: #9146ff;
+}
+.chat-text {
+  color: #ffffff;
+}
