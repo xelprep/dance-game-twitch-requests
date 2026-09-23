@@ -285,7 +285,13 @@ function resolveDatabasePath(env = process.env) {
   if (isTest) {
     return env.TEST_DATABASE_PATH || env.TEST_DB_PATH || ":memory:";
   }
-  return env.DATABASE_PATH || env.DB_PATH || path.resolve("./data/songs.db");
+  if (env.DATABASE_PATH || env.DB_PATH) {
+    return env.DATABASE_PATH || env.DB_PATH;
+  }
+  if (env.DB_DIR) {
+    return path.resolve(env.DB_DIR, "songs.db");
+  }
+  return path.resolve("./data/songs.db");
 }
 
 const DB_PATH = resolveDatabasePath();

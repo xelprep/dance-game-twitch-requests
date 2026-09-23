@@ -87,6 +87,19 @@ test("resolveDatabasePath properly prioritizes test mode and custom environment 
     resolveDatabasePath({ NODE_ENV: "production", DB_PATH: "/custom/alt-dev.db" }),
     "/custom/alt-dev.db",
   );
+  assert.equal(
+    resolveDatabasePath({ NODE_ENV: "production", DB_DIR: "/custom/db" }),
+    path.resolve("/custom/db", "songs.db"),
+  );
+  // A full file path takes precedence over DB_DIR
+  assert.equal(
+    resolveDatabasePath({
+      NODE_ENV: "production",
+      DATABASE_PATH: "/custom/dev.db",
+      DB_DIR: "/custom/db",
+    }),
+    "/custom/dev.db",
+  );
 
   // In test mode: defaults to :memory: even if DATABASE_PATH is present in .env
   assert.equal(
