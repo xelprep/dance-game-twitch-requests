@@ -153,6 +153,38 @@ test("scanSongs prefers .ssc files when both .sm and .ssc exist", async () => {
   assert.equal(songRow.pack, "pack");
 });
 
+test("scanSongs reports unreadable song files instead of failing silently", async (t) => {
+  const tmp = tempDir();
+  const songDir = path.join(tmp, "pack", "Broken Song");
+  const filePath = path.join(songDir, "broken.sm");
+  writeSongFile(songDir, "broken.sm", "#TITLE:Broken;\n#NOTES: dance-single:Hard:12:1.0;\n");
+  fs.chmodSync(filePath, 0o000);
+
+  // chmod 000 does not block reads when running as root/admin; skip in that case.
+  let blocked = false;
+  try {
+    fs.readFileSync(filePath, "utf8");
+  } catch {
+    blocked = true;
+  }
+  if (!blocked) {
+    t.skip("running with elevated permissions; chmod 000 does not block reads");
+    return;
+  }
+
+  try {
+    const db = createTestDb();
+    const result = await scanSongs(tmp, db, { threads: 1, silent: true });
+
+    assert.equal(result.songs, 0);
+    assert.equal(result.failedFiles.length, 1);
+    assert.equal(result.failedFiles[0].filePath, filePath);
+    assert.match(result.failedFiles[0].error, /EACCES|EPERM|permission|denied/i);
+  } finally {
+    fs.chmodSync(filePath, 0o644);
+  }
+});
+
 test("scanSongs deletes stale songs and their related records", async () => {
   const tmp = tempDir();
   const packDir = path.join(tmp, "pack");

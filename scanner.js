@@ -594,8 +594,16 @@ function formatDuration(ms) {
 }
 
 async function parseSongFilesParallel(tasks, numThreads, onProgress) {
-  if (tasks.length === 0) return [];
+  if (tasks.length === 0) return { songs: [], failures: [] };
   const activeWorkersCount = Math.min(numThreads, tasks.length);
+
+  const failures = [];
+  const recordFailure = (filePath, error) => {
+    failures.push({
+      filePath,
+      error: error && error.message ? error.message : String(error),
+    });
+  };
 
   if (activeWorkersCount === 1) {
     const results = [];
@@ -605,12 +613,12 @@ async function parseSongFilesParallel(tasks, numThreads, onProgress) {
         const song = readSongFile(task.filePath, task.pack);
         results.push(song);
       } catch (err) {
-        // ignore broken file
+        recordFailure(task.filePath, err);
       }
       completed++;
       if (onProgress) onProgress(completed, tasks.length);
     }
-    return results;
+    return { songs: results, failures };
   }
 
   return new Promise((resolve) => {
@@ -639,7 +647,7 @@ async function parseSongFilesParallel(tasks, numThreads, onProgress) {
           for (const w of workers) {
             w.terminate();
           }
-          resolve(results.filter(Boolean));
+          resolve({ songs: results.filter(Boolean), failures });
         } else {
           assignWork(worker);
         }
@@ -650,6 +658,8 @@ async function parseSongFilesParallel(tasks, numThreads, onProgress) {
           // Index by task id so the final list preserves task order even
           // though workers finish out of order (deterministic dedup priority).
           results[msg.id] = msg.song;
+        } else if (msg && !msg.ok) {
+          recordFailure(msg.filePath, msg.error);
         }
         handleDone();
       });
@@ -792,7 +802,11 @@ async function scanSongs(songsDir, db, options = {}) {
     }
   };
 
-  const parsedSongs = await parseSongFilesParallel(tasks, numThreads, onProgress);
+  const { songs: parsedSongs, failures: parseFailures } = await parseSongFilesParallel(
+    tasks,
+    numThreads,
+    onProgress,
+  );
 
   const seen = new Set();
 
@@ -874,11 +888,15 @@ async function scanSongs(songsDir, db, options = {}) {
 
   if (!options.silent) {
     console.log(`Scan complete: ${songCount} songs, ${chartCount} charts in ${timeStr}.`);
+    for (const failure of parseFailures) {
+      console.warn(`Skipping unreadable song file: ${failure.filePath} (${failure.error})`);
+    }
   }
 
   return {
     songs: songCount,
     charts: chartCount,
+    failedFiles: parseFailures,
     elapsedTimeMs,
   };
 }
