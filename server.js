@@ -24,9 +24,9 @@ const { scanSongs } = require("./scanner");
 const DEFAULT_PUBLIC_PORT = 3000;
 const DEFAULT_CONTROL_PORT = 3001;
 const DEFAULT_BIND_HOST = "0.0.0.0";
-// SONGS_DIR is required. There is intentionally NO fallback to the repo's
-// ./Songs folder — that folder is a dev-testing fixture only. An empty
-// value stays null and the app refuses to start (checked at startup below).
+// SONGS_DIR is required unless ADDITIONAL_SONGS_DIR is set. 
+// An empty value stays null; the app only refuses to start
+// (checked at startup below) when neither directory is defined.
 const SONGS_DIR = (process.env.SONGS_DIR || "").trim() ? path.resolve(process.env.SONGS_DIR) : null;
 // Optional additional songs directory (StepMania-style extra songs folder).
 // Empty = disabled. Packs with the same name are merged across directories;
@@ -3821,7 +3821,7 @@ function initializeTwitch() {
 // Unified app startup: scan songs first, then start network servers and Twitch bot.
 if (SHOULD_START_APP) {
   (async () => {
-    if (!SONGS_DIR) {
+    if (!SONGS_DIR && !ADDITIONAL_SONGS_DIR) {
       console.error(`
 ====================================================================
 ERROR: SONGS_DIR is not set
@@ -3846,7 +3846,7 @@ Fix your .env file, then restart the application.
       const scannedDirs = [
         SONGS_DIR,
         ...(ADDITIONAL_SONGS_DIR ? [path.resolve(ADDITIONAL_SONGS_DIR)] : []),
-      ];
+      ].filter(Boolean);
       console.error(`
 ====================================================================
 ERROR: No songs found in ${scannedDirs.join(" or ")}
@@ -3855,7 +3855,7 @@ ERROR: No songs found in ${scannedDirs.join(" or ")}
 The application cannot start without a song library. Please check:
 
   1. SONGS_DIR is set correctly in your .env file.
-     Current value: ${SONGS_DIR}
+     Current value: ${SONGS_DIR ?? "(not set)"}
      Does this directory exist on your system?
 ${ADDITIONAL_SONGS_DIR ? `\n     ADDITIONAL_SONGS_DIR is also set to: ${path.resolve(ADDITIONAL_SONGS_DIR)}\n     Does that directory exist on your system?\n` : ""}
   2. The directory contains subdirectories with .sm or .ssc files.

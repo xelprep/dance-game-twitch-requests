@@ -747,11 +747,11 @@ async function scanSongs(songsDir, db, options = {}) {
   const startTime = performance.now();
   const numThreads = resolveThreadCount(options.threads);
 
-  const resolvedSongsDir = path.resolve(songsDir);
+  const resolvedSongsDir = songsDir ? path.resolve(songsDir) : "";
   const additionalDirs = (options.additionalDirs || [])
     .map((dir) => (dir ? path.resolve(dir) : ""))
     .filter(Boolean);
-  const songsDirs = [resolvedSongsDir, ...additionalDirs];
+  const songsDirs = [resolvedSongsDir, ...additionalDirs].filter(Boolean);
 
   if (!options.silent) {
     console.log(

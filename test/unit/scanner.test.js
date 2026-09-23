@@ -741,6 +741,23 @@ test("scanSongs merges packs with the same name across songs directories", async
   ]);
 });
 
+test("scanSongs works with only an additional songs directory when the main dir is unset", async () => {
+  const extra = tempDir();
+
+  writeSongFile(
+    path.join(extra, "Solo Pack", "Song A"),
+    "a.sm",
+    "#TITLE:Song A;\n#ARTIST:Artist;\n#MUSIC:a.ogg;\n#NOTES:dance-single:1:Hard:12:1.0:0.0:0.0;\n",
+  );
+
+  const db = createTestDb();
+  const result = await scanSongs(null, db, { additionalDirs: [extra], silent: true });
+
+  assert.equal(result.songs, 1);
+  const rows = db.prepare("SELECT title, pack FROM songs").all();
+  assert.deepEqual(rows, [{ title: "Song A", pack: "Solo Pack" }]);
+});
+
 test("scanSongs merges duplicate songs in the same pack and keeps all charts", async () => {
   const main = tempDir();
   const extra = tempDir();
