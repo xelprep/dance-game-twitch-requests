@@ -52,6 +52,8 @@ Browser source:
 
 Also hosted on port 3000 is the request queue browser source. Using the above viewer site URL as an example, you can add the following to OBS as a browser source: `https://localhost:3000/overlay.html` and have a live-updating request queue visible on stream.
 
+A live mirror of the Twitch channel chat is also available at `https://localhost:3000/chatOverlay.html`. Add it as a second OBS browser source to show channel chat on stream. It updates in real time while the bot is connected to the channel, shows every message (including `!` commands and the streamer's own messages), and colors usernames with their Twitch chat color.
+
 Both sites use a locally generated self-signed certificate, so browsers will show an HTTPS warning the first time you connect. This is expected for private/LAN setups.
 
 Because the default bind address is `0.0.0.0`, another computer on your LAN can connect using the streaming PC's LAN IP:
