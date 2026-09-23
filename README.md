@@ -175,7 +175,7 @@ Copy `.env.example` to `.env` and set:
 SONGS_DIR=C:\Path\To\Songs
 ```
 
-`SONGS_DIR` is **required** — if it is empty or unset, the app prints an explanation and exits without starting. The `Songs` folder inside this repository is a development fixture only and is never used as a fallback.
+`SONGS_DIR` is **required** — if it is empty or unset, the app prints an explanation and exits without starting.
 
 Optionally Set:
 

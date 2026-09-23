@@ -3832,9 +3832,6 @@ your .env file to the path of your main Songs folder, e.g.:
 
   SONGS_DIR=C:\\Games\\DanceGame\\Songs
 
-The Songs folder inside this repository is a development fixture only
-and is intentionally NOT used as a fallback.
-
 ADDITIONAL_SONGS_DIR is optional and can stay empty.
 
 Fix your .env file, then restart the application.
