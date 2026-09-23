@@ -24,7 +24,7 @@ const { scanSongs } = require("./scanner");
 const DEFAULT_PUBLIC_PORT = 3000;
 const DEFAULT_CONTROL_PORT = 3001;
 const DEFAULT_BIND_HOST = "0.0.0.0";
-// SONGS_DIR is required unless ADDITIONAL_SONGS_DIR is set. 
+// SONGS_DIR is required unless ADDITIONAL_SONGS_DIR is set.
 // An empty value stays null; the app only refuses to start
 // (checked at startup below) when neither directory is defined.
 const SONGS_DIR = (process.env.SONGS_DIR || "").trim() ? path.resolve(process.env.SONGS_DIR) : null;
@@ -3824,11 +3824,37 @@ function initializeTwitch() {
   }
 }
 
+// `--no-scan` startup flag: skip the initial song scan when a viable database
+// (existing file with at least one song) is already present at the expected location.
+const NO_SCAN = process.argv.includes("--no-scan");
+
+function hasViableDatabase() {
+  if (DB_PATH === ":memory:") return false;
+  if (!fs.existsSync(DB_PATH)) return false;
+  try {
+    return db.prepare("SELECT COUNT(*) n FROM songs").get().n > 0;
+  } catch {
+    return false;
+  }
+}
+
 // Unified app startup: scan songs first, then start network servers and Twitch bot.
 if (SHOULD_START_APP) {
   (async () => {
-    if (!SONGS_DIR && !ADDITIONAL_SONGS_DIR) {
-      console.error(`
+    const skipScan = NO_SCAN && hasViableDatabase();
+    if (skipScan) {
+      console.log(
+        `--no-scan: found an existing database with songs at ${DB_PATH}; skipping the initial song scan.`,
+      );
+    } else {
+      if (NO_SCAN) {
+        console.warn(
+          "--no-scan was requested, but no viable database was found at the expected location; running the initial song scan.",
+        );
+      }
+
+      if (!SONGS_DIR && !ADDITIONAL_SONGS_DIR) {
+        console.error(`
 ====================================================================
 ERROR: SONGS_DIR is not set
 ====================================================================
@@ -3843,17 +3869,17 @@ ADDITIONAL_SONGS_DIR is optional and can stay empty.
 Fix your .env file, then restart the application.
 ====================================================================
 `);
-      process.exit(1);
-    }
+        process.exit(1);
+      }
 
-    const result = await refreshDatabase();
+      const result = await refreshDatabase();
 
-    if (result.songs === 0) {
-      const scannedDirs = [
-        SONGS_DIR,
-        ...(ADDITIONAL_SONGS_DIR ? [path.resolve(ADDITIONAL_SONGS_DIR)] : []),
-      ].filter(Boolean);
-      console.error(`
+      if (result.songs === 0) {
+        const scannedDirs = [
+          SONGS_DIR,
+          ...(ADDITIONAL_SONGS_DIR ? [path.resolve(ADDITIONAL_SONGS_DIR)] : []),
+        ].filter(Boolean);
+        console.error(`
 ====================================================================
 ERROR: No songs found in ${scannedDirs.join(" or ")}
 ====================================================================
@@ -3874,7 +3900,8 @@ ${ADDITIONAL_SONGS_DIR ? `\n     ADDITIONAL_SONGS_DIR is also set to: ${path.res
 Fix the path or add songs, then restart the application.
 ====================================================================
 `);
-      process.exit(1);
+        process.exit(1);
+      }
     }
 
     await startNetworkServers();
