@@ -248,6 +248,18 @@ Then:
 npm start
 ```
 
+### Skipping the initial song scan
+
+Start the app with the `--no-scan` flag to skip the initial song scan when a viable database (an existing database file with at least one song) is already present at its expected location:
+
+```bash
+npm start -- --no-scan
+```
+
+The `--` is required so npm forwards the flag to the script instead of treating it as an npm option (equivalently, `node server.js --no-scan`).
+
+If no viable database is found, the app logs a warning and runs the initial scan as usual.
+
 ## Testing
 
 This project includes a small but useful regression suite for core app logic. The suite is intentionally focused on fast, deterministic checks that do not rely on a live Twitch connection or a real game library.
