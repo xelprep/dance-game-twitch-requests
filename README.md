@@ -175,6 +175,16 @@ Copy `.env.example` to `.env` and set:
 SONGS_DIR=C:\Path\To\Songs
 ```
 
+`SONGS_DIR` is **required** — if it is empty or unset, the app prints an explanation and exits without starting.
+
+Optionally Set:
+
+```text
+ADDITIONAL_SONGS_DIR=C:\Path\To\MoreSongs
+```
+
+An optional extra songs directory to scan, mirroring StepMania's support for a main songs folder plus additional songs folders. Leave it empty to disable. Packs with the same name are merged under one pack, and duplicate songs are added to the database only once: the copy with the most charts provides the song's details and charts from every copy are kept, so no content is dropped (e.g. an "Edit" chart added in only one folder). The same song in two _different_ packs is kept in both, so pack-filtered searches still find it in the pack you expect.
+
 Optionally Set:
 
 ```text

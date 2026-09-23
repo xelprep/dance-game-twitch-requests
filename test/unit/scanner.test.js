@@ -660,3 +660,198 @@ test("computeCoreBpm calculates dominant BPM by duration and defers to higher BP
   ];
   assert.equal(computeCoreBpm(chartsTie, { BPMS: "0=140,4=280" }, true), 280);
 });
+
+function createTestDb() {
+  const db = new Database(":memory:");
+  db.exec(`
+    CREATE TABLE songs (
+      id INTEGER PRIMARY KEY,
+      file_path TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      subtitle TEXT DEFAULT '',
+      artist TEXT DEFAULT '',
+      genre TEXT DEFAULT '',
+      pack TEXT DEFAULT '',
+      music TEXT DEFAULT '',
+      last_modified INTEGER NOT NULL,
+      bpm_min INTEGER,
+      bpm_max INTEGER,
+      core_bpm INTEGER,
+      duration_seconds INTEGER
+    );
+    CREATE TABLE charts (
+      id INTEGER PRIMARY KEY,
+      song_id INTEGER NOT NULL,
+      chart_type TEXT DEFAULT '',
+      difficulty TEXT DEFAULT '',
+      meter TEXT DEFAULT '',
+      radar TEXT DEFAULT ''
+    );
+    CREATE TABLE requests (
+      id INTEGER PRIMARY KEY,
+      song_id INTEGER NOT NULL,
+      requested_by TEXT NOT NULL,
+      requested_display TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      created_at INTEGER NOT NULL,
+      started_at INTEGER,
+      completed_at INTEGER
+    );
+    CREATE TABLE blocked (
+      id INTEGER PRIMARY KEY,
+      song_id INTEGER REFERENCES songs(id),
+      username TEXT,
+      reason TEXT DEFAULT '',
+      created_at INTEGER NOT NULL,
+      UNIQUE(song_id, username)
+    );
+    CREATE TABLE settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
+  return db;
+}
+
+test("scanSongs merges packs with the same name across songs directories", async () => {
+  const main = tempDir();
+  const extra = tempDir();
+
+  // Same pack name in both directories with different songs: both songs
+  // must appear under the single merged pack.
+  writeSongFile(
+    path.join(main, "Shared Pack", "Song A"),
+    "a.sm",
+    "#TITLE:Song A;\n#ARTIST:Artist;\n#MUSIC:a.ogg;\n#NOTES:dance-single:1:Hard:12:1.0:0.0:0.0;\n",
+  );
+  writeSongFile(
+    path.join(extra, "Shared Pack", "Song B"),
+    "b.sm",
+    "#TITLE:Song B;\n#ARTIST:Artist;\n#MUSIC:b.ogg;\n#NOTES:dance-single:1:Hard:12:1.0:0.0:0.0;\n",
+  );
+
+  const db = createTestDb();
+  const result = await scanSongs(main, db, { additionalDirs: [extra] });
+
+  assert.equal(result.songs, 2);
+  const rows = db.prepare("SELECT title, pack FROM songs ORDER BY title").all();
+  assert.deepEqual(rows, [
+    { title: "Song A", pack: "Shared Pack" },
+    { title: "Song B", pack: "Shared Pack" },
+  ]);
+});
+
+test("scanSongs works with only an additional songs directory when the main dir is unset", async () => {
+  const extra = tempDir();
+
+  writeSongFile(
+    path.join(extra, "Solo Pack", "Song A"),
+    "a.sm",
+    "#TITLE:Song A;\n#ARTIST:Artist;\n#MUSIC:a.ogg;\n#NOTES:dance-single:1:Hard:12:1.0:0.0:0.0;\n",
+  );
+
+  const db = createTestDb();
+  const result = await scanSongs(null, db, { additionalDirs: [extra], silent: true });
+
+  assert.equal(result.songs, 1);
+  const rows = db.prepare("SELECT title, pack FROM songs").all();
+  assert.deepEqual(rows, [{ title: "Song A", pack: "Solo Pack" }]);
+});
+
+test("scanSongs merges duplicate songs in the same pack and keeps all charts", async () => {
+  const main = tempDir();
+  const extra = tempDir();
+
+  const extraFile = path.join(extra, "Pack", "Song X", "x.sm");
+  writeSongFile(
+    path.join(main, "Pack", "Song X"),
+    "x.sm",
+    "#TITLE:Song X;\n#ARTIST:Artist;\n#MUSIC:x.ogg;\n" +
+      "#NOTES:dance-single:1:Easy:4:1.0:0.0:0.0;\n" +
+      "#NOTES:dance-single:1:Hard:8:1.0:0.0:0.0;\n",
+  );
+  // The additional directory's copy has an extra "Edit" chart.
+  writeSongFile(
+    path.join(extra, "Pack", "Song X"),
+    "x.sm",
+    "#TITLE:Song X;\n#ARTIST:Artist;\n#MUSIC:x.ogg;\n" +
+      "#NOTES:dance-single:1:Easy:4:1.0:0.0:0.0;\n" +
+      "#NOTES:dance-single:1:Hard:8:1.0:0.0:0.0;\n" +
+      "#NOTES:dance-single:1:Edit:12:1.0:0.0:0.0;\n",
+  );
+
+  const db = createTestDb();
+  const result = await scanSongs(main, db, { additionalDirs: [extra] });
+
+  assert.equal(result.songs, 1);
+  // The copy with the most charts (in the additional directory) provides
+  // the song row, regardless of which directory it lives in.
+  assert.equal(db.prepare("SELECT file_path FROM songs").get().file_path, path.resolve(extraFile));
+  // The chart list is the union of both copies, so no chart is dropped.
+  const charts = db
+    .prepare("SELECT chart_type, difficulty, meter FROM charts ORDER BY CAST(meter AS INTEGER)")
+    .all();
+  assert.deepEqual(charts, [
+    { chart_type: "dance-single", difficulty: "Easy", meter: "4" },
+    { chart_type: "dance-single", difficulty: "Hard", meter: "8" },
+    { chart_type: "dance-single", difficulty: "Edit", meter: "12" },
+  ]);
+});
+
+test("scanSongs keeps the same song when it exists in different packs", async () => {
+  const main = tempDir();
+  const extra = tempDir();
+
+  writeSongFile(
+    path.join(main, "Pack One", "Song S"),
+    "s.sm",
+    "#TITLE:Song S;\n#ARTIST:Artist;\n#MUSIC:s.ogg;\n#NOTES:dance-single:1:Hard:12:1.0:0.0:0.0;\n",
+  );
+  writeSongFile(
+    path.join(extra, "Pack Two", "Song S"),
+    "s.sm",
+    "#TITLE:Song S;\n#ARTIST:Artist;\n#MUSIC:s.ogg;\n#NOTES:dance-single:1:Hard:12:1.0:0.0:0.0;\n",
+  );
+
+  const db = createTestDb();
+  const result = await scanSongs(main, db, { additionalDirs: [extra] });
+
+  assert.equal(result.songs, 2);
+  const rows = db.prepare("SELECT title, pack FROM songs ORDER BY pack").all();
+  assert.deepEqual(rows, [
+    { title: "Song S", pack: "Pack One" },
+    { title: "Song S", pack: "Pack Two" },
+  ]);
+});
+
+test("scanSongs ignores songs directories listed more than once", async () => {
+  const main = tempDir();
+  writeSongFile(
+    path.join(main, "Pack", "Song A"),
+    "a.sm",
+    "#TITLE:Song A;\n#ARTIST:Artist;\n#MUSIC:a.ogg;\n#NOTES:dance-single:1:Hard:12:1.0:0.0:0.0;\n",
+  );
+
+  const db = createTestDb();
+  const result = await scanSongs(main, db, { additionalDirs: [main, main] });
+
+  assert.equal(result.songs, 1);
+});
+
+test("scanSongs falls back to song folder name when the music tag is missing", async () => {
+  const main = tempDir();
+  const extra = tempDir();
+
+  const songSm = "#TITLE:Same Name;\n#ARTIST:Artist;\n#NOTES:dance-single:1:Hard:12:1.0:0.0:0.0;\n";
+  writeSongFile(path.join(main, "Pack", "Folder A"), "a.sm", songSm);
+  writeSongFile(path.join(main, "Pack", "Folder B"), "b.sm", songSm);
+  // Same folder name in the additional directory's copy of the pack.
+  writeSongFile(path.join(extra, "Pack", "Folder A"), "a.sm", songSm);
+
+  const db = createTestDb();
+  const result = await scanSongs(main, db, { additionalDirs: [extra] });
+
+  // Folder A is merged across directories; Folder B (distinct folder, and no
+  // #MUSIC tag to identify the song any other way) is kept separately.
+  assert.equal(result.songs, 2);
+});
