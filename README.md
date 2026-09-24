@@ -95,6 +95,21 @@ The control panel provides:
 - Live queue/stat updates
 - Search songs and make unlimited requests as the streamer
 - Enable/disable prioritizing viewer requests above streamer requests
+- Constrain which charts can be requested during a session (see [Request constraints](#request-constraints))
+
+## Request constraints
+
+The **Configuration → Request Constraints** panel lets the streamer limit which charts can be requested for the duration of a session. Every field is optional; leave a bound empty to remove that limit:
+
+- **Style** — allow any style, Single only, or Double only.
+- **Pack** — allow songs from a single pack only.
+- **Meter** — an inclusive range (e.g. 7–10); charts outside the range are blocked.
+- **BPM** — an inclusive min/max range based on the song's core BPM.
+- **Duration** — an inclusive min/max range in seconds.
+
+When a constraint is active, disallowed charts stay visible but are **grayed out and unselectable** on the public page, the moderator page, and the control panel (with a tooltip explaining why). Requests for a disallowed chart are rejected everywhere — chat, public page, moderator page, and control panel — with a message explaining which constraint blocked it, e.g. `Charts above meter 10 can't be requested right now.`
+
+The public and moderator pages poll the current constraints and re-render the song picker automatically when the streamer changes them, so no refresh is needed.
 
 ## Public moderator control
 
@@ -294,7 +309,7 @@ CI runs the same suite automatically on every push and pull request via GitHub A
 Viewers use:
 
 - `!search <query>` — the bot searches song titles for the full query string and returns up to 5 matching results in ID/Title/Artist/Pack format.
-- `!requestid <songID> <single|double> <difficulty> <meter>` — request a specific chart of a song by its numeric ID, style, difficulty, and meter (e.g. `!requestid 42 single Expert 12`); this will add it to the queue if allowed.
+- `!requestid <songID> <single|double> <difficulty> <meter>` — request a specific chart of a song by its numeric ID, style, difficulty, and meter (e.g. `!requestid 42 single Expert 12`); this will add it to the queue if allowed. If the chart violates an active [request constraint](#request-constraints), the bot replies with the constraint that blocked it instead.
 - `!queue` — view up to a maximum of 5 of the queued requested songs.
 - `!help` — display the usage instructions (limited to one response every 30 seconds globally).
 

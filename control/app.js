@@ -76,12 +76,18 @@ function songCard(song) {
     ? charts
         .map((chart) => {
           const isActive = activeCharts.has(chart.id);
+          const isRestricted = !isActive && !!chart.disallowed;
+          const disabledTitle = isActive
+            ? "Already queued or playing"
+            : chart.disallowReason || "Not allowed right now";
           return `
-        <div class="song-chart-row${isActive ? " dimmed" : ""}">
+        <div class="song-chart-row${isActive || isRestricted ? " dimmed" : ""}">
           <span class="song-chart-label">${esc(chartText(chart))}</span>
           <button type="button" class="song-action song-chart-add" ${
-            isActive ? "disabled" : `onclick="window.addToQueue(${song.id}, ${chart.id})"`
-          }>${isActive ? "Queued" : "Add"}</button>
+            isActive || isRestricted
+              ? `disabled title="${esc(disabledTitle)}"`
+              : `onclick="window.addToQueue(${song.id}, ${chart.id})"`
+          }>${isActive ? "Queued" : isRestricted ? "Restricted" : "Add"}</button>
         </div>`;
         })
         .join("")
@@ -115,6 +121,13 @@ async function getFilters() {
     const bpmMaxSel = $("filter-bpm-max");
     const durationMinSel = $("filter-duration-min");
     const durationMaxSel = $("filter-duration-max");
+    const constraintPackSel = $("requestConstraintPack");
+    const constraintMeterMinSel = $("requestConstraintMeterMin");
+    const constraintMeterMaxSel = $("requestConstraintMeterMax");
+    const constraintBpmMinSel = $("requestConstraintBpmMin");
+    const constraintBpmMaxSel = $("requestConstraintBpmMax");
+    const constraintDurationMinSel = $("requestConstraintDurationMin");
+    const constraintDurationMaxSel = $("requestConstraintDurationMax");
 
     packSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
     genreSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
@@ -125,6 +138,27 @@ async function getFilters() {
     bpmMaxSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
     durationMinSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
     durationMaxSel.querySelectorAll('option:not([value=""])').forEach((option) => option.remove());
+    constraintPackSel
+      .querySelectorAll('option:not([value=""])')
+      .forEach((option) => option.remove());
+    constraintMeterMinSel
+      .querySelectorAll('option:not([value=""])')
+      .forEach((option) => option.remove());
+    constraintMeterMaxSel
+      .querySelectorAll('option:not([value=""])')
+      .forEach((option) => option.remove());
+    constraintBpmMinSel
+      .querySelectorAll('option:not([value=""])')
+      .forEach((option) => option.remove());
+    constraintBpmMaxSel
+      .querySelectorAll('option:not([value=""])')
+      .forEach((option) => option.remove());
+    constraintDurationMinSel
+      .querySelectorAll('option:not([value=""])')
+      .forEach((option) => option.remove());
+    constraintDurationMaxSel
+      .querySelectorAll('option:not([value=""])')
+      .forEach((option) => option.remove());
 
     const sortAlpha = (a, b) =>
       String(a).localeCompare(String(b), undefined, { sensitivity: "base" });
@@ -136,6 +170,11 @@ async function getFilters() {
         opt.value = p.pack;
         opt.textContent = `${p.pack} (${p.count})`;
         packSel.appendChild(opt);
+
+        const constraintOpt = document.createElement("option");
+        constraintOpt.value = p.pack;
+        constraintOpt.textContent = p.pack;
+        constraintPackSel.appendChild(constraintOpt);
       });
 
     [...(f.genres || [])]
@@ -171,6 +210,16 @@ async function getFilters() {
       optMax.value = String(m.meter);
       optMax.textContent = String(m.meter);
       meterMaxSel.appendChild(optMax);
+
+      const cMin = document.createElement("option");
+      cMin.value = String(m.meter);
+      cMin.textContent = String(m.meter);
+      constraintMeterMinSel.appendChild(cMin);
+
+      const cMax = document.createElement("option");
+      cMax.value = String(m.meter);
+      cMax.textContent = String(m.meter);
+      constraintMeterMaxSel.appendChild(cMax);
     });
 
     const bpms = [...(f.bpms || [])].sort((a, b) => (a.bpm ?? a.bpm_min) - (b.bpm ?? b.bpm_min));
@@ -186,6 +235,16 @@ async function getFilters() {
       optMax.value = String(val);
       optMax.textContent = `${label} (${b.count})`;
       bpmMaxSel.appendChild(optMax);
+
+      const cMin = document.createElement("option");
+      cMin.value = String(val);
+      cMin.textContent = label;
+      constraintBpmMinSel.appendChild(cMin);
+
+      const cMax = document.createElement("option");
+      cMax.value = String(val);
+      cMax.textContent = label;
+      constraintBpmMaxSel.appendChild(cMax);
     });
 
     const durations = [...(f.durations || [])].sort((a, b) => a.seconds - b.seconds);
@@ -200,10 +259,69 @@ async function getFilters() {
       optMax.value = String(d.seconds);
       optMax.textContent = `${label} (${d.count})`;
       durationMaxSel.appendChild(optMax);
+
+      const cMin = document.createElement("option");
+      cMin.value = String(d.seconds);
+      cMin.textContent = label;
+      constraintDurationMinSel.appendChild(cMin);
+
+      const cMax = document.createElement("option");
+      cMax.value = String(d.seconds);
+      cMax.textContent = label;
+      constraintDurationMaxSel.appendChild(cMax);
     });
   } catch (e) {
     console.error("Failed to load filters", e);
   }
+}
+
+// Set a constraint select's value, adding the option first if it's missing (e.g. the
+// constrained pack no longer exists in the library).
+function applyConstraintSelect(id, value) {
+  const el = $(id);
+  if (!el) return;
+  value = String(value ?? "");
+  if (value && ![...el.options].some((option) => option.value === value)) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = value;
+    el.appendChild(opt);
+  }
+  el.value = value;
+}
+
+function renderRequestConstraints(settings) {
+  if (!settings) return;
+  applyConstraintSelect("requestConstraintStyle", settings.requestConstraintStyle || "any");
+  applyConstraintSelect("requestConstraintPack", settings.requestConstraintPack || "");
+  applyConstraintSelect(
+    "requestConstraintMeterMin",
+    settings.requestConstraintMeterMin != null ? String(settings.requestConstraintMeterMin) : "",
+  );
+  applyConstraintSelect(
+    "requestConstraintMeterMax",
+    settings.requestConstraintMeterMax != null ? String(settings.requestConstraintMeterMax) : "",
+  );
+  applyConstraintSelect(
+    "requestConstraintBpmMin",
+    settings.requestConstraintBpmMin != null ? String(settings.requestConstraintBpmMin) : "",
+  );
+  applyConstraintSelect(
+    "requestConstraintBpmMax",
+    settings.requestConstraintBpmMax != null ? String(settings.requestConstraintBpmMax) : "",
+  );
+  applyConstraintSelect(
+    "requestConstraintDurationMin",
+    settings.requestConstraintDurationMin != null
+      ? String(settings.requestConstraintDurationMin)
+      : "",
+  );
+  applyConstraintSelect(
+    "requestConstraintDurationMax",
+    settings.requestConstraintDurationMax != null
+      ? String(settings.requestConstraintDurationMax)
+      : "",
+  );
 }
 
 let searchTimer = null;
@@ -433,6 +551,7 @@ async function render() {
         if (moderatorEnabled) moderatorEnabled.checked = !!(settings && settings.moderatorEnabled);
         renderModeratorCredentials(settings);
         renderNetworkSettings(settings);
+        renderRequestConstraints(settings);
       }
 
       const allowChat = !!(chatRequestsEnabled && chatRequestsEnabled.checked);
@@ -723,6 +842,23 @@ if (chatRequestsRequireRoleEl) {
     saveControlSettings({ chatRequestsRequireRole: chatRequestsRequireRoleEl.value }),
   );
 }
+
+// Request constraints: each select saves itself on change (empty bound = no limit).
+[
+  "requestConstraintStyle",
+  "requestConstraintPack",
+  "requestConstraintMeterMin",
+  "requestConstraintMeterMax",
+  "requestConstraintBpmMin",
+  "requestConstraintBpmMax",
+  "requestConstraintDurationMin",
+  "requestConstraintDurationMax",
+].forEach((id) => {
+  const el = $(id);
+  if (el) {
+    el.addEventListener("change", () => saveControlSettings({ [id]: el.value }));
+  }
+});
 
 // --- Network settings (bind address + ports) ---
 

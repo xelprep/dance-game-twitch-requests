@@ -107,12 +107,18 @@ function songCard(song) {
     ? charts
         .map((chart) => {
           const isActive = activeCharts.has(chart.id);
+          const isRestricted = !isActive && !!chart.disallowed;
+          const disabledTitle = isActive
+            ? "Already queued or playing"
+            : chart.disallowReason || "Not allowed right now";
           return `
-        <div class="song-chart-row${isActive ? " dimmed" : ""}">
+        <div class="song-chart-row${isActive || isRestricted ? " dimmed" : ""}">
           <span class="song-chart-label">${esc(chartText(chart))}</span>
           <button type="button" class="song-action song-chart-add" ${
-            isActive ? "disabled" : `onclick="window.addToQueue(${song.id}, ${chart.id})"`
-          }>${isActive ? "Queued" : "Add"}</button>
+            isActive || isRestricted
+              ? `disabled title="${esc(disabledTitle)}"`
+              : `onclick="window.addToQueue(${song.id}, ${chart.id})"`
+          }>${isActive ? "Queued" : isRestricted ? "Restricted" : "Add"}</button>
         </div>`;
         })
         .join("")
@@ -238,8 +244,9 @@ async function render() {
     api("/api/now-playing"),
     api("/api/queue"),
     api("/api/moderator/settings"),
+    api("/api/request-constraints"),
   ]);
-  const [statsResult, nowResult, queueResult, settingsResult] = results;
+  const [statsResult, nowResult, queueResult, settingsResult, constraintsResult] = results;
 
   if (statsResult.status === "fulfilled") {
     const stats = statsResult.value;
@@ -309,8 +316,9 @@ async function render() {
     $("queue").textContent = queueResult.reason.message;
   }
 
-  // Reload the song search when a chart enters or leaves the queue / now playing,
-  // so the dimmed "already queued" state stays current without a manual refresh.
+  // Reload the song search when a chart enters or leaves the queue / now playing, or when
+  // the streamer changes the request constraints, so the dimmed "queued" / "restricted"
+  // states stay current without a manual refresh.
   {
     const ids = new Set();
     if (queueResult.status === "fulfilled") {
@@ -319,7 +327,10 @@ async function render() {
     if (nowResult.status === "fulfilled" && nowResult.value && nowResult.value.chart) {
       ids.add(nowResult.value.chart.id);
     }
-    const key = [...ids].sort((a, b) => String(a).localeCompare(String(b))).join(",");
+    const key =
+      [...ids].sort((a, b) => String(a).localeCompare(String(b))).join(",") +
+      "|" +
+      (constraintsResult.status === "fulfilled" ? JSON.stringify(constraintsResult.value) : "");
     if (key !== activeSongsKey) {
       activeSongsKey = key;
       loadSongs(searchPage);

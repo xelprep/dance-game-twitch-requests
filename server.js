@@ -648,6 +648,14 @@ function getControlSettings() {
     moderatorPasswordConfigured: moderatorCredentials.some((entry) => !!entry.passwordHash),
     moderatorCredentials,
     instructionsMinutes: Number(getRuntimeInstructionsMinutes()),
+    requestConstraintStyle: getSetting("requestConstraintStyle", "any"),
+    requestConstraintPack: String(getSetting("requestConstraintPack", "") || ""),
+    requestConstraintMeterMin: getSetting("requestConstraintMeterMin", null),
+    requestConstraintMeterMax: getSetting("requestConstraintMeterMax", null),
+    requestConstraintBpmMin: getSetting("requestConstraintBpmMin", null),
+    requestConstraintBpmMax: getSetting("requestConstraintBpmMax", null),
+    requestConstraintDurationMin: getSetting("requestConstraintDurationMin", null),
+    requestConstraintDurationMax: getSetting("requestConstraintDurationMax", null),
     host: networkSettings.host,
     publicPort: networkSettings.publicPort,
     controlPort: networkSettings.controlPort,
@@ -1056,6 +1064,9 @@ function addRequest(songId, username, displayName, options = {}) {
   const chart = db.prepare("SELECT * FROM charts WHERE id=? AND song_id=?").get(chartId, songId);
   if (!chart) throw new Error("Chart not found for that song.");
 
+  const constraintReason = chartRequestConstraintReason(song, chart);
+  if (constraintReason) throw new Error(constraintReason);
+
   if (isBlocked(songId, username)) {
     throw new Error("That song or viewer is currently blocked.");
   }
@@ -1239,6 +1250,92 @@ function chartLabel(chart) {
   if (!chart) return "";
   const parts = [styleLabel(chart.chartType), chart.difficulty, chart.meter].filter(Boolean);
   return parts.length ? ` Chart:${parts.join(" ")}` : "";
+}
+
+// --- Request constraints: streamer-configured limits on which charts may be requested ---
+
+function getRequestConstraints() {
+  const style = getSetting("requestConstraintStyle", "any");
+  const toNumber = (key) => {
+    const value = Number(getSetting(key, null));
+    return Number.isFinite(value) && value > 0 ? value : null;
+  };
+  return {
+    style: style === "single" || style === "double" ? style : "any",
+    pack: String(getSetting("requestConstraintPack", "") || "").trim(),
+    meterMin: toNumber("requestConstraintMeterMin"),
+    meterMax: toNumber("requestConstraintMeterMax"),
+    bpmMin: toNumber("requestConstraintBpmMin"),
+    bpmMax: toNumber("requestConstraintBpmMax"),
+    durationMin: toNumber("requestConstraintDurationMin"),
+    durationMax: toNumber("requestConstraintDurationMax"),
+  };
+}
+
+function hasActiveRequestConstraints(constraints) {
+  return (
+    constraints.style !== "any" ||
+    constraints.pack !== "" ||
+    constraints.meterMin != null ||
+    constraints.meterMax != null ||
+    constraints.bpmMin != null ||
+    constraints.bpmMax != null ||
+    constraints.durationMin != null ||
+    constraints.durationMax != null
+  );
+}
+
+function formatConstraintDuration(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds)));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  if (minutes === 0) return `${rest}s`;
+  return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+}
+
+// Returns a human-readable reason the chart can't be requested right now, or null when
+// it's allowed. `song` is a raw songs row; `chart` is a raw charts row (or the camelCase
+// shape from getSongCharts).
+function chartRequestConstraintReason(song, chart) {
+  const c = getRequestConstraints();
+  const chartType = chart.chart_type || chart.chartType || "";
+  if (c.style !== "any") {
+    const allowedType = c.style === "single" ? "dance-single" : "dance-double";
+    if (chartType !== allowedType) {
+      return `Only ${c.style === "single" ? "Single" : "Double"} style charts can be requested right now.`;
+    }
+  }
+  if (c.pack && (song.pack || "") !== c.pack) {
+    return `Only songs from the "${c.pack}" pack can be requested right now.`;
+  }
+  const meter = Number(chart.meter);
+  if (Number.isFinite(meter) && meter > 0) {
+    if (c.meterMin != null && meter < c.meterMin) {
+      return `Charts below meter ${c.meterMin} can't be requested right now.`;
+    }
+    if (c.meterMax != null && meter > c.meterMax) {
+      return `Charts above meter ${c.meterMax} can't be requested right now.`;
+    }
+  }
+  const bpm = song.core_bpm != null ? song.core_bpm : song.bpm_min;
+  if (bpm != null) {
+    if (c.bpmMin != null && bpm < c.bpmMin) {
+      return `Songs below ${c.bpmMin} BPM can't be requested right now.`;
+    }
+    if (c.bpmMax != null && bpm > c.bpmMax) {
+      return `Songs above ${c.bpmMax} BPM can't be requested right now.`;
+    }
+  }
+  const duration = song.duration_seconds;
+  if (duration != null) {
+    if (c.durationMin != null && duration < c.durationMin) {
+      return `Songs shorter than ${formatConstraintDuration(c.durationMin)} can't be requested right now.`;
+    }
+    if (c.durationMax != null && duration > c.durationMax) {
+      return `Songs longer than ${formatConstraintDuration(c.durationMax)} can't be requested right now.`;
+    }
+  }
+  return null;
 }
 
 function formatSongRequestLabel(song) {
@@ -1942,6 +2039,11 @@ function createApi(app, options = {}) {
       }
     }
 
+    // Charts the streamer's request constraints currently disallow are annotated so
+    // clients can gray them out (they stay visible, just unselectable).
+    const requestConstraints = getRequestConstraints();
+    const constraintsActive = hasActiveRequestConstraints(requestConstraints);
+
     const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
 
     const sort = new Set(["title", "artist", "pack", "last_modified"]).has(req.query.sort)
@@ -1968,6 +2070,15 @@ function createApi(app, options = {}) {
         if (activeChartsBySong) {
           song.activeCharts = [...(activeChartsBySong.get(row.id) || [])];
           song.active = song.activeCharts.length > 0 || legacyActiveSongs.has(row.id);
+        }
+        if (constraintsActive) {
+          for (const chart of song.charts) {
+            const reason = chartRequestConstraintReason(row, chart);
+            if (reason) {
+              chart.disallowed = true;
+              chart.disallowReason = reason;
+            }
+          }
         }
         return song;
       }),
@@ -2056,6 +2167,12 @@ function createApi(app, options = {}) {
     res.json({ packs, genres, difficulties, meters, styles, bpms, durations });
   });
 
+  // Current request constraints; polled by the public page so it can re-render the
+  // song picker when the streamer changes them.
+  app.get("/api/request-constraints", (_req, res) => {
+    res.json(getRequestConstraints());
+  });
+
   app.get("/api/queue", (_req, res) => res.json(getQueue()));
   app.get("/api/now-playing", (_req, res) => res.json(getNowPlaying()));
   app.get("/api/overlay/temp-mod-status", (_req, res) => {
@@ -2135,6 +2252,15 @@ function createApi(app, options = {}) {
           ? req.body.moderatorCredentials
           : [],
         instructionsMinutes: Number(req.body.instructionsMinutes),
+        requestConstraintStyle: String(req.body.requestConstraintStyle || "any"),
+        requestConstraintPack: String(req.body.requestConstraintPack || "").trim(),
+      };
+
+      // Constraint range bounds: positive whole numbers, or null when absent/empty/invalid.
+      const constraintNumber = (key, fallback) => {
+        if (!Object.prototype.hasOwnProperty.call(req.body, key)) return fallback;
+        const value = Number(req.body[key]);
+        return Number.isFinite(value) && value > 0 ? Math.round(value) : null;
       };
 
       const requestedCredentials = Array.isArray(next.moderatorCredentials)
@@ -2202,6 +2328,44 @@ function createApi(app, options = {}) {
             ? Number(req.body.instructionsMinutes)
             : current.instructionsMinutes
           : current.instructionsMinutes,
+        requestConstraintStyle: Object.prototype.hasOwnProperty.call(
+          req.body,
+          "requestConstraintStyle",
+        )
+          ? ["any", "single", "double"].includes(next.requestConstraintStyle)
+            ? next.requestConstraintStyle
+            : "any"
+          : current.requestConstraintStyle,
+        requestConstraintPack: Object.prototype.hasOwnProperty.call(
+          req.body,
+          "requestConstraintPack",
+        )
+          ? next.requestConstraintPack
+          : current.requestConstraintPack,
+        requestConstraintMeterMin: constraintNumber(
+          "requestConstraintMeterMin",
+          current.requestConstraintMeterMin,
+        ),
+        requestConstraintMeterMax: constraintNumber(
+          "requestConstraintMeterMax",
+          current.requestConstraintMeterMax,
+        ),
+        requestConstraintBpmMin: constraintNumber(
+          "requestConstraintBpmMin",
+          current.requestConstraintBpmMin,
+        ),
+        requestConstraintBpmMax: constraintNumber(
+          "requestConstraintBpmMax",
+          current.requestConstraintBpmMax,
+        ),
+        requestConstraintDurationMin: constraintNumber(
+          "requestConstraintDurationMin",
+          current.requestConstraintDurationMin,
+        ),
+        requestConstraintDurationMax: constraintNumber(
+          "requestConstraintDurationMax",
+          current.requestConstraintDurationMax,
+        ),
         // Network settings (bind host + ports). Invalid values silently keep the
         // current setting, matching the other settings above. The servers are NOT
         // restarted on change — the streamer triggers that from the panel.
@@ -2238,6 +2402,14 @@ function createApi(app, options = {}) {
       setSetting("moderatorEnabled", settings.moderatorEnabled);
       setSetting("moderatorCredentials", settings.moderatorCredentials);
       setSetting("instructionsMinutes", settings.instructionsMinutes);
+      setSetting("requestConstraintStyle", settings.requestConstraintStyle);
+      setSetting("requestConstraintPack", settings.requestConstraintPack);
+      setSetting("requestConstraintMeterMin", settings.requestConstraintMeterMin);
+      setSetting("requestConstraintMeterMax", settings.requestConstraintMeterMax);
+      setSetting("requestConstraintBpmMin", settings.requestConstraintBpmMin);
+      setSetting("requestConstraintBpmMax", settings.requestConstraintBpmMax);
+      setSetting("requestConstraintDurationMin", settings.requestConstraintDurationMin);
+      setSetting("requestConstraintDurationMax", settings.requestConstraintDurationMax);
       setSetting("host", settings.host);
       setSetting("publicPort", settings.publicPort);
       setSetting("controlPort", settings.controlPort);

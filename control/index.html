@@ -277,6 +277,63 @@
         </section>
 
         <section class="panel">
+          <div class="section-head"><h2>Request Constraints</h2></div>
+          <div class="settings-form">
+            <p class="small muted">
+              Restrict which charts can be requested (chat, public page, moderator panel, and this
+              panel). Disallowed charts stay visible but grayed out, and chat requests for them are
+              rejected with the reason below. Leave a bound empty to allow any value.
+            </p>
+
+            <div class="settings-field">
+              <label for="requestConstraintStyle">Allowed style</label>
+              <select id="requestConstraintStyle">
+                <option value="any">Any style</option>
+                <option value="single">Single only</option>
+                <option value="double">Double only</option>
+              </select>
+            </div>
+
+            <div class="settings-field">
+              <label for="requestConstraintPack">Allowed pack</label>
+              <select id="requestConstraintPack">
+                <option value="">Any pack</option>
+              </select>
+            </div>
+
+            <div class="settings-field">
+              <label>Meter range</label>
+              <select id="requestConstraintMeterMin">
+                <option value="">Min</option>
+              </select>
+              <select id="requestConstraintMeterMax">
+                <option value="">Max</option>
+              </select>
+            </div>
+
+            <div class="settings-field">
+              <label>Core BPM range</label>
+              <select id="requestConstraintBpmMin">
+                <option value="">Min</option>
+              </select>
+              <select id="requestConstraintBpmMax">
+                <option value="">Max</option>
+              </select>
+            </div>
+
+            <div class="settings-field">
+              <label>Duration range</label>
+              <select id="requestConstraintDurationMin">
+                <option value="">Min</option>
+              </select>
+              <select id="requestConstraintDurationMax">
+                <option value="">Max</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
           <div class="section-head"><h2>Network</h2></div>
           <div class="settings-form">
             <div class="settings-field">

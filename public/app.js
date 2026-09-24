@@ -98,12 +98,24 @@ function songCard(song) {
     ? charts
         .map((chart) => {
           const isActive = activeCharts.has(chart.id);
+          const isRestricted = !isActive && !!chart.disallowed;
+          const disabledTitle = isActive
+            ? "Already queued or playing"
+            : chart.disallowReason || "Not allowed right now";
           return `
-          <button type="button" class="song-chart${isActive ? " dimmed" : ""}" ${
-            isActive ? "disabled" : `data-command="${escapeHTML(chartCommand(song.id, chart))}"`
+          <button type="button" class="song-chart${isActive || isRestricted ? " dimmed" : ""}" ${
+            isActive || isRestricted
+              ? `disabled title="${escapeHTML(disabledTitle)}"`
+              : `data-command="${escapeHTML(chartCommand(song.id, chart))}"`
           }>
             <span class="song-chart-label">${escapeHTML(chartText(chart))}</span>
-            ${isActive ? '<span class="song-chart-state">Queued</span>' : ""}
+            ${
+              isActive
+                ? '<span class="song-chart-state">Queued</span>'
+                : isRestricted
+                  ? '<span class="song-chart-state">Restricted</span>'
+                  : ""
+            }
           </button>`;
         })
         .join("")
@@ -169,18 +181,23 @@ async function queue() {
 
 let activeSongsKey = "";
 async function refreshSongsIfActiveChanged() {
-  // Reload the picker when a chart enters or leaves the queue / now playing,
-  // so the dimmed "already queued" state stays current without a manual refresh.
+  // Reload the picker when a chart enters or leaves the queue / now playing, or when the
+  // streamer changes the request constraints, so the dimmed "queued" / "restricted"
+  // states stay current without a manual refresh.
   try {
-    const [queueItems, nowPlaying] = await Promise.all([
+    const [queueItems, nowPlaying, constraints] = await Promise.all([
       getJSON("/api/queue"),
       getJSON("/api/now-playing"),
+      getJSON("/api/request-constraints"),
     ]);
     const ids = new Set(
       (queueItems || []).map((r) => (r.chart ? r.chart.id : `song:${r.song_id}`)),
     );
     if (nowPlaying && nowPlaying.chart) ids.add(nowPlaying.chart.id);
-    const key = [...ids].sort((a, b) => String(a).localeCompare(String(b))).join(",");
+    const key =
+      [...ids].sort((a, b) => String(a).localeCompare(String(b))).join(",") +
+      "|" +
+      JSON.stringify(constraints);
     if (key !== activeSongsKey) {
       activeSongsKey = key;
       loadSongs(currentPage);
