@@ -8,6 +8,23 @@ function escapeHtml(s) {
     .replace(/>/g, "&gt;");
 }
 
+function styleLabel(chartType) {
+  if (chartType === "dance-single") return "Single";
+  if (chartType === "dance-double") return "Double";
+  return chartType || "";
+}
+
+function chartText(chart) {
+  return [styleLabel(chart.chartType), chart.difficulty, chart.meter].filter(Boolean).join(" ");
+}
+
+// One line with the requested chart details (style, difficulty, meter), or "" when
+// the request predates chart-level requests.
+function chartLine(chart) {
+  const text = chart ? chartText(chart) : "";
+  return text ? `<div class="queue-line queue-line-chart">${escapeHtml(text)}</div>` : "";
+}
+
 function formatNowPlaying(song) {
   if (!song) return "";
   const title = escapeHtml(song.title || "(unknown)");
@@ -20,6 +37,7 @@ function formatNowPlaying(song) {
     <div class="queue-lines">
       <div class="queue-line queue-line-title">${titleLine}</div>
       <div class="queue-line queue-line-artist">${artist}</div>
+      ${chartLine(song.chart)}
       <div class="queue-line queue-line-pack">${pack}</div>
       <div class="queue-line queue-line-requester">Requested by: @${requester}</div>
     </div>
@@ -63,6 +81,7 @@ function formatQueue(queue) {
             <div class="queue-lines">
               <div class="queue-line queue-line-title">${titleLine}</div>
               <div class="queue-line queue-line-artist">${artist}</div>
+              ${chartLine(r.chart)}
               <div class="queue-line queue-line-pack">${pack}</div>
               <div class="queue-line queue-line-requester">Requested by: @${requester}</div>
             </div>

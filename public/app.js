@@ -33,41 +33,38 @@ function fallbackCopyText(value) {
   return copied;
 }
 
-async function copyRequestCommand(songId) {
-  const id = String(songId ?? "").trim();
-  if (!id) return;
-
-  const command = `!requestid ${id}`;
+async function copyRequestCommand(command) {
+  const text = String(command ?? "").trim();
+  if (!text) return;
 
   try {
     if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(command);
-    } else if (!fallbackCopyText(command)) {
+      await navigator.clipboard.writeText(text);
+    } else if (!fallbackCopyText(text)) {
       throw new Error("Clipboard fallback failed");
     }
 
-    showCopyStatus(`Copied ${command} to your clipboard.`);
+    showCopyStatus(`Copied ${text} to your clipboard.`);
   } catch (e) {
     console.error("Failed to copy request command", e);
     showCopyStatus("Copy failed. Please copy the command manually.");
   }
 }
 
-function formatCharts(charts) {
-  const groups = [...new Set((charts || []).map((c) => c.chartType))]
-    .sort((a, b) => b.localeCompare(a))
-    .map((style) => {
-      const entries = charts
-        .filter((c) => c.chartType === style)
-        .sort((a, b) => Number(a.meter) - Number(b.meter))
-        .map((c) => `${c.difficulty || "?"} ${c.meter || ""}`.trim())
-        .join(", ");
-      const label =
-        style === "dance-single" ? "Single" : style === "dance-double" ? "Double" : style;
-      return entries ? `${label}: ${entries}` : "";
-    })
-    .filter(Boolean);
-  return groups.length ? groups.join(" ") : "No chart metadata";
+function styleLabel(chartType) {
+  return chartType === "dance-double" ? "Double" : "Single";
+}
+
+function styleShort(chartType) {
+  return chartType === "dance-double" ? "double" : "single";
+}
+
+function chartText(chart) {
+  return `${styleLabel(chart.chartType)} ${chart.difficulty || "?"} ${chart.meter || ""}`.trim();
+}
+
+function chartCommand(songId, chart) {
+  return `!requestid ${songId} ${styleShort(chart.chartType)} ${chart.difficulty} ${chart.meter}`;
 }
 
 function formatDuration(totalSeconds) {
@@ -81,8 +78,7 @@ function formatDuration(totalSeconds) {
 }
 
 function songCard(song) {
-  const charts = formatCharts(song.charts);
-  const active = !!song.active;
+  const activeCharts = new Set(song.activeCharts || []);
   const bpmLabel =
     song.bpmMin != null && song.bpmMax != null
       ? song.bpmMin === song.bpmMax
@@ -93,33 +89,55 @@ function songCard(song) {
   const coreBpmLabel = song.coreBpm != null ? `Core BPM: ${song.coreBpm}` : "";
   const statsLabel = [bpmLabel, coreBpmLabel, durationLabel].filter(Boolean).join(" \u2022 ");
 
+  const charts = [...(song.charts || [])].sort((a, b) =>
+    a.chartType === b.chartType
+      ? Number(a.meter) - Number(b.meter)
+      : a.chartType.localeCompare(b.chartType),
+  );
+  const chartRows = charts.length
+    ? charts
+        .map((chart) => {
+          const isActive = activeCharts.has(chart.id);
+          const isRestricted = !isActive && !!chart.disallowed;
+          const disabledTitle = isActive
+            ? "Already queued or playing"
+            : chart.disallowReason || "Not allowed right now";
+          return `
+          <button type="button" class="song-chart${isActive || isRestricted ? " dimmed" : ""}" ${
+            isActive || isRestricted
+              ? `disabled title="${escapeHTML(disabledTitle)}"`
+              : `data-command="${escapeHTML(chartCommand(song.id, chart))}"`
+          }>
+            <span class="song-chart-label">${escapeHTML(chartText(chart))}</span>
+            ${
+              isActive
+                ? '<span class="song-chart-state">Queued</span>'
+                : isRestricted
+                  ? '<span class="song-chart-state">Restricted</span>'
+                  : ""
+            }
+          </button>`;
+        })
+        .join("")
+    : `<small class="song-chart song-chart--none">No chart metadata</small>`;
+
   const article = document.createElement("article");
-  article.className = active ? "song dimmed" : "song clickable";
-  if (!active) {
-    article.tabIndex = 0;
-    article.setAttribute("role", "button");
-    article.setAttribute("aria-label", `Copy request command for ${song.title}`);
-    article.addEventListener("click", () => copyRequestCommand(song.id));
-    article.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        copyRequestCommand(song.id);
-      }
-    });
-  } else {
-    article.setAttribute("aria-label", `${song.title} is already queued or playing`);
-  }
+  article.className = "song";
   article.innerHTML = `
     <div class="song-main">
       <div class="song-meta">
         <strong>ID: ${escapeHTML(String(song.id))} - ${escapeHTML(song.title)}</strong>
         ${song.subtitle ? `<span class="song-subtitle">${escapeHTML(song.subtitle)}</span>` : ""}
         <small>${escapeHTML(song.artist)}${song.pack ? " • " + escapeHTML(song.pack) : ""}</small>
-        <small>${escapeHTML(charts)}</small>
         ${statsLabel ? `<small>${escapeHTML(statsLabel)}</small>` : ""}
       </div>
+      <div class="song-charts">${chartRows}</div>
     </div>
   `;
+
+  article.querySelectorAll("button.song-chart:not([disabled])").forEach((button) => {
+    button.addEventListener("click", () => copyRequestCommand(button.dataset.command));
+  });
 
   return article;
 }
@@ -149,7 +167,7 @@ async function queue() {
           <strong>${escapeHTML(r.title)}</strong>
           ${r.subtitle ? `<span class="subtitle">${escapeHTML(r.subtitle)}</span>` : ""}
           <span>${escapeHTML(r.artist)}${r.pack ? " • " + escapeHTML(r.pack) : ""}</span>
-          <small>${escapeHTML(formatCharts(r.charts))}</small>
+          ${r.chart ? `<small class="request-chart">${escapeHTML(chartText(r.chart))}</small>` : ""}
           <small>Requested by ${escapeHTML(r.requested_display)}${String(r.requested_by || "").toLowerCase() === "streamer" ? " (Control Panel)" : ""}</small>
         </div>
       </article>
@@ -163,16 +181,23 @@ async function queue() {
 
 let activeSongsKey = "";
 async function refreshSongsIfActiveChanged() {
-  // Reload the picker when a song enters or leaves the queue / now playing,
-  // so the dimmed "already queued" state stays current without a manual refresh.
+  // Reload the picker when a chart enters or leaves the queue / now playing, or when the
+  // streamer changes the request constraints, so the dimmed "queued" / "restricted"
+  // states stay current without a manual refresh.
   try {
-    const [queueItems, nowPlaying] = await Promise.all([
+    const [queueItems, nowPlaying, constraints] = await Promise.all([
       getJSON("/api/queue"),
       getJSON("/api/now-playing"),
+      getJSON("/api/request-constraints"),
     ]);
-    const ids = new Set((queueItems || []).map((r) => r.song_id));
-    if (nowPlaying && nowPlaying.song_id != null) ids.add(nowPlaying.song_id);
-    const key = [...ids].sort((a, b) => a - b).join(",");
+    const ids = new Set(
+      (queueItems || []).map((r) => (r.chart ? r.chart.id : `song:${r.song_id}`)),
+    );
+    if (nowPlaying && nowPlaying.chart) ids.add(nowPlaying.chart.id);
+    const key =
+      [...ids].sort((a, b) => String(a).localeCompare(String(b))).join(",") +
+      "|" +
+      JSON.stringify(constraints);
     if (key !== activeSongsKey) {
       activeSongsKey = key;
       loadSongs(currentPage);

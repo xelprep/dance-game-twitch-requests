@@ -220,6 +220,12 @@ body {
 .queue-line-pack {
   max-width: 100%;
 }
+/* Chart details (style, difficulty, meter) — secondary info, so a bit
+   smaller than the song/pack lines. */
+.queue-line-chart {
+  max-width: 100%;
+  font-size: 0.8em;
+}
 .queue-line-requester {
   max-width: none;
   overflow: visible;

@@ -59,11 +59,20 @@ test("regular user can make a chat request with !requestid without ReferenceErro
   };
 
   // Should succeed without throwing "ReferenceError: display is not defined"
-  await handleChatMessage(client, cfg, "#testchannel", tags, `!requestid ${song.id}`, false);
+  await handleChatMessage(
+    client,
+    cfg,
+    "#testchannel",
+    tags,
+    `!requestid ${song.id} single Hard 10`,
+    false,
+  );
 
   assert.equal(sent.length, 1);
   assert.ok(
-    sent[0].message.includes('@AliceDancer, added "Chat Song" to the request queue!'),
+    sent[0].message.includes(
+      '@AliceDancer, added "Chat Song" (Single Hard 10) to the request queue!',
+    ),
     `Unexpected message: ${sent[0].message}`,
   );
 
@@ -83,11 +92,20 @@ test("bot user (self=true) can make a chat request without ReferenceError and is
   };
 
   // Bot sends command
-  await handleChatMessage(client, cfg, "#testchannel", tags, `!requestid ${song.id}`, true);
+  await handleChatMessage(
+    client,
+    cfg,
+    "#testchannel",
+    tags,
+    `!requestid ${song.id} single Hard 10`,
+    true,
+  );
 
   assert.equal(sent.length, 1);
   assert.ok(
-    sent[0].message.includes('@BotAccount, added "Chat Song" to the request queue!'),
+    sent[0].message.includes(
+      '@BotAccount, added "Chat Song" (Single Hard 10) to the request queue!',
+    ),
     `Unexpected message: ${sent[0].message}`,
   );
 
@@ -107,7 +125,14 @@ test("duplicate request correctly formats error reply using display without Refe
   };
 
   // Second request triggers catch (e) { await sendChatMessage(client, cfg.channel, `@${display}, ${e.message}`); }
-  await handleChatMessage(client, cfg, "#testchannel", tags, `!requestid ${song.id}`, false);
+  await handleChatMessage(
+    client,
+    cfg,
+    "#testchannel",
+    tags,
+    `!requestid ${song.id} single Hard 10`,
+    false,
+  );
 
   assert.equal(sent.length, 1);
   assert.ok(
@@ -117,6 +142,67 @@ test("duplicate request correctly formats error reply using display without Refe
   assert.ok(
     sent[0].message.toLowerCase().includes("already queued"),
     `Expected duplicate error message, got: ${sent[0].message}`,
+  );
+});
+
+test("!requestid rejects missing arguments, invalid style, invalid meter, and unknown charts", async () => {
+  resetRequests();
+  const { client, cfg, sent } = createMockClient();
+  const song = getSongSearchRows(10, "")[0];
+
+  const tags = {
+    username: "chatter2",
+    "display-name": "ChatterTwo",
+  };
+
+  // Missing arguments → usage message
+  await handleChatMessage(client, cfg, "#testchannel", tags, `!requestid ${song.id}`, false);
+  assert.equal(sent.length, 1);
+  assert.ok(sent[0].message.includes("usage"), `Expected usage message, got: ${sent[0].message}`);
+
+  // Invalid style
+  await handleChatMessage(
+    client,
+    cfg,
+    "#testchannel",
+    tags,
+    `!requestid ${song.id} solo Hard 10`,
+    false,
+  );
+  assert.equal(sent.length, 2);
+  assert.ok(
+    sent[1].message.includes("not a valid style"),
+    `Expected invalid style message, got: ${sent[1].message}`,
+  );
+
+  // Invalid meter
+  await handleChatMessage(
+    client,
+    cfg,
+    "#testchannel",
+    tags,
+    `!requestid ${song.id} single Hard abc`,
+    false,
+  );
+  assert.equal(sent.length, 3);
+  assert.ok(
+    sent[2].message.includes("not a valid meter"),
+    `Expected invalid meter message, got: ${sent[2].message}`,
+  );
+
+  // Unknown chart for the song
+  await handleChatMessage(
+    client,
+    cfg,
+    "#testchannel",
+    tags,
+    `!requestid ${song.id} double Easy 5`,
+    false,
+  );
+  assert.equal(sent.length, 4);
+  assert.ok(
+    sent[3].message.includes("no Double Easy 5 chart found"),
+    `Expected missing chart message, got: ${sent[3].message}`,
   );
 });
 

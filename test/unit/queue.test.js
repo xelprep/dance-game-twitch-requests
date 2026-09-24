@@ -35,29 +35,56 @@ function resetRequests() {
   db.prepare("DELETE FROM requests").run();
 }
 
+function getChartId(songId) {
+  const chart = db.prepare("SELECT id FROM charts WHERE song_id = ?").get(songId);
+  assert.ok(chart, "expected the seed song to have a chart");
+  return chart.id;
+}
+
 test("addRequest appends a valid song to the queue and prevents duplicates", () => {
   resetRequests();
   const song = getSongSearchRows(10, "")[0];
   assert.ok(song, "expected at least one seed song to exist");
+  const chartId = getChartId(song.id);
 
   const before = getQueue().length;
   const first = addRequest(song.id, `queue-user-${Date.now()}-a`, "Alice", {
     prioritizeViewerInsertion: true,
+    chartId,
   });
   const after = getQueue().length;
 
   assert.equal(after, before + 1);
   assert.equal(first.song.id, song.id);
+  assert.equal(first.chart.id, chartId);
 
   const duplicateMessage = /already queued or playing/i;
-  assert.throws(() => addRequest(song.id, "queue-user-duplicate", "Bob"), duplicateMessage);
+  assert.throws(
+    () => addRequest(song.id, "queue-user-duplicate", "Bob", { chartId }),
+    duplicateMessage,
+  );
+});
+
+test("addRequest requires a chartId and rejects charts that do not belong to the song", () => {
+  resetRequests();
+  const song = getSongSearchRows(10, "")[0];
+  assert.ok(song, "expected at least one seed song to exist");
+
+  assert.throws(() => addRequest(song.id, "queue-user-nochart", "NoChart"), /chart/i);
+  assert.throws(
+    () => addRequest(song.id, "queue-user-badchart", "BadChart", { chartId: 999999 }),
+    /chart not found/i,
+  );
 });
 
 test("setRequestStatus moves a queued request into playing and then completed", () => {
   resetRequests();
   const song = getSongSearchRows(10, "")[0];
   const username = `queue-user-${Date.now()}-b`;
-  const request = addRequest(song.id, username, "Bob", { prioritizeViewerInsertion: true });
+  const request = addRequest(song.id, username, "Bob", {
+    prioritizeViewerInsertion: true,
+    chartId: getChartId(song.id),
+  });
 
   const playing = setRequestStatus(request.id, "playing");
   assert.equal(playing, true);
