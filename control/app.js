@@ -47,26 +47,16 @@ function formatDuration(totalSeconds) {
   return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
 }
 
-function formatCharts(charts) {
-  const groups = [...new Set((charts || []).map((c) => c.chartType))]
-    .sort((a, b) => b.localeCompare(a))
-    .map((style) => {
-      const entries = charts
-        .filter((c) => c.chartType === style)
-        .sort((a, b) => Number(a.meter) - Number(b.meter))
-        .map((c) => `${c.difficulty || "?"} ${c.meter || ""}`.trim())
-        .join(", ");
-      const label =
-        style === "dance-single" ? "Single" : style === "dance-double" ? "Double" : style;
-      return entries ? `${label}: ${entries}` : "";
-    })
-    .filter(Boolean);
-  return groups.length ? groups.join(" ") : "No chart metadata";
+function styleLabel(chartType) {
+  return chartType === "dance-double" ? "Double" : "Single";
+}
+
+function chartText(chart) {
+  return `${styleLabel(chart.chartType)} ${chart.difficulty || "?"} ${chart.meter || ""}`.trim();
 }
 
 function songCard(song) {
-  const charts = formatCharts(song.charts);
-  const active = !!song.active;
+  const activeCharts = new Set(song.activeCharts || []);
   const bpmLabel =
     song.bpmMin != null && song.bpmMax != null
       ? song.bpmMin === song.bpmMax
@@ -77,20 +67,37 @@ function songCard(song) {
   const coreBpmLabel = song.coreBpm != null ? `Core BPM: ${song.coreBpm}` : "";
   const statsLabel = [bpmLabel, coreBpmLabel, durationLabel].filter(Boolean).join(" \u2022 ");
 
+  const charts = [...(song.charts || [])].sort((a, b) =>
+    a.chartType === b.chartType
+      ? Number(a.meter) - Number(b.meter)
+      : a.chartType.localeCompare(b.chartType),
+  );
+  const chartRows = charts.length
+    ? charts
+        .map((chart) => {
+          const isActive = activeCharts.has(chart.id);
+          return `
+        <div class="song-chart-row${isActive ? " dimmed" : ""}">
+          <span class="song-chart-label">${esc(chartText(chart))}</span>
+          <button type="button" class="song-action song-chart-add" ${
+            isActive ? "disabled" : `onclick="window.addToQueue(${song.id}, ${chart.id})"`
+          }>${isActive ? "Queued" : "Add"}</button>
+        </div>`;
+        })
+        .join("")
+    : `<small>No chart metadata</small>`;
+
   const article = document.createElement("article");
-  article.className = active ? "song dimmed" : "song";
+  article.className = "song";
   article.innerHTML = `
     <div class="song-main">
       <div class="song-meta">
         <strong>ID: ${esc(song.id)} - ${esc(song.title)}</strong>
         ${song.subtitle ? `<span class="song-subtitle">${esc(song.subtitle)}</span>` : ""}
         <small>${esc(song.artist)}${song.pack ? " • " + esc(song.pack) : ""}</small>
-        <small>${esc(charts)}</small>
         ${statsLabel ? `<small>${esc(statsLabel)}</small>` : ""}
       </div>
-      <div class="song-actions">
-        <button type="button" class="song-action" ${active ? "disabled" : `onclick="window.addToQueue(${song.id})"`}>${active ? "Already Queued" : "Add to Queue"}</button>
-      </div>
+      <div class="song-charts">${chartRows}</div>
     </div>
   `;
   return article;
@@ -295,17 +302,21 @@ async function loadSongs(page = 1) {
   }
 }
 
-window.addToQueue = async (songId) => {
+window.addToQueue = async (songId, chartId) => {
   try {
     const result = await api("/api/request", {
       method: "POST",
       body: JSON.stringify({
         songId,
+        chartId,
         username: "streamer",
         displayName: "Streamer",
       }),
     });
-    toast(`Added ${result.request.song.title} to the queue.`);
+    const chart = result.request.chart;
+    toast(
+      `Added ${result.request.song.title}${chart ? ` (${chartText(chart)})` : ""} to the queue.`,
+    );
     render();
     loadSongs(searchPage);
   } catch (e) {
@@ -332,12 +343,12 @@ async function render() {
 
     $("stats").textContent = `${stats.songs.toLocaleString()} songs • ${stats.queued} queued`;
 
-    // Reload the song search when a song enters or leaves the queue / now playing,
+    // Reload the song search when a chart enters or leaves the queue / now playing,
     // so the dimmed "already queued" state stays current without a manual refresh.
     {
-      const ids = new Set(queue.map((r) => r.song_id));
-      if (now && now.song_id != null) ids.add(now.song_id);
-      const key = [...ids].sort((a, b) => a - b).join(",");
+      const ids = new Set(queue.map((r) => (r.chart ? r.chart.id : `song:${r.song_id}`)));
+      if (now && now.chart) ids.add(now.chart.id);
+      const key = [...ids].sort((a, b) => String(a).localeCompare(String(b))).join(",");
       if (key !== activeSongsKey) {
         activeSongsKey = key;
         loadSongs(searchPage);
@@ -351,7 +362,7 @@ async function render() {
           <strong>${esc(now.title)}</strong>
           ${now.subtitle ? `<span class="subtitle">${esc(now.subtitle)}</span>` : ""}
           <span>${esc(now.artist)}${now.pack ? " • " + esc(now.pack) : ""}</span>
-          <small>${esc(formatCharts(now.charts))}</small>
+          ${now.chart ? `<small class="request-chart">${esc(chartText(now.chart))}</small>` : ""}
           <small>requested by ${esc(now.requested_display)}</small>
         </div>
         <button onclick="complete(${now.id})">Complete</button>
@@ -368,7 +379,7 @@ async function render() {
           <strong>${esc(r.title)}</strong>
           ${r.subtitle ? `<span class="subtitle">${esc(r.subtitle)}</span>` : ""}
           <span>${esc(r.artist)}${r.pack ? " • " + esc(r.pack) : ""}</span>
-          <small>${esc(formatCharts(r.charts))}</small>
+          ${r.chart ? `<small class="request-chart">${esc(chartText(r.chart))}</small>` : ""}
           <small>Requested by ${esc(r.requested_display)}${String(r.requested_by.toLowerCase() || "") === "streamer" ? " (Control Panel)" : ""}</small>
         </div>
         <div class="row-actions">

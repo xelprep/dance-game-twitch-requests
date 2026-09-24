@@ -365,6 +365,28 @@ input[type="checkbox"] {
   margin-top: 4px;
   color: #d9dde5;
 }
+.song-charts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 46%;
+}
+.song-chart-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.song-chart-row.dimmed {
+  opacity: 0.45;
+}
+.song-chart-add {
+  padding: 4px 10px;
+}
+.request-chart {
+  color: #d9dde5;
+  font-weight: 600;
+}
 .song-actions {
   display: flex;
   align-items: center;

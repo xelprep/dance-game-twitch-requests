@@ -294,7 +294,7 @@ CI runs the same suite automatically on every push and pull request via GitHub A
 Viewers use:
 
 - `!search <query>` — the bot searches song titles for the full query string and returns up to 5 matching results in ID/Title/Artist/Pack format.
-- `!requestid <id>` — request a song explicitly by its numeric ID; this will add it to the queue if allowed.
+- `!requestid <songID> <single|double> <difficulty> <meter>` — request a specific chart of a song by its numeric ID, style, difficulty, and meter (e.g. `!requestid 42 single Expert 12`); this will add it to the queue if allowed.
 - `!queue` — view up to a maximum of 5 of the queued requested songs.
 - `!help` — display the usage instructions (limited to one response every 30 seconds globally).
 

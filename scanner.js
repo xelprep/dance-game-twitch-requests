@@ -22,6 +22,15 @@ function normalizeMeter(raw) {
   return /^-?\d+$/.test(value) ? String(Number(value)) : value;
 }
 
+// Difficulty names come through in whatever casing the chart author used
+// ("expert", "EXPERT", "Expert"). Normalize to title case so the filter
+// dropdowns don't show duplicates that only differ by casing.
+function normalizeDifficulty(raw) {
+  const value = decodeSMValue(raw);
+  if (!value) return value;
+  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+}
+
 function parseTags(text) {
   const tags = {};
   const re = /#([A-Z0-9_]+):([\s\S]*?);/gi;
@@ -45,7 +54,7 @@ function parseNotesBlocks(text) {
     if (hm) {
       const chart = {
         chartType: hm[1].trim(),
-        difficulty: hm[3].trim(),
+        difficulty: normalizeDifficulty(hm[3]),
         meter: normalizeMeter(hm[4]),
         radar: hm[5].trim(),
         noteData: hm[6] || "",
@@ -74,7 +83,7 @@ function parseNotesBlocks(text) {
       const chart = {
         chartType: fields[0].trim(),
         // fields[1] is author (ignored)
-        difficulty: fields[2].trim(),
+        difficulty: normalizeDifficulty(fields[2]),
         meter: normalizeMeter(fields[3]),
         radar: fields[4].trim(),
         noteData,
@@ -98,7 +107,7 @@ function parseNotesBlocks(text) {
     if (tags.STEPSTYPE || tags.DIFFICULTY || tags.METER) {
       const chart = {
         chartType: tags.STEPSTYPE || "",
-        difficulty: tags.DIFFICULTY || "",
+        difficulty: normalizeDifficulty(tags.DIFFICULTY || ""),
         meter: normalizeMeter(tags.METER || ""),
         radar: tags.RADARVALUES || "",
         noteData,

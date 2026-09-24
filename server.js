@@ -351,6 +351,7 @@ CREATE TABLE IF NOT EXISTS charts (
 CREATE TABLE IF NOT EXISTS requests (
   id INTEGER PRIMARY KEY,
   song_id INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+  chart_id INTEGER REFERENCES charts(id) ON DELETE SET NULL,
   requested_by TEXT NOT NULL,
   requested_display TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'queued',
@@ -390,6 +391,13 @@ CREATE TABLE IF NOT EXISTS settings (
     if (!songColumns.includes(column)) {
       db.exec(`ALTER TABLE songs ADD COLUMN ${column} INTEGER`);
     }
+  }
+  const requestColumns = db
+    .prepare("PRAGMA table_info(requests)")
+    .all()
+    .map((r) => r.name);
+  if (!requestColumns.includes("chart_id")) {
+    db.exec("ALTER TABLE requests ADD COLUMN chart_id INTEGER");
   }
   db.exec(`
 CREATE INDEX IF NOT EXISTS idx_songs_bpm_min ON songs(bpm_min);
@@ -500,21 +508,38 @@ function getSongSearchRows(limit = 25, query = "") {
     .all({ limit: maxLimit });
 }
 
+function chartFromRow(row) {
+  if (!row || row.chart_id == null) return null;
+  return {
+    id: row.chart_id,
+    chartType: row.chart_type || "",
+    difficulty: row.chart_difficulty || "",
+    meter: row.chart_meter || "",
+  };
+}
+
 function getQueue(limit = QUEUE_LIMIT) {
   const rows = db
     .prepare(
       `
     SELECT r.id, r.requested_by, r.requested_display, r.status, r.created_at,
            r.started_at, r.completed_at,
-           s.id AS song_id, s.title, s.subtitle, s.artist, s.pack, s.music
-    FROM requests r JOIN songs s ON s.id = r.song_id
+           s.id AS song_id, s.title, s.subtitle, s.artist, s.pack, s.music,
+           c.id AS chart_id, c.chart_type, c.difficulty AS chart_difficulty, c.meter AS chart_meter
+    FROM requests r
+    JOIN songs s ON s.id = r.song_id
+    LEFT JOIN charts c ON c.id = r.chart_id
     WHERE r.status = 'queued'
     ORDER BY r.created_at ASC, r.id ASC
     LIMIT ?
   `,
     )
     .all(limit);
-  return rows.map((row) => ({ ...row, charts: getSongCharts(row.song_id) }));
+  return rows.map((row) => ({
+    ...row,
+    chart: chartFromRow(row),
+    charts: getSongCharts(row.song_id),
+  }));
 }
 
 function getNowPlaying() {
@@ -522,14 +547,17 @@ function getNowPlaying() {
     .prepare(
       `
    SELECT r.id, r.requested_by, r.requested_display, r.status,
-           r.started_at, s.id AS song_id, s.title, s.subtitle, s.artist, s.pack, s.music
-    FROM requests r JOIN songs s ON s.id = r.song_id
+           r.started_at, s.id AS song_id, s.title, s.subtitle, s.artist, s.pack, s.music,
+           c.id AS chart_id, c.chart_type, c.difficulty AS chart_difficulty, c.meter AS chart_meter
+    FROM requests r
+    JOIN songs s ON s.id = r.song_id
+    LEFT JOIN charts c ON c.id = r.chart_id
     WHERE r.status = 'playing'
     ORDER BY r.started_at DESC LIMIT 1
   `,
     )
     .get();
-  return row ? { ...row, charts: getSongCharts(row.song_id) } : null;
+  return row ? { ...row, chart: chartFromRow(row), charts: getSongCharts(row.song_id) } : null;
 }
 
 function getStats() {
@@ -1017,9 +1045,16 @@ async function announceChatRequestStatus(enabled, role) {
 function addRequest(songId, username, displayName, options = {}) {
   const skipLimit = !!options.skipLimit;
   const prioritizeViewerInsertion = !!options.prioritizeViewerInsertion;
+  const chartId = Number(options.chartId);
+  if (!Number.isInteger(chartId) || chartId <= 0) {
+    throw new Error("A specific chart (style, difficulty, and meter) is required.");
+  }
 
   const song = db.prepare("SELECT * FROM songs WHERE id=?").get(songId);
   if (!song) throw new Error("Song not found.");
+
+  const chart = db.prepare("SELECT * FROM charts WHERE id=? AND song_id=?").get(chartId, songId);
+  if (!chart) throw new Error("Chart not found for that song.");
 
   if (isBlocked(songId, username)) {
     throw new Error("That song or viewer is currently blocked.");
@@ -1036,12 +1071,12 @@ function addRequest(songId, username, displayName, options = {}) {
     .prepare(
       `
     SELECT id FROM requests
-    WHERE song_id=? AND status IN ('queued','playing')
+    WHERE chart_id=? AND status IN ('queued','playing')
     LIMIT 1
   `,
     )
-    .get(songId);
-  if (duplicate) throw new Error("That song is already queued or playing.");
+    .get(chartId);
+  if (duplicate) throw new Error("That chart is already queued or playing.");
 
   const isViewerRequest = String(username).toLowerCase() !== "streamer";
   const prioritize = getSetting("prioritizeViewerRequests", true);
@@ -1077,15 +1112,24 @@ function addRequest(songId, username, displayName, options = {}) {
       .prepare(
         `
       INSERT INTO requests
-        (song_id, requested_by, requested_display, status, created_at)
-      VALUES (?, ?, ?, 'queued', ?)
+        (song_id, chart_id, requested_by, requested_display, status, created_at)
+      VALUES (?, ?, ?, ?, 'queued', ?)
     `,
       )
-      .run(songId, username, displayName, baseTimestamp + insertIndex);
+      .run(songId, chartId, username, displayName, baseTimestamp + insertIndex);
   });
   const info = insertRequest();
 
-  const result = { id: Number(info.lastInsertRowid), song };
+  const result = {
+    id: Number(info.lastInsertRowid),
+    song,
+    chart: {
+      id: chart.id,
+      chartType: chart.chart_type || "",
+      difficulty: chart.difficulty || "",
+      meter: chart.meter || "",
+    },
+  };
   try {
     if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
   } catch (e) {
@@ -1185,12 +1229,34 @@ function getSongCharts(songId) {
     .all(songId);
 }
 
+function styleLabel(chartType) {
+  if (chartType === "dance-single") return "Single";
+  if (chartType === "dance-double") return "Double";
+  return chartType || "";
+}
+
+function chartLabel(chart) {
+  if (!chart) return "";
+  const parts = [styleLabel(chart.chartType), chart.difficulty, chart.meter].filter(Boolean);
+  return parts.length ? ` Chart:${parts.join(" ")}` : "";
+}
+
 function formatSongRequestLabel(song) {
   const id = song.song_id ?? song.id;
   const title = song.title || "";
   const artist = song.artist || "";
   const pack = song.pack || "";
-  return `ID:${id} Title:${title} Artist:${artist} Pack:${pack}`;
+  const chart =
+    song.chart ||
+    (song.chart_id != null
+      ? {
+          id: song.chart_id,
+          chartType: song.chart_type,
+          difficulty: song.chart_difficulty,
+          meter: song.chart_meter,
+        }
+      : null);
+  return `ID:${id} Title:${title} Artist:${artist} Pack:${pack}${chartLabel(chart)}`;
 }
 
 function truncateMessage(message, maxLength) {
@@ -1215,8 +1281,11 @@ function getRequestById(id) {
     db
       .prepare(
         `
-    SELECT r.id, r.requested_by, r.requested_display, s.id AS song_id, s.title, s.artist, s.pack
-    FROM requests r JOIN songs s ON s.id = r.song_id
+    SELECT r.id, r.requested_by, r.requested_display, s.id AS song_id, s.title, s.artist, s.pack,
+           c.id AS chart_id, c.chart_type, c.difficulty AS chart_difficulty, c.meter AS chart_meter
+    FROM requests r
+    JOIN songs s ON s.id = r.song_id
+    LEFT JOIN charts c ON c.id = r.chart_id
     WHERE r.id = ?
   `,
       )
@@ -1229,8 +1298,11 @@ function getRequestBySongId(songId) {
     db
       .prepare(
         `
-    SELECT r.id, r.requested_by, r.requested_display, s.id AS song_id, s.title, s.artist, s.pack
-    FROM requests r JOIN songs s ON s.id = r.song_id
+    SELECT r.id, r.requested_by, r.requested_display, s.id AS song_id, s.title, s.artist, s.pack,
+           c.id AS chart_id, c.chart_type, c.difficulty AS chart_difficulty, c.meter AS chart_meter
+    FROM requests r
+    JOIN songs s ON s.id = r.song_id
+    LEFT JOIN charts c ON c.id = r.chart_id
     WHERE s.id = ? AND r.status IN ('queued', 'playing')
     ORDER BY r.created_at DESC
     LIMIT 1
@@ -1660,7 +1732,7 @@ function createApi(app, options = {}) {
           Number(req.body.songId),
           req.moderatorUsername,
           req.moderatorDisplayName || req.moderatorUsername,
-          { skipLimit: true },
+          { skipLimit: true, chartId: Number(req.body.chartId) },
         );
         res.json({ ok: true, request: r });
       } catch (e) {
@@ -1849,17 +1921,25 @@ function createApi(app, options = {}) {
       params.q = q;
     }
 
-    // Flag songs that are already queued or playing (a song can only be requested
-    // once) so clients can dim those rows instead of hiding them.
+    // Flag charts that are already queued or playing so clients can dim the
+    // individual chart rows instead of hiding them. A song is "active" when any
+    // of its charts is active (or it has a legacy request without a chart).
     const markActive = req.query.markActive === "1" || req.query.markActive === "true";
-    let activeIds = null;
+    let activeChartsBySong = null;
+    let legacyActiveSongs = null;
     if (markActive) {
-      activeIds = new Set(
-        db
-          .prepare("SELECT song_id FROM requests WHERE status IN ('queued', 'playing')")
-          .all()
-          .map((row) => row.song_id),
-      );
+      activeChartsBySong = new Map();
+      legacyActiveSongs = new Set();
+      for (const row of db
+        .prepare("SELECT song_id, chart_id FROM requests WHERE status IN ('queued', 'playing')")
+        .all()) {
+        if (row.chart_id != null) {
+          if (!activeChartsBySong.has(row.song_id)) activeChartsBySong.set(row.song_id, new Set());
+          activeChartsBySong.get(row.song_id).add(row.chart_id);
+        } else {
+          legacyActiveSongs.add(row.song_id);
+        }
+      }
     }
 
     const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
@@ -1885,7 +1965,10 @@ function createApi(app, options = {}) {
     res.json({
       songs: pageRows.map((row) => {
         const song = songRow(row);
-        if (activeIds) song.active = activeIds.has(row.id);
+        if (activeChartsBySong) {
+          song.activeCharts = [...(activeChartsBySong.get(row.id) || [])];
+          song.active = song.activeCharts.length > 0 || legacyActiveSongs.has(row.id);
+        }
         return song;
       }),
       total,
@@ -2011,7 +2094,7 @@ function createApi(app, options = {}) {
         Number(req.body.songId),
         username,
         isControlStreamer ? STREAMER_VANITY_NAME : displayName,
-        { skipLimit: isControlStreamer },
+        { skipLimit: isControlStreamer, chartId: Number(req.body.chartId) },
       );
       res.json({ ok: true, request: r });
     } catch (e) {
@@ -3115,7 +3198,9 @@ function getInstructionsEnabled() {
 function getInstructionsMessage() {
   const parts = [];
   parts.push(`Use "${PREFIX}${SEARCH_COMMAND} <title>" to search available song titles.`);
-  parts.push(`Use "${PREFIX}${REQUEST_ID_COMMAND} <songID>" to request a song.`);
+  parts.push(
+    `Use "${PREFIX}${REQUEST_ID_COMMAND} <songID> <single|double> <difficulty> <meter>" to request a specific chart (e.g. ${PREFIX}${REQUEST_ID_COMMAND} 42 single Expert 12).`,
+  );
   parts.push(`Use "${PREFIX}queue" to view the next 5 songs in the request queue.`);
   parts.push(`Use "${PREFIX}help" to display these usage instructions.`);
   if (PUBLIC_URL)
@@ -3642,19 +3727,77 @@ async function handleChatMessage(client, cfg, _channel, tags, message, self) {
     return;
   }
 
-  // Support requesting by numeric ID: !requestid <id>
+  // Support requesting a specific chart by numeric ID:
+  // !requestid <songID> <single|double> <difficulty> <meter>
   if (command === REQUEST_ID_COMMAND) {
-    if (!arg) {
+    const tokens = arg.split(/\s+/).filter(Boolean);
+    if (tokens.length < 4) {
       await sendChatMessage(
         client,
         cfg.channel,
-        `@${display}, usage: ${PREFIX}${REQUEST_ID_COMMAND} <song id>`,
+        `@${display}, usage: ${PREFIX}${REQUEST_ID_COMMAND} <songID> <single|double> <difficulty> <meter> (e.g. ${PREFIX}${REQUEST_ID_COMMAND} 42 single Expert 12)`,
       );
       return;
     }
-    const id = Number(arg);
-    if (!Number.isInteger(id)) {
-      await sendChatMessage(client, cfg.channel, `@${display}, "${arg}" is not a valid song id.`);
+    const id = Number(tokens[0]);
+    if (!Number.isInteger(id) || id <= 0) {
+      await sendChatMessage(
+        client,
+        cfg.channel,
+        `@${display}, "${tokens[0]}" is not a valid song id.`,
+      );
+      return;
+    }
+    const styleToken = tokens[1].toLowerCase();
+    const chartType =
+      styleToken === "single" || styleToken === "s"
+        ? "dance-single"
+        : styleToken === "double" || styleToken === "d" || styleToken === "dbl"
+          ? "dance-double"
+          : null;
+    if (!chartType) {
+      await sendChatMessage(
+        client,
+        cfg.channel,
+        `@${display}, "${tokens[1]}" is not a valid style. Use single or double.`,
+      );
+      return;
+    }
+    const meterToken = tokens[tokens.length - 1];
+    const meter = Number(meterToken);
+    if (!Number.isInteger(meter) || meter <= 0) {
+      await sendChatMessage(
+        client,
+        cfg.channel,
+        `@${display}, "${meterToken}" is not a valid meter.`,
+      );
+      return;
+    }
+    const difficulty = tokens.slice(2, tokens.length - 1).join(" ");
+    if (!difficulty) {
+      await sendChatMessage(
+        client,
+        cfg.channel,
+        `@${display}, a difficulty is required. Usage: ${PREFIX}${REQUEST_ID_COMMAND} <songID> <single|double> <difficulty> <meter>`,
+      );
+      return;
+    }
+
+    const chart = db
+      .prepare(
+        `
+    SELECT id FROM charts
+    WHERE song_id=? AND chart_type=? AND LOWER(difficulty)=? AND CAST(meter AS INTEGER)=?
+    LIMIT 1
+  `,
+      )
+      .get(id, chartType, difficulty.toLowerCase(), meter);
+    if (!chart) {
+      await sendChatMessage(
+        client,
+        cfg.channel,
+        `@${display}, no ${styleLabel(chartType)} ${difficulty} ${meter} chart found for song ID ${id}.`,
+      );
       return;
     }
 
@@ -3675,11 +3818,17 @@ async function handleChatMessage(client, cfg, _channel, tags, message, self) {
     }
     try {
       // Mark this as a chat-made viewer request so prioritization logic can apply.
-      const r = addRequest(id, username, display, { prioritizeViewerInsertion: true });
+      const r = addRequest(id, username, display, {
+        chartId: chart.id,
+        prioritizeViewerInsertion: true,
+      });
+      const chartParts = [styleLabel(r.chart.chartType), r.chart.difficulty, r.chart.meter]
+        .filter(Boolean)
+        .join(" ");
       await sendChatMessage(
         client,
         cfg.channel,
-        `@${display}, added "${r.song.title}" to the request queue!`,
+        `@${display}, added "${r.song.title}"${chartParts ? ` (${chartParts})` : ""} to the request queue!`,
         { skipPrefix: true },
       );
     } catch (e) {
@@ -3703,7 +3852,7 @@ async function handleChatMessage(client, cfg, _channel, tags, message, self) {
     const reply = top
       .map(
         (req) =>
-          `ID:${req.song_id} Title:${req.title} Artist:${req.artist || ""} Pack:${req.pack || ""}`,
+          `ID:${req.song_id} Title:${req.title} Artist:${req.artist || ""} Pack:${req.pack || ""}${chartLabel(req.chart)}`,
       )
       .join(" | ");
     await sendChatMessage(client, cfg.channel, `@${display}, ${reply}`);
