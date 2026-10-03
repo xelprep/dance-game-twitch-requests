@@ -6,10 +6,13 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const express = require("express");
 const net = require("net");
+const http = require("http");
+const https = require("https");
 
 const {
   checkPortsAvailable,
   createApi,
+  createPublicServer,
   db,
   getControlSettings,
   getLanIPv4Addresses,
@@ -18,6 +21,7 @@ const {
   isValidPort,
   networkProblemMessage,
   setSetting,
+  serverLabelUrl,
 } = require("../../server.js");
 
 function resetSettings() {
@@ -35,6 +39,14 @@ function startControlApp() {
 function authHeader() {
   return "Basic " + Buffer.from("streamer:test-control-password").toString("base64");
 }
+
+test("public server can use HTTP or HTTPS and builds matching URLs", () => {
+  const app = express();
+  assert.ok(createPublicServer(app, {}, false) instanceof http.Server);
+  assert.ok(createPublicServer(app, {}, true) instanceof https.Server);
+  assert.equal(serverLabelUrl("0.0.0.0", 3000, false), "http://localhost:3000");
+  assert.equal(serverLabelUrl("127.0.0.1", 3000, true), "https://127.0.0.1:3000");
+});
 
 test("getNetworkSettings returns the defaults when nothing valid is saved", () => {
   resetSettings();

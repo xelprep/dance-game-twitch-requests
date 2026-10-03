@@ -82,12 +82,6 @@ const ENV_OPTIONS = [
     validationMessage: "Enter a positive whole number.",
   },
   {
-    key: "ALLOW_WEB_REQUESTS",
-    label: "Allow requests from the public website",
-    description: "Lets viewers submit requests on the public site instead of Twitch chat.",
-    type: "boolean",
-  },
-  {
     key: "CONTROL_PASSWORD",
     label: "Control-panel password",
     description: "Password for streamer access to the authenticated control panel.",
@@ -99,6 +93,13 @@ const ENV_OPTIONS = [
     description: "Optional publicly reachable URL shared with viewers for browsing and requests.",
     type: "url",
     optional: true,
+  },
+  {
+    key: "PUBLIC_HTTPS",
+    label: "Use HTTPS for the public website",
+    description:
+      "HTTPS is recommended. Choose No for OBS browser sources on a trusted local network, where HTTP avoids self-signed-certificate warnings. Do not expose the HTTP port directly to the Internet.",
+    type: "boolean",
   },
   {
     key: "STREAMER_VANITY_NAME",

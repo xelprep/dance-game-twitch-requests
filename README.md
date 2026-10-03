@@ -54,7 +54,9 @@ Also hosted on port 3000 is the request queue browser source. Using the above vi
 
 A live mirror of the Twitch channel chat is also available at `https://localhost:3000/chatOverlay.html`. Add it as a second OBS browser source to show channel chat on stream. It updates in real time while the bot is connected to the channel, shows every message (including `!` commands and the streamer's own messages), and colors usernames with their Twitch chat color.
 
-Both sites use a locally generated self-signed certificate, so browsers will show an HTTPS warning the first time you connect. This is expected for private/LAN setups.
+By default, both sites use a locally generated self-signed certificate, so browsers may show an HTTPS warning the first time you connect. This is expected for private/LAN setups. The streamer control panel always uses HTTPS.
+
+The public website uses HTTPS by default. During initial setup, you can choose HTTP for the public endpoint if you use its overlays only as OBS browser sources on a trusted local network; some OBS browser sources cannot easily approve a self-signed certificate. HTTP is unencrypted, so keep the endpoint on a trusted network and do not expose its port directly to the Internet. A secure tunnel or reverse proxy can still provide HTTPS to remote viewers.
 
 Because the default bind address is `0.0.0.0`, another computer on your LAN can connect using the streaming PC's LAN IP:
 
@@ -277,6 +279,14 @@ PUBLIC_URL=https://my.cool.publicsite
 ```
 
 If this variable is set, the chat bot will inform users that they can visit this site to perform robust song searches and filters.
+
+The public site protocol can also be configured directly in `.env`:
+
+```text
+PUBLIC_HTTPS=true
+```
+
+Set `PUBLIC_HTTPS=false` to serve the public endpoint over HTTP. HTTPS remains enabled for the streamer control panel, including Twitch OAuth.
 
 THERE USED TO BE A VARIABLE CALLED `INSTRUCTIONS_MINUTES` BUT THIS HAS BEEN REMOVED AND REPLACED WITH A MUCH MORE CONVENIENT RUNTIME OPTION!
 

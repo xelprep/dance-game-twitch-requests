@@ -10,6 +10,7 @@ const fs = require("fs");
 const os = require("os");
 const net = require("net");
 const crypto = require("crypto");
+const http = require("http");
 const https = require("https");
 const Database = require("better-sqlite3");
 const selfsigned = require("selfsigned");
@@ -43,6 +44,10 @@ const HELP_COOLDOWN_MS = 30 * 1000;
 const ALLOW_WEB_REQUESTS = String(process.env.ALLOW_WEB_REQUESTS).toLowerCase() === "true";
 const SECURE_MODE = parseSecureMode(process.env.SECURE_MODE);
 const PUBLIC_URL = (process.env.PUBLIC_URL || "").trim();
+const PUBLIC_HTTPS =
+  String(process.env.PUBLIC_HTTPS ?? "true")
+    .trim()
+    .toLowerCase() !== "false";
 // Streamer vanity name shown when adding requests from the control panel. Defaults to "Streamer".
 const STREAMER_VANITY_NAME = String(process.env.STREAMER_VANITY_NAME || "Streamer").slice(0, 50);
 const DEFAULT_INSTRUCTIONS_MINUTES = 10;
@@ -3250,9 +3255,13 @@ function restartFailureMessage(error, target) {
   return error && error.message ? error.message : String(error);
 }
 
-function serverLabelUrl(host, port) {
+function serverLabelUrl(host, port, secure = true) {
   const label = host === "0.0.0.0" ? "localhost" : host;
-  return `https://${label}:${port}`;
+  return `${secure ? "https" : "http"}://${label}:${port}`;
+}
+
+function createPublicServer(app, tlsOptions, secure = PUBLIC_HTTPS) {
+  return secure ? https.createServer(tlsOptions, app) : http.createServer(app);
 }
 
 let restartInFlight = false;
@@ -3281,7 +3290,9 @@ async function performRestart() {
         typeof address === "object" &&
         address &&
         (entry.role === "public"
-          ? address.address === target.host && address.port === target.publicPort
+          ? address.address === target.host &&
+            address.port === target.publicPort &&
+            entry.secure === PUBLIC_HTTPS
           : address.address === target.host && address.port === target.controlPort);
       (matchesTarget ? keep : replace).push(entry);
     }
@@ -3294,7 +3305,7 @@ async function performRestart() {
       return {
         ok: true,
         alreadyRunning: true,
-        publicUrl: serverLabelUrl(target.host, target.publicPort),
+        publicUrl: serverLabelUrl(target.host, target.publicPort, PUBLIC_HTTPS),
         controlUrl: serverLabelUrl(target.host, target.controlPort),
       };
     }
@@ -3319,9 +3330,13 @@ async function performRestart() {
       for (const role of neededRoles) {
         const port = role === "public" ? target.publicPort : target.controlPort;
         const app = role === "public" ? publicApp : controlApp;
-        const server = https.createServer(tlsOptions, app);
+        const secure = role === "control" || PUBLIC_HTTPS;
+        const server =
+          role === "public"
+            ? createPublicServer(app, tlsOptions)
+            : https.createServer(tlsOptions, app);
         await listenServer(server, port, target.host);
-        started.push({ role, server });
+        started.push({ role, server, secure });
       }
     } catch (e) {
       await Promise.all(started.map(stopHttpsServer));
@@ -3337,7 +3352,7 @@ async function performRestart() {
     runningServers.length = 0;
     runningServers.push(...keep, ...started);
 
-    const publicUrl = serverLabelUrl(target.host, target.publicPort);
+    const publicUrl = serverLabelUrl(target.host, target.publicPort, PUBLIC_HTTPS);
     const controlUrl = serverLabelUrl(target.host, target.controlPort);
     console.log(`Public request site: ${publicUrl}`);
     console.log(`Streamer control panel: ${controlUrl}`);
@@ -3347,7 +3362,7 @@ async function performRestart() {
   }
 }
 
-// Create HTTPS servers for both public viewer site and streamer control panel.
+// The control panel always uses HTTPS; the public viewer protocol is configurable.
 async function startNetworkServers() {
   const target = getNetworkSettings();
   try {
@@ -3366,21 +3381,23 @@ async function startNetworkServers() {
     }
 
     const tlsOptions = await getControlTlsOptions({ host: target.host });
-    const publicServer = https.createServer(tlsOptions, publicApp);
+    const publicServer = createPublicServer(publicApp, tlsOptions);
     await listenServer(publicServer, target.publicPort, target.host);
-    runningServers.push({ role: "public", server: publicServer });
+    runningServers.push({ role: "public", server: publicServer, secure: PUBLIC_HTTPS });
     const controlServer = https.createServer(tlsOptions, controlApp);
     await listenServer(controlServer, target.controlPort, target.host);
-    runningServers.push({ role: "control", server: controlServer });
+    runningServers.push({ role: "control", server: controlServer, secure: true });
 
-    console.log(`Public request site: ${serverLabelUrl(target.host, target.publicPort)}`);
+    console.log(
+      `Public request site: ${serverLabelUrl(target.host, target.publicPort, PUBLIC_HTTPS)}`,
+    );
     console.log(`Streamer control panel: ${serverLabelUrl(target.host, target.controlPort)}`);
   } catch (e) {
     for (const entry of runningServers.slice()) {
       await stopHttpsServer(entry).catch(() => {});
     }
     runningServers.length = 0;
-    console.error("Failed to start HTTPS servers:");
+    console.error("Failed to start servers:");
     console.error(restartFailureMessage(e, target));
     process.exit(1);
   }
@@ -3416,6 +3433,9 @@ module.exports = {
   verifyModeratorPassword,
   verifyStreamerAuth,
   parseSecureMode,
+  PUBLIC_HTTPS,
+  serverLabelUrl,
+  createPublicServer,
   applySecureModeDefaults,
   getTwitchRefreshRetryDelay,
   announceTempModNomination,
