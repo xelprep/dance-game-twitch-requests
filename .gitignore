@@ -1,5 +1,6 @@
 node_modules/
 .env
+.env.*.bak
 data/*.db
 data/*.db-*
 data/twitch.json
