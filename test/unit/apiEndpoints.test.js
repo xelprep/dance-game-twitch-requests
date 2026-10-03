@@ -4,6 +4,9 @@ process.env.CONTROL_PASSWORD = "test-control-password";
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const express = require("express");
 
 const {
@@ -285,6 +288,115 @@ test("songs API filters by BPM range and duration range", async () => {
   } finally {
     server.close();
     db.prepare("DELETE FROM songs WHERE id IN (?, ?, ?)").run(...songIds);
+  }
+});
+
+test("control API can generate a valid course for a same-style queue and rejects mixed-style queues", async () => {
+  resetSettings();
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "course-generation-"));
+  const originalCoursesDir = process.env.COURSES_DIR;
+  process.env.COURSES_DIR = tempRoot;
+
+  try {
+    const songIds = [
+      db
+        .prepare(
+          "INSERT INTO songs (file_path, title, pack, last_modified, bpm_min, bpm_max, duration_seconds) VALUES (?, ?, ?, 0, 140, 140, 120)",
+        )
+        .run("single-song.sm", "Single Song", "Single Pack").lastInsertRowid,
+      db
+        .prepare(
+          "INSERT INTO songs (file_path, title, pack, last_modified, bpm_min, bpm_max, duration_seconds) VALUES (?, ?, ?, 0, 150, 150, 130)",
+        )
+        .run("single-song-2.sm", "Second Song", "Single Pack").lastInsertRowid,
+    ];
+    const chartIds = [
+      db
+        .prepare(
+          "INSERT INTO charts (song_id, chart_type, difficulty, meter, difficulty_raw) VALUES (?, 'dance-single', 'Challenge', '10', 'challenge')",
+        )
+        .run(songIds[0]).lastInsertRowid,
+      db
+        .prepare(
+          "INSERT INTO charts (song_id, chart_type, difficulty, meter, difficulty_raw) VALUES (?, 'dance-single', 'Challenge', '11', 'challenge')",
+        )
+        .run(songIds[1]).lastInsertRowid,
+    ];
+
+    db.prepare(
+      "INSERT INTO requests (song_id, chart_id, requested_by, requested_display, status, created_at) VALUES (?, ?, 'tester', 'Tester', 'queued', 1)",
+    ).run(songIds[0], chartIds[0]);
+    db.prepare(
+      "INSERT INTO requests (song_id, chart_id, requested_by, requested_display, status, created_at) VALUES (?, ?, 'tester', 'Tester', 'queued', 2)",
+    ).run(songIds[1], chartIds[1]);
+
+    const server = await startControlApp();
+    const port = server.address().port;
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/control/course/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization:
+            "Basic " + Buffer.from("streamer:test-control-password").toString("base64"),
+        },
+        body: JSON.stringify({ courseName: "Generated Course" }),
+      });
+      assert.equal(res.status, 200);
+      const json = await res.json();
+      assert.equal(json.ok, true);
+      assert.ok(json.filePath.endsWith("Generated Course.crs"));
+      assert.ok(fs.existsSync(json.filePath));
+      const text = fs.readFileSync(json.filePath, "utf8");
+      assert.match(text, /^#COURSE:Generated Course;/m);
+      assert.match(
+        text,
+        /#SONGSELECT:GROUP=Single Pack:TITLE=Single Song:DIFFICULTY=challenge:METER=10;/i,
+      );
+
+      const mixedSong = db
+        .prepare(
+          "INSERT INTO songs (file_path, title, pack, last_modified, bpm_min, bpm_max, duration_seconds) VALUES (?, ?, ?, 0, 140, 140, 120)",
+        )
+        .run("double-song.sm", "Double Song", "Double Pack").lastInsertRowid;
+      const mixedChart = db
+        .prepare(
+          "INSERT INTO charts (song_id, chart_type, difficulty, meter, difficulty_raw) VALUES (?, 'dance-double', 'Hard', '18', 'hard')",
+        )
+        .run(mixedSong).lastInsertRowid;
+      db.prepare(
+        "INSERT INTO requests (song_id, chart_id, requested_by, requested_display, status, created_at) VALUES (?, ?, 'tester', 'Tester', 'queued', 3)",
+      ).run(mixedSong, mixedChart);
+
+      const badRes = await fetch(`http://127.0.0.1:${port}/api/control/course/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization:
+            "Basic " + Buffer.from("streamer:test-control-password").toString("base64"),
+        },
+        body: JSON.stringify({ courseName: "Bad Course" }),
+      });
+      assert.equal(badRes.status, 400);
+      const badJson = await badRes.json();
+      assert.match(String(badJson.error), /single|double|style/i);
+    } finally {
+      server.close();
+    }
+  } finally {
+    if (originalCoursesDir === undefined) delete process.env.COURSES_DIR;
+    else process.env.COURSES_DIR = originalCoursesDir;
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+    db.prepare("DELETE FROM requests WHERE requested_by = 'tester'").run();
+    db.prepare(
+      "DELETE FROM charts WHERE song_id IN (SELECT id FROM songs WHERE title IN (?, ?, ?, ?))",
+    ).run("Single Song", "Second Song", "Double Song", "Mixing");
+    db.prepare("DELETE FROM songs WHERE title IN (?, ?, ?, ?)").run(
+      "Single Song",
+      "Second Song",
+      "Double Song",
+      "Mixing",
+    );
   }
 });
 

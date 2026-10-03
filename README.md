@@ -88,6 +88,7 @@ The control panel provides:
 - Skip requests
 - Move requests up/down
 - Clear the queue
+- Generate a StepMania `.crs` course from the current request queue
 - Block a song
 - Block a Twitch user
 - Remove blocked entries
@@ -96,6 +97,23 @@ The control panel provides:
 - Search songs and make unlimited requests as the streamer
 - Enable/disable prioritizing viewer requests above streamer requests
 - Constrain which charts can be requested during a session (see [Request constraints](#request-constraints))
+
+## Course generation
+
+The control panel includes a **Generate Course** action for the current request queue. This creates a StepMania `.crs` file from the queued songs using the exact pack/folder names and raw difficulty strings that were scanned from the simfiles, so the exported course matches the underlying chart data rather than a normalized UI label.
+
+Requirements:
+
+- The queue must contain songs from the same style only: either all `Single` or all `Double`.
+- The queue cannot be empty.
+- The generated file name defaults to the queue name or a timestamped fallback, and the app refuses to overwrite an existing `.crs` file in the output directory.
+
+Output location:
+
+- If `COURSES_DIR` is unset or invalid, the app falls back to `.\data\courses`.
+- If `COURSES_DIR` points to a real directory, the app writes generated courses under a `Generated Courses` subfolder inside that directory so they are kept separate from the rest of your Song/Pack folders.
+
+This keeps the generated course export safe and predictable while still letting the streamer generate a queue directly from the control panel.
 
 ## Request constraints
 
@@ -209,6 +227,14 @@ SCANNER_THREADS=-1
 ```
 
 This controls the number of worker threads used for parallel song library scanning. Defaults to `-1` (use all available CPU cores on the host machine). Set to a positive integer (e.g. `SCANNER_THREADS=2`) to restrict thread usage.
+
+Optionally Set:
+
+```text
+COURSES_DIR=C:\Path\To\StepMania\Courses
+```
+
+This controls where generated StepMania course files are written. If it is unset or invalid, the app falls back to `.\data\courses`. When a valid custom directory is configured, generated files are stored under `Generated Courses` inside that folder so they can be kept separate from your normal course library.
 
 Also Set:
 

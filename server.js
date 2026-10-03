@@ -46,6 +46,8 @@ const PUBLIC_URL = (process.env.PUBLIC_URL || "").trim();
 // Streamer vanity name shown when adding requests from the control panel. Defaults to "Streamer".
 const STREAMER_VANITY_NAME = String(process.env.STREAMER_VANITY_NAME || "Streamer").slice(0, 50);
 const DEFAULT_INSTRUCTIONS_MINUTES = 10;
+const DEFAULT_COURSES_DIR = path.resolve("./data/courses");
+const GENERATED_COURSES_DIR_NAME = "Generated Courses";
 
 // Runtime instructions timer (minutes); managed from the control panel and stored in the settings DB.
 function getRuntimeInstructionsMinutes() {
@@ -330,6 +332,7 @@ CREATE TABLE IF NOT EXISTS songs (
   artist TEXT DEFAULT '',
   genre TEXT DEFAULT '',
   pack TEXT DEFAULT '',
+  pack_folder TEXT DEFAULT '',
   music TEXT DEFAULT '',
   last_modified INTEGER NOT NULL,
   bpm_min INTEGER,
@@ -343,6 +346,7 @@ CREATE TABLE IF NOT EXISTS charts (
   song_id INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
   chart_type TEXT DEFAULT '',
   difficulty TEXT DEFAULT '',
+  difficulty_raw TEXT DEFAULT '',
   meter TEXT DEFAULT '',
   radar TEXT DEFAULT '',
   UNIQUE(song_id, chart_type, difficulty, meter)
@@ -387,9 +391,23 @@ CREATE TABLE IF NOT EXISTS settings (
     .prepare("PRAGMA table_info(songs)")
     .all()
     .map((r) => r.name);
+  for (const column of ["pack_folder"]) {
+    if (!songColumns.includes(column)) {
+      db.exec(`ALTER TABLE songs ADD COLUMN ${column} TEXT DEFAULT ''`);
+    }
+  }
   for (const column of ["bpm_min", "bpm_max", "core_bpm", "duration_seconds"]) {
     if (!songColumns.includes(column)) {
       db.exec(`ALTER TABLE songs ADD COLUMN ${column} INTEGER`);
+    }
+  }
+  const chartColumns = db
+    .prepare("PRAGMA table_info(charts)")
+    .all()
+    .map((r) => r.name);
+  for (const column of ["difficulty_raw"]) {
+    if (!chartColumns.includes(column)) {
+      db.exec(`ALTER TABLE charts ADD COLUMN ${column} TEXT DEFAULT ''`);
     }
   }
   const requestColumns = db
@@ -514,6 +532,7 @@ function chartFromRow(row) {
     id: row.chart_id,
     chartType: row.chart_type || "",
     difficulty: row.chart_difficulty || "",
+    difficultyRaw: row.chart_difficulty_raw || row.chart_difficulty || "",
     meter: row.chart_meter || "",
   };
 }
@@ -524,8 +543,9 @@ function getQueue(limit = QUEUE_LIMIT) {
       `
     SELECT r.id, r.requested_by, r.requested_display, r.status, r.created_at,
            r.started_at, r.completed_at,
-           s.id AS song_id, s.title, s.subtitle, s.artist, s.pack, s.music,
-           c.id AS chart_id, c.chart_type, c.difficulty AS chart_difficulty, c.meter AS chart_meter
+           s.id AS song_id, s.title, s.subtitle, s.artist, s.pack, s.pack_folder, s.music,
+           c.id AS chart_id, c.chart_type, c.difficulty AS chart_difficulty,
+           c.difficulty_raw AS chart_difficulty_raw, c.meter AS chart_meter
     FROM requests r
     JOIN songs s ON s.id = r.song_id
     LEFT JOIN charts c ON c.id = r.chart_id
@@ -608,6 +628,108 @@ function getSetting(key, defaultValue) {
     return defaultValue;
   }
 }
+
+function getConfiguredCoursesDir() {
+  const configured = (process.env.COURSES_DIR || "").trim();
+  if (configured) {
+    const resolved = path.resolve(configured);
+    if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
+      return resolved;
+    }
+    console.warn(
+      `[course] COURSES_DIR is set to "${configured}" but the directory is missing or invalid. Falling back to ${DEFAULT_COURSES_DIR}.`,
+    );
+  } else {
+    console.warn(`[course] COURSES_DIR is not set. Falling back to ${DEFAULT_COURSES_DIR}.`);
+  }
+
+  fs.mkdirSync(DEFAULT_COURSES_DIR, { recursive: true });
+  return DEFAULT_COURSES_DIR;
+}
+
+function isConfiguredCustomCoursesDir() {
+  const configured = (process.env.COURSES_DIR || "").trim();
+  if (!configured) return false;
+  const resolved = path.resolve(configured);
+  return fs.existsSync(resolved) && fs.statSync(resolved).isDirectory();
+}
+
+function sanitizeCourseName(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  return value
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/\.+$/g, "")
+    .trim();
+}
+
+function getDefaultCourseName() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `RequestQueue-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}`;
+}
+
+function resolveCourseOutputPath(courseName) {
+  const baseDir = getConfiguredCoursesDir();
+  const sanitized = sanitizeCourseName(courseName) || getDefaultCourseName();
+  const fileName = `${sanitized}.crs`;
+  if (isConfiguredCustomCoursesDir()) {
+    const generatedDir = path.join(baseDir, GENERATED_COURSES_DIR_NAME);
+    fs.mkdirSync(generatedDir, { recursive: true });
+    return path.join(generatedDir, fileName);
+  }
+  return path.join(baseDir, fileName);
+}
+
+function escapeCourseValue(value) {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/([#:=;,])/g, "\\$1");
+}
+
+function buildCourseText(courseName, queue) {
+  if (!Array.isArray(queue) || queue.length === 0) {
+    throw new Error("The request queue is empty.");
+  }
+
+  const styles = new Set(
+    queue
+      .map((entry) =>
+        String(entry?.chart?.chartType || entry?.chart_type || "")
+          .trim()
+          .toLowerCase(),
+      )
+      .filter(Boolean),
+  );
+
+  if (styles.size > 1) {
+    throw new Error(
+      "Course generation requires all queued songs to be the same style (Single or Double).",
+    );
+  }
+
+  if (styles.size === 0) {
+    throw new Error(
+      "Queued songs are missing chart style metadata, so a course cannot be generated.",
+    );
+  }
+
+  const lines = [`#COURSE:${escapeCourseValue(courseName)};`];
+  for (const entry of queue) {
+    const chart = entry?.chart || {};
+    const group = String(entry?.pack_folder || entry?.pack || "").trim() || "Unknown Pack";
+    const title = String(entry?.title || "").trim() || "Unknown Song";
+    const difficulty = String(chart.difficultyRaw || chart.difficulty || "").trim() || "Medium";
+    const meter = String(chart.meter ?? "").trim() || "0";
+    lines.push(
+      `#SONGSELECT:GROUP=${escapeCourseValue(group)}:TITLE=${escapeCourseValue(title)}:DIFFICULTY=${escapeCourseValue(difficulty)}:METER=${escapeCourseValue(meter)};`,
+    );
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
 function setSetting(key, value) {
   const val = typeof value === "string" ? value : JSON.stringify(value);
   db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)").run(key, val);
@@ -2238,6 +2360,48 @@ function createApi(app, options = {}) {
     app.get("/api/control/settings", (_req, res) => {
       res.json(getControlSettings());
     });
+    app.post("/api/control/course/generate", (req, res) => {
+      try {
+        const requestedName = String(
+          req.body && req.body.courseName ? req.body.courseName : "",
+        ).trim();
+        const queue = getQueue();
+        const courseName = sanitizeCourseName(requestedName) || getDefaultCourseName();
+        const outputPath = resolveCourseOutputPath(courseName);
+
+        if (fs.existsSync(outputPath)) {
+          return res.status(409).json({
+            error: `A course named "${courseName}" already exists. Choose a different name or delete the existing .crs file first.`,
+          });
+        }
+
+        const courseText = buildCourseText(courseName, queue);
+        fs.writeFileSync(outputPath, courseText, "utf8");
+
+        const customDir = isConfiguredCustomCoursesDir();
+        const message = customDir
+          ? `Course generated in ${outputPath}. Reload songs/courses in-game to see it.`
+          : `Course generated in ${outputPath}. Move it into your game course folder before reloading songs/courses.`;
+
+        console.log(
+          `[course] Generated ${courseName}.crs (${queue.length} queued songs) at ${outputPath}`,
+        );
+        res.json({
+          ok: true,
+          filePath: outputPath,
+          courseName,
+          queueCount: queue.length,
+          customDir,
+          reloadRequired: customDir,
+          message,
+        });
+      } catch (error) {
+        const message = error && error.message ? error.message : "Failed to generate course.";
+        console.error("[course] Failed to generate course:", error);
+        res.status(400).json({ error: message });
+      }
+    });
+
     app.post("/api/control/settings", async (req, res) => {
       const current = getControlSettings();
       const next = {
