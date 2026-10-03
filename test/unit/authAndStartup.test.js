@@ -16,6 +16,7 @@ const {
   verifyStreamerAuth,
   getModeratorCredentialsList,
   setSetting,
+  getTwitchRefreshRetryDelay,
 } = require("../../server.js");
 
 function resetSettings() {
@@ -72,6 +73,15 @@ test("startup smoke check: the app can initialize a minimal settings table witho
 test("test environment uses a temporary in-memory database and avoids dev db", () => {
   assert.equal(DB_PATH, ":memory:");
   assert.equal(db.name, ":memory:");
+});
+
+test("Twitch token refresh retry delay uses capped exponential backoff", () => {
+  assert.equal(getTwitchRefreshRetryDelay(0), 30_000);
+  assert.equal(getTwitchRefreshRetryDelay(1), 60_000);
+  assert.equal(getTwitchRefreshRetryDelay(2), 120_000);
+  assert.equal(getTwitchRefreshRetryDelay(4), 300_000);
+  assert.equal(getTwitchRefreshRetryDelay(20), 300_000);
+  assert.equal(getTwitchRefreshRetryDelay(-1), 30_000);
 });
 
 test("resolveDatabasePath properly prioritizes test mode and custom environment variables", () => {

@@ -3417,6 +3417,7 @@ module.exports = {
   verifyStreamerAuth,
   parseSecureMode,
   applySecureModeDefaults,
+  getTwitchRefreshRetryDelay,
   announceTempModNomination,
   scanSongs,
   handleChatMessage,
@@ -3449,6 +3450,7 @@ function loadTwitchConfig() {
 }
 
 let twitchRefreshTimer = null;
+let twitchRefreshRetryAttempt = 0;
 let chatUsersCleanupTimer = null;
 
 // Track recent chat users for temp mod nomination (username -> { displayName, lastSeen })
@@ -3500,6 +3502,7 @@ async function refreshTwitchToken() {
     if (json.refresh_token) cfg.refreshToken = json.refresh_token;
     cfg.expiresAt = json.expires_in ? Date.now() + Number(json.expires_in) * 1000 : null;
     saveTwitchConfig(cfg);
+    twitchRefreshRetryAttempt = 0;
 
     // restart client with new token
     await startTmiClient(cfg);
@@ -3507,9 +3510,28 @@ async function refreshTwitchToken() {
     console.log("Twitch access token refreshed.");
     return true;
   } catch (e) {
-    console.error("Error refreshing Twitch token:", e.message || e);
+    const cause = e && e.cause ? e.cause.code || e.cause.message : null;
+    console.error(
+      "Error refreshing Twitch token:",
+      cause ? `${e.message || e} (cause: ${cause})` : e.message || e,
+    );
+    scheduleTwitchRefreshRetry();
     return false;
   }
+}
+
+function scheduleTwitchRefreshRetry() {
+  clearTwitchRefreshTimer();
+  const delayMs = getTwitchRefreshRetryDelay(twitchRefreshRetryAttempt);
+  twitchRefreshRetryAttempt += 1;
+  console.warn(`Twitch token refresh will retry in ${Math.round(delayMs / 1000)} seconds.`);
+  twitchRefreshTimer = setTimeout(() => {
+    refreshTwitchToken().catch((err) => console.error("Scheduled refresh retry failed:", err));
+  }, delayMs);
+}
+
+function getTwitchRefreshRetryDelay(attempt) {
+  return Math.min(30_000 * 2 ** Math.max(0, attempt), 5 * 60_000);
 }
 
 function scheduleTwitchRefresh() {
