@@ -55,6 +55,7 @@ function parseNotesBlocks(text) {
       const chart = {
         chartType: hm[1].trim(),
         difficulty: normalizeDifficulty(hm[3]),
+        difficultyRaw: hm[3].trim(),
         meter: normalizeMeter(hm[4]),
         radar: hm[5].trim(),
         noteData: hm[6] || "",
@@ -84,6 +85,7 @@ function parseNotesBlocks(text) {
         chartType: fields[0].trim(),
         // fields[1] is author (ignored)
         difficulty: normalizeDifficulty(fields[2]),
+        difficultyRaw: String(fields[2] || "").trim(),
         meter: normalizeMeter(fields[3]),
         radar: fields[4].trim(),
         noteData,
@@ -108,6 +110,7 @@ function parseNotesBlocks(text) {
       const chart = {
         chartType: tags.STEPSTYPE || "",
         difficulty: normalizeDifficulty(tags.DIFFICULTY || ""),
+        difficultyRaw: String(tags.DIFFICULTY || "").trim(),
         meter: normalizeMeter(tags.METER || ""),
         radar: tags.RADARVALUES || "",
         noteData,
@@ -518,14 +521,15 @@ function computeCoreBpm(charts, songTags, isSSC) {
   return null;
 }
 
-function readSongFile(filePath, packOverride) {
+function readSongFile(filePath, packOverride, packFolderOverride) {
   const text = fs.readFileSync(filePath, "utf8");
   const tags = parseTags(text);
   const headerTags = parseTags(songHeader(text));
   const isSSC = /\.ssc$/i.test(filePath);
 
   const stat = fs.statSync(filePath);
-  const pack = packOverride || path.basename(path.dirname(filePath));
+  const packFolder = packFolderOverride || path.basename(path.dirname(filePath));
+  const pack = packOverride || packFolder;
 
   const charts = parseNotesBlocks(text);
   const { bpmMin, bpmMax } = parseBpm(headerTags);
@@ -539,12 +543,16 @@ function readSongFile(filePath, packOverride) {
     genre: tags.GENRE || "",
     music: tags.MUSIC || "",
     pack,
+    packFolder,
     lastModified: stat.mtimeMs,
     bpmMin,
     bpmMax,
     coreBpm,
     durationSeconds: computeDuration(charts, headerTags, isSSC),
-    charts,
+    charts: charts.map((chart) => ({
+      ...chart,
+      difficultyRaw: chart.difficultyRaw || chart.difficulty || "",
+    })),
   };
 }
 
@@ -619,7 +627,7 @@ async function parseSongFilesParallel(tasks, numThreads, onProgress) {
     let completed = 0;
     for (const task of tasks) {
       try {
-        const song = readSongFile(task.filePath, task.pack);
+        const song = readSongFile(task.filePath, task.pack, task.packFolder);
         results.push(song);
       } catch (err) {
         recordFailure(task.filePath, err);
@@ -641,7 +649,12 @@ async function parseSongFilesParallel(tasks, numThreads, onProgress) {
       if (nextTaskIndex < tasks.length) {
         const taskIndex = nextTaskIndex++;
         const task = tasks[taskIndex];
-        worker.postMessage({ id: taskIndex, filePath: task.filePath, pack: task.pack });
+        worker.postMessage({
+          id: taskIndex,
+          filePath: task.filePath,
+          pack: task.pack,
+          packFolder: task.packFolder,
+        });
       }
     }
 
@@ -752,7 +765,10 @@ function mergeDuplicateSongs(songs) {
           const chartKey = [chart.chartType, chart.difficulty, chart.meter].join("\u0000");
           if (seenCharts.has(chartKey)) continue;
           seenCharts.add(chartKey);
-          charts.push(chart);
+          charts.push({
+            ...chart,
+            difficultyRaw: chart.difficultyRaw || chart.difficulty || "",
+          });
         }
       }
       merged.push({ ...primary, charts });
@@ -797,7 +813,7 @@ async function scanSongs(songsDir, db, options = {}) {
       const pack = readPackIniDisplayTitle(packDir) || folderName;
 
       seenPaths.add(normalizedPath);
-      tasks.push({ filePath: normalizedPath, pack });
+      tasks.push({ filePath: normalizedPath, pack, packFolder: folderName });
     }
   }
 
@@ -821,10 +837,10 @@ async function scanSongs(songsDir, db, options = {}) {
 
   const upsertSong = db.prepare(`
     INSERT INTO songs
-      (file_path, title, subtitle, artist, genre, pack, music, last_modified,
+      (file_path, title, subtitle, artist, genre, pack, pack_folder, music, last_modified,
        bpm_min, bpm_max, core_bpm, duration_seconds)
     VALUES
-      (@filePath, @title, @subtitle, @artist, @genre, @pack, @music, @lastModified,
+      (@filePath, @title, @subtitle, @artist, @genre, @pack, @packFolder, @music, @lastModified,
        @bpmMin, @bpmMax, @coreBpm, @durationSeconds)
     ON CONFLICT(file_path) DO UPDATE SET
       title = excluded.title,
@@ -832,6 +848,7 @@ async function scanSongs(songsDir, db, options = {}) {
       artist = excluded.artist,
       genre = excluded.genre,
       pack = excluded.pack,
+      pack_folder = excluded.pack_folder,
       music = excluded.music,
       last_modified = excluded.last_modified,
       bpm_min = excluded.bpm_min,
@@ -844,8 +861,8 @@ async function scanSongs(songsDir, db, options = {}) {
   const clearCharts = db.prepare("DELETE FROM charts WHERE song_id = ?");
   const addChart = db.prepare(`
     INSERT OR IGNORE INTO charts
-      (song_id, chart_type, difficulty, meter, radar)
-    VALUES (?, ?, ?, ?, ?)
+      (song_id, chart_type, difficulty, difficulty_raw, meter, radar)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
 
   // Collapse duplicate packs/songs found across the songs directories.
@@ -863,7 +880,14 @@ async function scanSongs(songsDir, db, options = {}) {
       clearCharts.run(row.id);
 
       for (const chart of song.charts || []) {
-        addChart.run(row.id, chart.chartType, chart.difficulty, chart.meter, chart.radar);
+        addChart.run(
+          row.id,
+          chart.chartType,
+          chart.difficulty,
+          chart.difficultyRaw || chart.difficulty || "",
+          chart.meter,
+          chart.radar,
+        );
       }
     }
 

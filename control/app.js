@@ -1129,6 +1129,32 @@ $("clear").onclick = async () => {
   }
 };
 
+$("generate-course").onclick = async () => {
+  const defaultName = (() => {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `RequestQueue-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}`;
+  })();
+
+  const input = window.prompt("Course name", defaultName);
+  if (input === null) return;
+
+  try {
+    const result = await api("/api/control/course/generate", {
+      method: "POST",
+      body: JSON.stringify({ courseName: input.trim() || defaultName }),
+    });
+    const message = result.message || `Course generated: ${result.courseName}.crs`;
+    toast(message, result.reloadRequired ? undefined : "error");
+    if (result.reloadRequired) {
+      console.log(`[course] Reload requested in-game after generating ${result.courseName}.crs`);
+    }
+  } catch (e) {
+    console.error("[course] Generate course failed:", e);
+    toast(e.message, "error");
+  }
+};
+
 $("rescan").onclick = async () => {
   try {
     const r = await api("/api/rescan", { method: "POST" });

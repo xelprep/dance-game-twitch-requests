@@ -29,6 +29,60 @@ function writeSongFile(songDir, fileName, contents) {
   fs.writeFileSync(path.join(songDir, fileName), contents, "utf8");
 }
 
+function createMemoryDb() {
+  const db = new Database(":memory:");
+  db.exec(`
+    CREATE TABLE songs (
+      id INTEGER PRIMARY KEY,
+      file_path TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      subtitle TEXT DEFAULT '',
+      artist TEXT DEFAULT '',
+      genre TEXT DEFAULT '',
+      pack TEXT DEFAULT '',
+      pack_folder TEXT DEFAULT '',
+      music TEXT DEFAULT '',
+      last_modified INTEGER NOT NULL,
+      bpm_min INTEGER,
+      bpm_max INTEGER,
+      core_bpm INTEGER,
+      duration_seconds INTEGER
+    );
+    CREATE TABLE charts (
+      id INTEGER PRIMARY KEY,
+      song_id INTEGER NOT NULL,
+      chart_type TEXT DEFAULT '',
+      difficulty TEXT DEFAULT '',
+      difficulty_raw TEXT DEFAULT '',
+      meter TEXT DEFAULT '',
+      radar TEXT DEFAULT ''
+    );
+    CREATE TABLE requests (
+      id INTEGER PRIMARY KEY,
+      song_id INTEGER NOT NULL,
+      requested_by TEXT NOT NULL,
+      requested_display TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      created_at INTEGER NOT NULL,
+      started_at INTEGER,
+      completed_at INTEGER
+    );
+    CREATE TABLE blocked (
+      id INTEGER PRIMARY KEY,
+      song_id INTEGER REFERENCES songs(id),
+      username TEXT,
+      reason TEXT DEFAULT '',
+      created_at INTEGER NOT NULL,
+      UNIQUE(song_id, username)
+    );
+    CREATE TABLE settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
+  return db;
+}
+
 test("readSongFile parses metadata and chart data from .sm files", () => {
   const tmp = tempDir();
   const filePath = path.join(tmp, "song.sm");
@@ -96,54 +150,7 @@ test("scanSongs prefers .ssc files when both .sm and .ssc exist", async () => {
     "#TITLE:Preferred Title;\n#NOTEDATA:;\n#STEPSTYPE:dance-single;\n#DIFFICULTY:Hard;\n#METER:12;\n#RADARVALUES:1.0;\n",
   );
 
-  const db = new Database(":memory:");
-  db.exec(`
-    CREATE TABLE songs (
-      id INTEGER PRIMARY KEY,
-      file_path TEXT NOT NULL UNIQUE,
-      title TEXT NOT NULL,
-      subtitle TEXT DEFAULT '',
-      artist TEXT DEFAULT '',
-      genre TEXT DEFAULT '',
-      pack TEXT DEFAULT '',
-      music TEXT DEFAULT '',
-      last_modified INTEGER NOT NULL,
-      bpm_min INTEGER,
-      bpm_max INTEGER,
-      core_bpm INTEGER,
-      duration_seconds INTEGER
-    );
-    CREATE TABLE charts (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER NOT NULL,
-      chart_type TEXT DEFAULT '',
-      difficulty TEXT DEFAULT '',
-      meter TEXT DEFAULT '',
-      radar TEXT DEFAULT ''
-    );
-    CREATE TABLE requests (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER NOT NULL,
-      requested_by TEXT NOT NULL,
-      requested_display TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'queued',
-      created_at INTEGER NOT NULL,
-      started_at INTEGER,
-      completed_at INTEGER
-    );
-    CREATE TABLE blocked (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER REFERENCES songs(id),
-      username TEXT,
-      reason TEXT DEFAULT '',
-      created_at INTEGER NOT NULL,
-      UNIQUE(song_id, username)
-    );
-    CREATE TABLE settings (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
-  `);
+  const db = createMemoryDb();
 
   const result = await scanSongs(tmp, db);
 
@@ -196,54 +203,7 @@ test("scanSongs deletes stale songs and their related records", async () => {
     "utf8",
   );
 
-  const db = new Database(":memory:");
-  db.exec(`
-    CREATE TABLE songs (
-      id INTEGER PRIMARY KEY,
-      file_path TEXT NOT NULL UNIQUE,
-      title TEXT NOT NULL,
-      subtitle TEXT DEFAULT '',
-      artist TEXT DEFAULT '',
-      genre TEXT DEFAULT '',
-      pack TEXT DEFAULT '',
-      music TEXT DEFAULT '',
-      last_modified INTEGER NOT NULL,
-      bpm_min INTEGER,
-      bpm_max INTEGER,
-      core_bpm INTEGER,
-      duration_seconds INTEGER
-    );
-    CREATE TABLE charts (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER NOT NULL,
-      chart_type TEXT DEFAULT '',
-      difficulty TEXT DEFAULT '',
-      meter TEXT DEFAULT '',
-      radar TEXT DEFAULT ''
-    );
-    CREATE TABLE requests (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER NOT NULL,
-      requested_by TEXT NOT NULL,
-      requested_display TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'queued',
-      created_at INTEGER NOT NULL,
-      started_at INTEGER,
-      completed_at INTEGER
-    );
-    CREATE TABLE blocked (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER REFERENCES songs(id),
-      username TEXT,
-      reason TEXT DEFAULT '',
-      created_at INTEGER NOT NULL,
-      UNIQUE(song_id, username)
-    );
-    CREATE TABLE settings (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
-  `);
+  const db = createMemoryDb();
 
   await scanSongs(tmp, db);
   fs.rmSync(songDir, { recursive: true, force: true });
@@ -520,54 +480,7 @@ test("scanSongs persists bpm and duration columns", async () => {
     ].join("\n"),
   );
 
-  const db = new Database(":memory:");
-  db.exec(`
-    CREATE TABLE songs (
-      id INTEGER PRIMARY KEY,
-      file_path TEXT NOT NULL UNIQUE,
-      title TEXT NOT NULL,
-      subtitle TEXT DEFAULT '',
-      artist TEXT DEFAULT '',
-      genre TEXT DEFAULT '',
-      pack TEXT DEFAULT '',
-      music TEXT DEFAULT '',
-      last_modified INTEGER NOT NULL,
-      bpm_min INTEGER,
-      bpm_max INTEGER,
-      core_bpm INTEGER,
-      duration_seconds INTEGER
-    );
-    CREATE TABLE charts (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER NOT NULL,
-      chart_type TEXT DEFAULT '',
-      difficulty TEXT DEFAULT '',
-      meter TEXT DEFAULT '',
-      radar TEXT DEFAULT ''
-    );
-    CREATE TABLE requests (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER NOT NULL,
-      requested_by TEXT NOT NULL,
-      requested_display TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'queued',
-      created_at INTEGER NOT NULL,
-      started_at INTEGER,
-      completed_at INTEGER
-    );
-    CREATE TABLE blocked (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER REFERENCES songs(id),
-      username TEXT,
-      reason TEXT DEFAULT '',
-      created_at INTEGER NOT NULL,
-      UNIQUE(song_id, username)
-    );
-    CREATE TABLE settings (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
-  `);
+  const db = createMemoryDb();
 
   const result = await scanSongs(tmp, db);
 
@@ -612,54 +525,7 @@ test("scanSongs returns elapsedTimeMs and supports multithreading", async () => 
     );
   }
 
-  const db = new Database(":memory:");
-  db.exec(`
-    CREATE TABLE songs (
-      id INTEGER PRIMARY KEY,
-      file_path TEXT NOT NULL UNIQUE,
-      title TEXT NOT NULL,
-      subtitle TEXT DEFAULT '',
-      artist TEXT DEFAULT '',
-      genre TEXT DEFAULT '',
-      pack TEXT DEFAULT '',
-      music TEXT DEFAULT '',
-      last_modified INTEGER NOT NULL,
-      bpm_min INTEGER,
-      bpm_max INTEGER,
-      core_bpm INTEGER,
-      duration_seconds INTEGER
-    );
-    CREATE TABLE charts (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER NOT NULL,
-      chart_type TEXT DEFAULT '',
-      difficulty TEXT DEFAULT '',
-      meter TEXT DEFAULT '',
-      radar TEXT DEFAULT ''
-    );
-    CREATE TABLE requests (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER NOT NULL,
-      requested_by TEXT NOT NULL,
-      requested_display TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'queued',
-      created_at INTEGER NOT NULL,
-      started_at INTEGER,
-      completed_at INTEGER
-    );
-    CREATE TABLE blocked (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER REFERENCES songs(id),
-      username TEXT,
-      reason TEXT DEFAULT '',
-      created_at INTEGER NOT NULL,
-      UNIQUE(song_id, username)
-    );
-    CREATE TABLE settings (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
-  `);
+  const db = createMemoryDb();
 
   const result = await scanSongs(tmp, db, { threads: 2 });
   assert.equal(result.songs, 4);
@@ -694,55 +560,7 @@ test("computeCoreBpm calculates dominant BPM by duration and defers to higher BP
 });
 
 function createTestDb() {
-  const db = new Database(":memory:");
-  db.exec(`
-    CREATE TABLE songs (
-      id INTEGER PRIMARY KEY,
-      file_path TEXT NOT NULL UNIQUE,
-      title TEXT NOT NULL,
-      subtitle TEXT DEFAULT '',
-      artist TEXT DEFAULT '',
-      genre TEXT DEFAULT '',
-      pack TEXT DEFAULT '',
-      music TEXT DEFAULT '',
-      last_modified INTEGER NOT NULL,
-      bpm_min INTEGER,
-      bpm_max INTEGER,
-      core_bpm INTEGER,
-      duration_seconds INTEGER
-    );
-    CREATE TABLE charts (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER NOT NULL,
-      chart_type TEXT DEFAULT '',
-      difficulty TEXT DEFAULT '',
-      meter TEXT DEFAULT '',
-      radar TEXT DEFAULT ''
-    );
-    CREATE TABLE requests (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER NOT NULL,
-      requested_by TEXT NOT NULL,
-      requested_display TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'queued',
-      created_at INTEGER NOT NULL,
-      started_at INTEGER,
-      completed_at INTEGER
-    );
-    CREATE TABLE blocked (
-      id INTEGER PRIMARY KEY,
-      song_id INTEGER REFERENCES songs(id),
-      username TEXT,
-      reason TEXT DEFAULT '',
-      created_at INTEGER NOT NULL,
-      UNIQUE(song_id, username)
-    );
-    CREATE TABLE settings (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
-  `);
-  return db;
+  return createMemoryDb();
 }
 
 test("scanSongs merges packs with the same name across songs directories", async () => {

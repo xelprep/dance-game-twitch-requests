@@ -10,3 +10,4 @@ data/control-panel/hosts.json
 Songs/
 references/
 planning/
+/data/courses/*.crs
