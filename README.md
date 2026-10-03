@@ -37,7 +37,7 @@ A small local application that:
   - Set OAuth Redirect URL to https://localhost:3001/twitch-callback.html
   - Set Category to Chat Bot
   - Set Client Type to Confidential
-  - Make note of the Client ID and generate a Client Secret as these will be needed later to authoriza the tool to read and write to your chat
+  - Make note of the Client ID and generate a Client Secret as these will be needed later to authorize the tool to read and write to your chat
 
 ## Ports
 
