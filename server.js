@@ -1920,6 +1920,10 @@ function createApi(app, options = {}) {
       };
       Object.entries(settings).forEach(([key, value]) => setSetting(key, value));
 
+      if (current.chatRequestsEnabled !== settings.chatRequestsEnabled) {
+        scheduleInstructions();
+      }
+
       if (
         current.chatRequestsEnabled !== settings.chatRequestsEnabled ||
         current.chatRequestsRequireRole !== settings.chatRequestsRequireRole
@@ -2579,7 +2583,10 @@ function createApi(app, options = {}) {
       setSetting("controlPort", settings.controlPort);
       settings.moderatorPasswordConfigured = validModeratorCredentials.length > 0;
 
-      if (current.instructionsMinutes !== settings.instructionsMinutes) {
+      if (
+        current.instructionsMinutes !== settings.instructionsMinutes ||
+        current.chatRequestsEnabled !== settings.chatRequestsEnabled
+      ) {
         clearInstructionsTimer();
         scheduleInstructions();
       }
@@ -3528,7 +3535,7 @@ function clearInstructionsTimer() {
 }
 
 function getInstructionsEnabled() {
-  return getRuntimeInstructionsMinutes() > 0;
+  return getRuntimeInstructionsMinutes() > 0 && !!getSetting("chatRequestsEnabled", true);
 }
 
 function getInstructionsMessage() {
