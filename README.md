@@ -345,7 +345,7 @@ The suite covers:
 
 CI runs the same suite automatically on every push and pull request via GitHub Actions, so regressions are caught before merge.
 
-## Twitch command
+## Twitch chat commands
 
 Viewers use:
 
@@ -370,7 +370,7 @@ It remains local to the streaming PC. No song audio is uploaded or served.
 
 ## Rescanning & Multithreaded Scanner
 
-The app scans your `SONGS_DIR` library on startup using a **multithreaded scanner** powered by Node worker threads.
+The app scans your `SONGS_DIR` (and `ADDITIONAL_SONGS_DIR` if set) on startup using a **multithreaded scanner** powered by Node worker threads.
 
 - **Parallel Parsing**: Parsing `.sm` and `.ssc` simfile metadata is distributed across multiple worker threads to significantly accelerate song scanning speed on multi-core host CPUs.
 - **Progress Indicator & Elapsed Time**: The console displays a live progress indicator (`Scanning songs: 150/1000 (15.0%) - 0.23s elapsed`) and logs the total elapsed time upon scan completion (`Scan complete: 1000 songs, 4200 charts in 0.85s.`).
