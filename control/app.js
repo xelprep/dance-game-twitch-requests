@@ -556,6 +556,7 @@ async function render() {
         renderModeratorCredentials(settings);
         renderNetworkSettings(settings);
         renderRequestConstraints(settings);
+        renderOverlaySettings(settings);
       }
 
       const allowChat = !!(chatRequestsEnabled && chatRequestsEnabled.checked);
@@ -1533,6 +1534,615 @@ if (tempModSearch) {
 
 // --- Category navigation ---
 
+const DEFAULT_OVERLAY_STYLE = {
+  version: 1,
+  font: "default",
+  fontSize: 48,
+  textColor: "#ffffff",
+  textShadow: true,
+  shadowStrength: 1,
+  backgroundEnabled: false,
+  backgroundColor: "#000000",
+  backgroundOpacity: 0.6,
+  maxWidth: "auto",
+  padding: 0,
+  position: "bottom-left",
+  margin: 0,
+  contentOpacity: 1,
+  safeArea: 5,
+  canvasWidth: 1920,
+  canvasHeight: 1080,
+  queueEntries: 3,
+  safeArea: 5,
+  sections: {
+    labels: { color: "#ffffff", fontSize: 48 },
+    title: { color: "#ffffff", fontSize: 48 },
+    metadata: { color: "#ffffff", fontSize: 48 },
+    requester: { color: "#ffffff", fontSize: 48 },
+  },
+  showLabels: true,
+  showNowPlaying: true,
+  showArtwork: true,
+};
+let overlaySavedStyle = { ...DEFAULT_OVERLAY_STYLE };
+let overlayDraftStyle = { ...DEFAULT_OVERLAY_STYLE };
+let overlayStyleDirty = false;
+let currentControlSettings = null;
+let overlayPreviewStarted = false;
+let selectedOverlayPreset = "custom";
+let overlayProfiles = [];
+let selectedOverlayProfileId = "";
+const OVERLAY_PRESETS = {
+  default: { ...DEFAULT_OVERLAY_STYLE },
+  compact: {
+    ...DEFAULT_OVERLAY_STYLE,
+    fontSize: 36,
+    canvasWidth: 1920,
+    canvasHeight: 1080,
+    queueEntries: 2,
+    sections: {
+      labels: { color: "#ffffff", fontSize: 36 },
+      title: { color: "#ffffff", fontSize: 36 },
+      metadata: { color: "#ffffff", fontSize: 36 },
+      requester: { color: "#ffffff", fontSize: 36 },
+    },
+    backgroundEnabled: true,
+    backgroundOpacity: 0.76,
+    maxWidth: 1100,
+    padding: 14,
+    margin: 12,
+  },
+  "high-contrast": {
+    ...DEFAULT_OVERLAY_STYLE,
+    fontSize: 52,
+    textColor: "#fff200",
+    backgroundEnabled: true,
+    backgroundOpacity: 0.9,
+    maxWidth: 1440,
+    padding: 18,
+    shadowStrength: 1.5,
+    sections: {
+      labels: { color: "#fff200", fontSize: 52 },
+      title: { color: "#fff200", fontSize: 52 },
+      metadata: { color: "#ffffff", fontSize: 42 },
+      requester: { color: "#ffffff", fontSize: 38 },
+    },
+  },
+};
+
+function setOverlayEditorStatus(message, isDirty = false) {
+  const status = $("overlaySaveState");
+  if (!status) return;
+  status.textContent = message;
+  status.classList.toggle("overlay-unsaved", isDirty);
+}
+
+function renderOverlaySettings(settings) {
+  currentControlSettings = settings;
+  if (overlayStyleDirty || !settings.overlayStyle) return;
+  overlaySavedStyle = { ...DEFAULT_OVERLAY_STYLE, ...settings.overlayStyle };
+  overlayDraftStyle = { ...overlaySavedStyle };
+  overlayDraftStyle.sections = {
+    ...DEFAULT_OVERLAY_STYLE.sections,
+    ...settings.overlayStyle.sections,
+  };
+  selectedOverlayPreset =
+    JSON.stringify(overlaySavedStyle) === JSON.stringify(DEFAULT_OVERLAY_STYLE)
+      ? "default"
+      : "custom";
+  syncOverlayStyleControls();
+  updateOverlayReadabilityWarning(overlayDraftStyle);
+  selectedOverlayProfileId =
+    overlayProfiles.find(
+      (profile) => JSON.stringify(profile.style) === JSON.stringify(overlayDraftStyle),
+    )?.id || "";
+  renderOverlayProfileSelect();
+  setOverlayEditorStatus("Saved", false);
+  postOverlayPreview("overlay-style-preview", { style: overlayDraftStyle });
+  if (document.querySelector('.category-group[data-category="overlay"]:not([hidden])')) {
+    ensureOverlayPreview();
+  }
+}
+
+function syncOverlayStyleControls() {
+  const style = overlayDraftStyle;
+  const values = {
+    overlayFont: style.font,
+    overlayFontSize: style.fontSize,
+    overlayTextColor: style.textColor,
+    overlayCanvas: `${style.canvasWidth}x${style.canvasHeight}`,
+    overlayQueueEntries: style.queueEntries,
+    overlaySafeAreaPercent: style.safeArea,
+    overlayShadowStrength: Math.round(style.shadowStrength * 100),
+    overlayPosition: style.position,
+    overlayMargin: style.margin,
+    overlayMaxWidth: String(style.maxWidth),
+    overlayPadding: style.padding,
+    overlayOpacity: Math.round(style.contentOpacity * 100),
+    overlayBackgroundColor: style.backgroundColor,
+    overlayBackgroundOpacity: Math.round(style.backgroundOpacity * 100),
+    overlayBackgroundEnabled: style.backgroundEnabled,
+    overlayTextShadow: style.textShadow,
+    overlayShowLabels: style.showLabels,
+    overlayShowNowPlaying: style.showNowPlaying,
+    overlayShowArtwork: style.showArtwork,
+    overlayPreset: selectedOverlayPreset,
+    overlayProfile: selectedOverlayProfileId,
+  };
+  for (const section of ["labels", "title", "metadata", "requester"]) {
+    values[`overlay${section[0].toUpperCase()}${section.slice(1)}Color`] =
+      style.sections[section].color;
+    values[`overlay${section[0].toUpperCase()}${section.slice(1)}Size`] =
+      style.sections[section].fontSize;
+  }
+  Object.entries(values).forEach(([id, value]) => {
+    const input = $(id);
+    if (input) input.type === "checkbox" ? (input.checked = value) : (input.value = value);
+  });
+  $("overlayFontSizeValue").value = `${style.fontSize} px`;
+  $("overlayShadowStrengthValue").value = `${Math.round(style.shadowStrength * 100)}%`;
+  $("overlayMarginValue").value = `${style.margin} px`;
+  $("overlayPaddingValue").value = `${style.padding} px`;
+  $("overlayOpacityValue").value = `${Math.round(style.contentOpacity * 100)}%`;
+  $("overlayBackgroundOpacityValue").value = `${Math.round(style.backgroundOpacity * 100)}%`;
+  $("overlaySafeAreaValue").value = `${style.safeArea}%`;
+  $("saveOverlayStyle").disabled = !overlayStyleDirty;
+  $("discardOverlayStyle").disabled = !overlayStyleDirty;
+  $("renameOverlayProfile").disabled = !selectedOverlayProfileId;
+  $("deleteOverlayProfile").disabled = !selectedOverlayProfileId;
+}
+
+function readOverlayStyleControls() {
+  return {
+    version: 1,
+    font: $("overlayFont").value,
+    fontSize: Number($("overlayFontSize").value),
+    textColor: $("overlayTextColor").value,
+    textShadow: $("overlayTextShadow").checked,
+    shadowStrength: Number($("overlayShadowStrength").value) / 100,
+    backgroundEnabled: $("overlayBackgroundEnabled").checked,
+    backgroundColor: $("overlayBackgroundColor").value,
+    backgroundOpacity: Number($("overlayBackgroundOpacity").value) / 100,
+    maxWidth: $("overlayMaxWidth").value === "auto" ? "auto" : Number($("overlayMaxWidth").value),
+    padding: Number($("overlayPadding").value),
+    position: $("overlayPosition").value,
+    margin: Number($("overlayMargin").value),
+    contentOpacity: Number($("overlayOpacity").value) / 100,
+    canvasWidth: Number($("overlayCanvas").value.split("x")[0]),
+    canvasHeight: Number($("overlayCanvas").value.split("x")[1]),
+    queueEntries: Number($("overlayQueueEntries").value),
+    safeArea: Number($("overlaySafeAreaPercent").value),
+    sections: {
+      labels: {
+        color: $("overlayLabelsColor").value,
+        fontSize: Number($("overlayLabelsSize").value),
+      },
+      title: { color: $("overlayTitleColor").value, fontSize: Number($("overlayTitleSize").value) },
+      metadata: {
+        color: $("overlayMetadataColor").value,
+        fontSize: Number($("overlayMetadataSize").value),
+      },
+      requester: {
+        color: $("overlayRequesterColor").value,
+        fontSize: Number($("overlayRequesterSize").value),
+      },
+    },
+    showLabels: $("overlayShowLabels").checked,
+    showNowPlaying: $("overlayShowNowPlaying").checked,
+    showArtwork: $("overlayShowArtwork").checked,
+  };
+}
+
+function updateOverlayDraft(options = {}) {
+  overlayDraftStyle = readOverlayStyleControls();
+  if (!options.preservePreset) selectedOverlayPreset = "custom";
+  overlayStyleDirty = JSON.stringify(overlayDraftStyle) !== JSON.stringify(overlaySavedStyle);
+  syncOverlayStyleControls();
+  setOverlayEditorStatus(overlayStyleDirty ? "Unsaved changes" : "Saved", overlayStyleDirty);
+  postOverlayPreview("overlay-style-preview", { style: overlayDraftStyle });
+  updateOverlayReadabilityWarning(overlayDraftStyle);
+  scaleOverlayPreview();
+}
+
+function postOverlayPreview(type, payload) {
+  const frame = $("overlayPreview");
+  if (!frame || !frame.contentWindow || !frame.src) return;
+  try {
+    frame.contentWindow.postMessage({ type, version: 1, ...payload }, new URL(frame.src).origin);
+  } catch (_error) {
+    // Preview may not have been initialized or loaded yet.
+  }
+}
+
+function scaleOverlayPreview() {
+  const stage = $("overlayPreview")?.parentElement;
+  const frame = $("overlayPreview");
+  if (!stage || !frame) return;
+  const width = overlayDraftStyle.canvasWidth || 1920;
+  const height = overlayDraftStyle.canvasHeight || 1080;
+  const scale = stage.clientWidth / width;
+  frame.width = width;
+  frame.height = height;
+  frame.style.width = `${width}px`;
+  frame.style.height = `${height}px`;
+  frame.style.transform = `scale(${scale})`;
+  stage.style.aspectRatio = `${width} / ${height}`;
+  const label = document.querySelector(".overlay-preview-heading .small");
+  if (label) label.textContent = `${width} × ${height}`;
+}
+
+function ensureOverlayPreview() {
+  if (overlayPreviewStarted || !currentControlSettings) return;
+  const frame = $("overlayPreview");
+  const status = $("overlayPreviewStatus");
+  if (!frame || !status) return;
+  overlayPreviewStarted = true;
+  const protocol = currentControlSettings.publicHttps ? "https" : "http";
+  const url = new URL(
+    `${protocol}://${location.hostname}:${currentControlSettings.publicPort}/overlay.html`,
+  );
+  url.searchParams.set("preview", "1");
+  frame.addEventListener("load", () => {
+    scaleOverlayPreview();
+  });
+  window.addEventListener("message", (event) => {
+    if (
+      event.source !== frame.contentWindow ||
+      event.origin !== url.origin ||
+      event.data?.type !== "overlay-preview-ready"
+    )
+      return;
+    status.hidden = true;
+    postOverlayPreview("overlay-style-preview", { style: overlayDraftStyle });
+    postOverlayPreview("overlay-sample-preview", { enabled: $("overlaySampleData").checked });
+  });
+  frame.src = url.toString();
+  scaleOverlayPreview();
+  setTimeout(() => {
+    if (status.hidden) return;
+    status.textContent =
+      "Preview unavailable. Check that the public site is reachable and its certificate is trusted.";
+  }, 10000);
+}
+
+const overlayStyleInputs = [
+  "overlayFont",
+  "overlayShadowStrength",
+  "overlayPosition",
+  "overlayMargin",
+  "overlayMaxWidth",
+  "overlayPadding",
+  "overlayOpacity",
+  "overlayBackgroundColor",
+  "overlayBackgroundOpacity",
+  "overlayBackgroundEnabled",
+  "overlayTextShadow",
+  "overlayShowLabels",
+  "overlayShowNowPlaying",
+  "overlayShowArtwork",
+  "overlaySafeAreaPercent",
+  "overlayQueueEntries",
+  "overlayLabelsColor",
+  "overlayLabelsSize",
+  "overlayTitleColor",
+  "overlayTitleSize",
+  "overlayMetadataColor",
+  "overlayMetadataSize",
+  "overlayRequesterColor",
+  "overlayRequesterSize",
+];
+overlayStyleInputs.forEach((id) => {
+  const input = $(id);
+  input.addEventListener(
+    input.type === "range" || input.type === "color" ? "input" : "change",
+    () => updateOverlayDraft(),
+  );
+});
+
+function updateAllOverlaySections(field, value) {
+  for (const section of ["labels", "title", "metadata", "requester"]) {
+    $(`overlay${section[0].toUpperCase()}${section.slice(1)}${field}`).value = value;
+  }
+  updateOverlayDraft();
+}
+
+$("overlayFontSize").addEventListener("input", (event) =>
+  updateAllOverlaySections("Size", Number(event.target.value)),
+);
+$("overlayTextColor").addEventListener("input", (event) =>
+  updateAllOverlaySections("Color", event.target.value),
+);
+
+$("overlayPreset").addEventListener("change", (event) => {
+  const preset = OVERLAY_PRESETS[event.target.value];
+  if (!preset) return;
+  selectedOverlayProfileId = "";
+  $("overlayProfileName").value = "";
+  selectedOverlayPreset = event.target.value;
+  overlayDraftStyle = { ...preset };
+  syncOverlayStyleControls();
+  updateOverlayDraft({ preservePreset: true });
+});
+
+$("saveOverlayStyle").addEventListener("click", async () => {
+  try {
+    const response = await api("/api/control/settings", {
+      method: "POST",
+      body: JSON.stringify({ overlayStyle: overlayDraftStyle }),
+    });
+    overlaySavedStyle = { ...response.overlayStyle };
+    overlayDraftStyle = { ...response.overlayStyle };
+    overlayStyleDirty = false;
+    syncOverlayStyleControls();
+    setOverlayEditorStatus("Saved", false);
+    postOverlayPreview("overlay-style-preview", { style: overlayDraftStyle });
+    toast("Overlay appearance saved");
+  } catch (error) {
+    setOverlayEditorStatus("Save failed; your draft is still here", true);
+    toast(error.message, "error");
+  }
+});
+
+$("discardOverlayStyle").addEventListener("click", () => {
+  overlayDraftStyle = { ...overlaySavedStyle };
+  overlayStyleDirty = false;
+  syncOverlayStyleControls();
+  setOverlayEditorStatus("Saved", false);
+  postOverlayPreview("overlay-style-preview", { style: overlayDraftStyle });
+});
+
+$("resetOverlayStyle").addEventListener("click", () => {
+  selectedOverlayProfileId = "";
+  $("overlayProfileName").value = "";
+  selectedOverlayPreset = "default";
+  overlayDraftStyle = { ...DEFAULT_OVERLAY_STYLE };
+  syncOverlayStyleControls();
+  updateOverlayDraft({ preservePreset: true });
+});
+
+$("overlaySampleData").addEventListener("change", (event) => {
+  postOverlayPreview("overlay-sample-preview", { enabled: event.target.checked });
+});
+$("overlaySafeArea").addEventListener("change", (event) => {
+  postOverlayPreview("overlay-safe-area-preview", { enabled: event.target.checked });
+});
+$("overlayCanvas").addEventListener("change", () => updateOverlayDraft());
+new ResizeObserver(scaleOverlayPreview).observe($("overlayPreview").parentElement);
+
+function renderOverlayProfileSelect() {
+  const select = $("overlayProfile");
+  if (!select) return;
+  select.innerHTML = '<option value="">Current appearance</option>';
+  overlayProfiles.forEach((profile) => {
+    const option = document.createElement("option");
+    option.value = profile.id;
+    option.textContent = profile.name;
+    select.append(option);
+  });
+  select.value = selectedOverlayProfileId;
+  const selectedProfile = overlayProfiles.find(
+    (profile) => profile.id === selectedOverlayProfileId,
+  );
+  $("overlayProfileName").value = selectedProfile ? selectedProfile.name : "";
+  $("renameOverlayProfile").disabled = !selectedOverlayProfileId;
+  $("deleteOverlayProfile").disabled = !selectedOverlayProfileId;
+}
+
+async function loadOverlayProfiles() {
+  try {
+    overlayProfiles = await api("/api/control/overlay/profiles");
+    if (!overlayProfiles.some((profile) => profile.id === selectedOverlayProfileId)) {
+      selectedOverlayProfileId =
+        overlayProfiles.find(
+          (profile) => JSON.stringify(profile.style) === JSON.stringify(overlaySavedStyle),
+        )?.id || "";
+    }
+    renderOverlayProfileSelect();
+  } catch (_error) {
+    overlayProfiles = [];
+  }
+}
+
+async function persistOverlayProfiles(nextProfiles) {
+  const response = await api("/api/control/overlay/profiles", {
+    method: "POST",
+    body: JSON.stringify({ profiles: nextProfiles }),
+  });
+  overlayProfiles = response.profiles;
+  renderOverlayProfileSelect();
+  return overlayProfiles;
+}
+
+$("overlayProfile").addEventListener("change", (event) => {
+  const profile = overlayProfiles.find((item) => item.id === event.target.value);
+  selectedOverlayProfileId = profile ? profile.id : "";
+  overlayDraftStyle = {
+    ...DEFAULT_OVERLAY_STYLE,
+    ...(profile ? profile.style : overlaySavedStyle),
+  };
+  overlayDraftStyle.sections = {
+    ...DEFAULT_OVERLAY_STYLE.sections,
+    ...(profile ? profile.style.sections : overlaySavedStyle.sections),
+  };
+  $("overlayProfileName").value = profile ? profile.name : "";
+  selectedOverlayPreset =
+    profile || JSON.stringify(overlaySavedStyle) !== JSON.stringify(DEFAULT_OVERLAY_STYLE)
+      ? "custom"
+      : "default";
+  overlayStyleDirty = JSON.stringify(overlayDraftStyle) !== JSON.stringify(overlaySavedStyle);
+  syncOverlayStyleControls();
+  setOverlayEditorStatus(overlayStyleDirty ? "Unsaved changes" : "Saved", overlayStyleDirty);
+  postOverlayPreview("overlay-style-preview", { style: overlayDraftStyle });
+  updateOverlayReadabilityWarning(overlayDraftStyle);
+});
+
+$("saveOverlayProfile").addEventListener("click", async () => {
+  const name = $("overlayProfileName").value.trim();
+  if (!name || !name.trim()) return;
+  const selectedProfile = overlayProfiles.find(
+    (profile) => profile.id === selectedOverlayProfileId,
+  );
+  if (overlayProfiles.some((profile) => profile.name.toLowerCase() === name.toLowerCase())) {
+    if (!selectedProfile || selectedProfile.name.toLowerCase() !== name.toLowerCase()) {
+      return toast("A profile with that name already exists", "error");
+    }
+  }
+  try {
+    const profile = selectedProfile
+      ? { ...selectedProfile, name: name.trim(), style: overlayDraftStyle }
+      : { id: crypto.randomUUID().slice(0, 36), name: name.trim(), style: overlayDraftStyle };
+    const nextProfiles = selectedProfile
+      ? overlayProfiles.map((item) => (item.id === profile.id ? profile : item))
+      : [...overlayProfiles, profile];
+    await persistOverlayProfiles(nextProfiles);
+    selectedOverlayProfileId = profile.id;
+    renderOverlayProfileSelect();
+    toast("Appearance profile saved");
+  } catch (error) {
+    toast(error.message, "error");
+  }
+});
+
+$("renameOverlayProfile").addEventListener("click", async () => {
+  const profile = overlayProfiles.find((item) => item.id === selectedOverlayProfileId);
+  if (!profile) return;
+  const name = $("overlayProfileName").value.trim();
+  if (!name || !name.trim()) return;
+  if (
+    overlayProfiles.some(
+      (item) => item.id !== profile.id && item.name.toLowerCase() === name.toLowerCase(),
+    )
+  ) {
+    return toast("A profile with that name already exists", "error");
+  }
+  try {
+    await persistOverlayProfiles(
+      overlayProfiles.map((item) =>
+        item.id === profile.id ? { ...item, name: name.trim() } : item,
+      ),
+    );
+    toast("Appearance profile renamed");
+  } catch (error) {
+    toast(error.message, "error");
+  }
+});
+
+$("deleteOverlayProfile").addEventListener("click", async () => {
+  if (!selectedOverlayProfileId) return;
+  try {
+    await persistOverlayProfiles(
+      overlayProfiles.filter((item) => item.id !== selectedOverlayProfileId),
+    );
+    selectedOverlayProfileId = "";
+    renderOverlayProfileSelect();
+    toast("Appearance profile deleted");
+  } catch (error) {
+    toast(error.message, "error");
+  }
+});
+
+$("exportOverlayProfiles").addEventListener("click", () => {
+  const blob = new Blob(
+    [
+      JSON.stringify(
+        { format: "dance-game-overlay-profiles", version: 1, profiles: overlayProfiles },
+        null,
+        2,
+      ),
+    ],
+    { type: "application/json" },
+  );
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "overlay-profiles.json";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
+$("importOverlayProfiles").addEventListener("click", () => $("overlayProfilesFile").click());
+$("overlayProfilesFile").addEventListener("change", async (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  if (file.size > 128 * 1024) return toast("Profile file is too large", "error");
+  try {
+    const imported = JSON.parse(await file.text());
+    if (
+      imported.format !== "dance-game-overlay-profiles" ||
+      imported.version !== 1 ||
+      !Array.isArray(imported.profiles) ||
+      imported.profiles.length > 20
+    ) {
+      throw new Error("Unsupported overlay profile file");
+    }
+    const names = new Set(overlayProfiles.map((profile) => profile.name.toLowerCase()));
+    const additions = [];
+    for (const profile of imported.profiles) {
+      const name = String(profile && profile.name ? profile.name : "").trim();
+      const nameKey = name.toLowerCase();
+      if (!name || names.has(nameKey)) continue;
+      names.add(nameKey);
+      additions.push({ ...profile, id: crypto.randomUUID().slice(0, 36), name });
+    }
+    if (overlayProfiles.length + additions.length > 20) {
+      throw new Error("Import would exceed the 20-profile limit");
+    }
+    await persistOverlayProfiles([...overlayProfiles, ...additions]);
+    toast(`Imported ${additions.length} appearance profile${additions.length === 1 ? "" : "s"}`);
+  } catch (error) {
+    toast(error.message || "Could not read profile file", "error");
+  }
+});
+
+function relativeLuminance(hex) {
+  const channels = hex.match(/[\da-f]{2}/gi).map((part) => parseInt(part, 16) / 255);
+  const linear = channels.map((channel) =>
+    channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+  );
+  return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+}
+
+function blendColor(foreground, background, alpha) {
+  const fg = foreground.match(/[\da-f]{2}/gi).map((part) => parseInt(part, 16));
+  const bg = background.match(/[\da-f]{2}/gi).map((part) => parseInt(part, 16));
+  return `#${fg
+    .map((value, index) =>
+      Math.round(value * alpha + bg[index] * (1 - alpha))
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
+}
+
+function contrastRatio(first, second) {
+  const luminances = [relativeLuminance(first), relativeLuminance(second)].sort((a, b) => b - a);
+  return (luminances[0] + 0.05) / (luminances[1] + 0.05);
+}
+
+function updateOverlayReadabilityWarning(style) {
+  const warning = $("overlayReadabilityWarning");
+  const background = style.backgroundEnabled
+    ? blendColor(style.backgroundColor, "#808080", style.backgroundOpacity)
+    : null;
+  const ratios = Object.values(style.sections).map((section) => {
+    if (background)
+      return contrastRatio(blendColor(section.color, background, style.contentOpacity), background);
+    return Math.min(
+      contrastRatio(blendColor(section.color, "#000000", style.contentOpacity), "#000000"),
+      contrastRatio(blendColor(section.color, "#ffffff", style.contentOpacity), "#ffffff"),
+    );
+  });
+  const lowContrast = ratios.some((ratio) => ratio < 4.5);
+  const smallText = Object.values(style.sections).some((section) => section.fontSize < 24);
+  warning.textContent = [
+    lowContrast ? "Some text may be hard to read against light or dark scenes." : "",
+    smallText ? "Text below 24 px may be difficult to read at stream scale." : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 const categoryButtons = document.querySelectorAll(".category-button");
 const categoryGroups = document.querySelectorAll(".category-group");
 const categoryActions = document.querySelectorAll(".category-action");
@@ -1549,6 +2159,7 @@ function setActiveCategory(category) {
     const visible = button.dataset.visibleCategory === category;
     button.hidden = !visible;
   });
+  if (category === "overlay") ensureOverlayPreview();
 }
 
 categoryButtons.forEach((button) => {
@@ -1562,6 +2173,7 @@ setActiveCategory("songs");
 getFilters();
 loadSongs(1);
 render();
+loadOverlayProfiles();
 renderTwitch();
 setInterval(render, 2500);
 setInterval(renderTwitch, 5000);

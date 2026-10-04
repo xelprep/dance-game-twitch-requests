@@ -858,12 +858,18 @@ async function scanSongs(songsDir, db, options = {}) {
   `);
 
   const getSong = db.prepare("SELECT id FROM songs WHERE file_path = ?");
-  const clearCharts = db.prepare("DELETE FROM charts WHERE song_id = ?");
+  const getCharts = db.prepare(
+    "SELECT id, chart_type, difficulty, meter FROM charts WHERE song_id = ?",
+  );
+  const updateChart = db.prepare(`
+    UPDATE charts SET difficulty_raw = ?, radar = ? WHERE id = ?
+  `);
   const addChart = db.prepare(`
-    INSERT OR IGNORE INTO charts
+    INSERT INTO charts
       (song_id, chart_type, difficulty, difficulty_raw, meter, radar)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
+  const removeChart = db.prepare("DELETE FROM charts WHERE id = ?");
 
   // Collapse duplicate packs/songs found across the songs directories.
   const mergedSongs = mergeDuplicateSongs(parsedSongs);
@@ -877,17 +883,41 @@ async function scanSongs(songsDir, db, options = {}) {
       if (!row) continue;
 
       seen.add(normalizedPath);
-      clearCharts.run(row.id);
+      const existingCharts = getCharts.all(row.id);
+      const chartKey = (chart) => JSON.stringify([chart.chart_type, chart.difficulty, chart.meter]);
+      const currentChartKeys = new Set();
+      const existingChartsByKey = new Map(existingCharts.map((chart) => [chartKey(chart), chart]));
 
       for (const chart of song.charts || []) {
-        addChart.run(
-          row.id,
-          chart.chartType,
-          chart.difficulty,
-          chart.difficultyRaw || chart.difficulty || "",
-          chart.meter,
-          chart.radar,
-        );
+        const chartValues = {
+          chart_type: chart.chartType,
+          difficulty: chart.difficulty,
+          meter: chart.meter,
+        };
+        const key = chartKey(chartValues);
+        currentChartKeys.add(key);
+        const existingChart = existingChartsByKey.get(key);
+        if (existingChart) {
+          updateChart.run(
+            chart.difficultyRaw || chart.difficulty || "",
+            chart.radar,
+            existingChart.id,
+          );
+        } else {
+          addChart.run(
+            row.id,
+            chart.chartType,
+            chart.difficulty,
+            chart.difficultyRaw || chart.difficulty || "",
+            chart.meter,
+            chart.radar,
+          );
+        }
+      }
+
+      for (const chart of existingCharts) {
+        const key = chartKey(chart);
+        if (!currentChartKeys.has(key)) removeChart.run(chart.id);
       }
     }
 

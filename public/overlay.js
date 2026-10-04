@@ -1,5 +1,184 @@
 // Overlay script: listens for server-sent events with the queue and updates the multi-line display.
 const $ = (id) => document.getElementById(id);
+const DEFAULT_OVERLAY_STYLE = {
+  version: 1,
+  font: "default",
+  fontSize: 48,
+  textColor: "#ffffff",
+  textShadow: true,
+  shadowStrength: 1,
+  backgroundEnabled: false,
+  backgroundColor: "#000000",
+  backgroundOpacity: 0.6,
+  maxWidth: "auto",
+  padding: 0,
+  position: "bottom-left",
+  margin: 0,
+  contentOpacity: 1,
+  safeArea: 5,
+  canvasWidth: 1920,
+  canvasHeight: 1080,
+  queueEntries: 3,
+  sections: {
+    labels: { color: "#ffffff", fontSize: 48 },
+    title: { color: "#ffffff", fontSize: 48 },
+    metadata: { color: "#ffffff", fontSize: 48 },
+    requester: { color: "#ffffff", fontSize: 48 },
+  },
+  showLabels: true,
+  showNowPlaying: true,
+  showArtwork: true,
+};
+const isPreview = new URLSearchParams(window.location.search).get("preview") === "1";
+let previewParentOrigin = "";
+try {
+  previewParentOrigin = document.referrer ? new URL(document.referrer).origin : "";
+} catch (_error) {
+  previewParentOrigin = "";
+}
+let showSampleData = false;
+let showSafeArea = false;
+let liveQueue = [];
+let liveNowPlaying = null;
+let activeOverlayStyle = DEFAULT_OVERLAY_STYLE;
+
+function normalizeOverlayStyle(value) {
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const boundedNumber = (key, fallback, min, max, integer = false) => {
+    const parsed = Number(input[key]);
+    if (!Number.isFinite(parsed)) return fallback;
+    const bounded = Math.min(max, Math.max(min, parsed));
+    return integer ? Math.round(bounded) : Math.round(bounded * 100) / 100;
+  };
+  const color = (key, fallback) =>
+    typeof input[key] === "string" && /^#[0-9a-f]{6}$/i.test(input[key])
+      ? input[key].toLowerCase()
+      : fallback;
+  const boolean = (key, fallback) => (typeof input[key] === "boolean" ? input[key] : fallback);
+  const positions = [
+    "top-left",
+    "top-center",
+    "top-right",
+    "middle-left",
+    "middle-center",
+    "middle-right",
+    "bottom-left",
+    "bottom-center",
+    "bottom-right",
+  ];
+  const sectionDefaults = DEFAULT_OVERLAY_STYLE.sections;
+  const sections = {};
+  for (const name of Object.keys(sectionDefaults)) {
+    const section =
+      input.sections && typeof input.sections === "object" ? input.sections[name] || {} : {};
+    sections[name] = {
+      color: colorValue(section.color, sectionDefaults[name].color),
+      fontSize: boundedValue(section.fontSize, sectionDefaults[name].fontSize, 16, 128, true),
+    };
+  }
+
+  function colorValue(value, fallback) {
+    return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)
+      ? value.toLowerCase()
+      : fallback;
+  }
+  function boundedValue(value, fallback, min, max, integer = false) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    const bounded = Math.min(max, Math.max(min, parsed));
+    return integer ? Math.round(bounded) : Math.round(bounded * 100) / 100;
+  }
+
+  return {
+    ...DEFAULT_OVERLAY_STYLE,
+    font: ["default", "barlow", "oswald", "lora", "space-grotesk", "ibm-plex-mono"].includes(
+      input.font,
+    )
+      ? input.font
+      : "default",
+    fontSize: boundedNumber("fontSize", 48, 16, 128, true),
+    textColor: color("textColor", "#ffffff"),
+    textShadow: boolean("textShadow", true),
+    shadowStrength: boundedNumber("shadowStrength", 1, 0, 2),
+    backgroundEnabled: boolean("backgroundEnabled", false),
+    backgroundColor: color("backgroundColor", "#000000"),
+    backgroundOpacity: boundedNumber("backgroundOpacity", 0.6, 0, 1),
+    maxWidth:
+      input.maxWidth === undefined || input.maxWidth === "auto"
+        ? DEFAULT_OVERLAY_STYLE.maxWidth
+        : boundedNumber("maxWidth", 1920, 320, 3840, true),
+    padding: boundedNumber("padding", 0, 0, 48, true),
+    position: positions.includes(input.position) ? input.position : "bottom-left",
+    margin: boundedNumber("margin", 0, 0, 120, true),
+    contentOpacity: boundedNumber("contentOpacity", 1, 0.1, 1),
+    safeArea: boundedNumber("safeArea", 5, 2, 15, true),
+    canvasWidth: [1080, 1280, 1920, 2560, 3840].includes(Number(input.canvasWidth))
+      ? Number(input.canvasWidth)
+      : 1920,
+    canvasHeight: [720, 1080, 1440, 1920, 2160].includes(Number(input.canvasHeight))
+      ? Number(input.canvasHeight)
+      : 1080,
+    queueEntries: boundedNumber("queueEntries", 3, 1, 3, true),
+    sections,
+    showLabels: boolean("showLabels", true),
+    showNowPlaying: boolean("showNowPlaying", true),
+    showArtwork: boolean("showArtwork", true),
+  };
+}
+
+function applyOverlayStyle(value) {
+  const style = normalizeOverlayStyle(value);
+  activeOverlayStyle = style;
+  const overlay = $("overlay");
+  const root = document.documentElement;
+  const textShadow = style.textShadow
+    ? `0 0 6px rgba(0, 0, 0, ${Math.min(1, 0.9 * style.shadowStrength)}), 0 1px 0 rgba(0, 0, 0, ${Math.min(1, 0.6 * style.shadowStrength)})`
+    : "none";
+  const [red, green, blue] = style.backgroundColor
+    .match(/[\da-f]{2}/gi)
+    .map((part) => parseInt(part, 16));
+  const background = style.backgroundEnabled
+    ? `rgba(${red}, ${green}, ${blue}, ${style.backgroundOpacity})`
+    : "transparent";
+  const maxWidth = style.maxWidth === "auto" ? "100%" : `${style.maxWidth}px`;
+  const fontFamilies = {
+    default: 'Inter, "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", system-ui, sans-serif',
+    barlow: '"Barlow Condensed", Inter, "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", sans-serif',
+    oswald: 'Oswald, Inter, "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", sans-serif',
+    lora: 'Lora, Inter, "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", serif',
+    "space-grotesk":
+      '"Space Grotesk", Inter, "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", sans-serif',
+    "ibm-plex-mono":
+      '"IBM Plex Mono", Inter, "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", monospace',
+  };
+  const fontFamily = `${fontFamilies[style.font]}, "Noto Color Emoji"`;
+
+  root.style.setProperty("--overlay-font-family", fontFamily);
+  root.style.setProperty("--overlay-font-size", `${style.fontSize}px`);
+  root.style.setProperty("--overlay-text-color", style.textColor);
+  root.style.setProperty("--overlay-text-shadow", textShadow);
+  root.style.setProperty("--overlay-content-opacity", style.contentOpacity);
+  root.style.setProperty("--overlay-background", background);
+  root.style.setProperty("--overlay-padding", `${style.padding}px`);
+  root.style.setProperty("--overlay-margin", `${style.margin}px`);
+  root.style.setProperty("--overlay-max-width", maxWidth);
+  root.style.setProperty("--overlay-safe-area", `${style.safeArea}%`);
+  for (const [name, section] of Object.entries(style.sections)) {
+    root.style.setProperty(`--overlay-${name}-color`, section.color);
+    root.style.setProperty(`--overlay-${name}-size`, `${section.fontSize}px`);
+  }
+  overlay.dataset.position = style.position;
+  overlay.classList.toggle("compact-queue", style.queueEntries < 3);
+  overlay.classList.toggle("hide-labels", !style.showLabels);
+  overlay.classList.toggle("hide-now-playing", !style.showNowPlaying);
+  overlay.classList.toggle("hide-artwork", !style.showArtwork);
+  const guide = $("preview-safe-area");
+  if (guide) guide.hidden = !isPreview || !showSafeArea;
+  renderOverlayData();
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(fitQueueEntries);
+  }
+}
 
 function escapeHtml(s) {
   return String(s || "")
@@ -64,8 +243,8 @@ function formatQueue(queue) {
   }
 
   // Show at most top 3 entries and optionally a "+ N more" column.
-  const visible = queue.slice(0, 3);
-  const remaining = queue.length > 3 ? queue.length - 3 : 0;
+  const visible = queue.slice(0, activeOverlayStyle.queueEntries);
+  const remaining = queue.length > visible.length ? queue.length - visible.length : 0;
 
   return `
     <div class="queue-stack">
@@ -192,6 +371,80 @@ function updateOverlay(nowPlaying, queue) {
   updateQueue(queue);
 }
 
+const sampleNowPlaying = {
+  title: "Neon Skyline",
+  subtitle: "After Hours Mix",
+  artist: "Mira Nova",
+  pack: "City Lights",
+  requested_display: "DJ Example",
+  chart: { chartType: "dance-single", difficulty: "Expert", meter: "14" },
+};
+const sampleQueue = [
+  {
+    title: "Pulse Driver",
+    artist: "Kinetic Form",
+    pack: "Arcade Classics",
+    requested_display: "StepFan42",
+    chart: { chartType: "dance-single", difficulty: "Challenge", meter: "16" },
+  },
+  {
+    title: "Paper Satellites",
+    artist: "The Northbound",
+    pack: "Blue Shift Phase 2",
+    requested_display: "mika_moves",
+    chart: { chartType: "dance-double", difficulty: "Expert", meter: "13" },
+  },
+  {
+    title: "Midnight Circuit",
+    artist: "Aster & Co.",
+    pack: "High Chance of Tech",
+    requested_display: "turntable_lee",
+    chart: { chartType: "dance-single", difficulty: "Hard", meter: "10" },
+  },
+];
+
+function renderOverlayData() {
+  updateNowPlaying(showSampleData ? sampleNowPlaying : liveNowPlaying);
+  updateQueue(showSampleData ? sampleQueue : liveQueue);
+}
+
+window.addEventListener("message", (event) => {
+  if (
+    !isPreview ||
+    event.source !== window.parent ||
+    (previewParentOrigin && event.origin !== previewParentOrigin) ||
+    !event.data
+  )
+    return;
+  if (event.data.type === "overlay-style-preview" && event.data.version === 1) {
+    applyOverlayStyle(event.data.style);
+  } else if (event.data.type === "overlay-sample-preview" && event.data.version === 1) {
+    showSampleData = !!event.data.enabled;
+    renderOverlayData();
+  } else if (event.data.type === "overlay-safe-area-preview" && event.data.version === 1) {
+    showSafeArea = !!event.data.enabled;
+    const guide = $("preview-safe-area");
+    if (guide) guide.hidden = !showSafeArea;
+  }
+});
+
+if (isPreview && window.parent !== window) {
+  window.parent.postMessage(
+    { type: "overlay-preview-ready", version: 1 },
+    previewParentOrigin || "*",
+  );
+}
+
+async function refreshOverlayStyle() {
+  try {
+    const response = await fetch("/api/overlay/settings", { cache: "no-store" });
+    if (!response.ok) throw new Error("Overlay settings unavailable");
+    applyOverlayStyle(await response.json());
+  } catch (error) {
+    if (!isPreview) console.warn("Could not load overlay appearance settings", error);
+  }
+}
+
 async function pollTempModStatus() {
   try {
     const resp = await fetch("/api/overlay/temp-mod-status");
@@ -220,9 +473,10 @@ function startSSE() {
           data && "tempModDisplayName" in data ? data.tempModDisplayName : null;
 
         if (queue) {
-          updateQueue(queue);
+          liveQueue = queue;
         }
-        updateNowPlaying(nowPlaying);
+        liveNowPlaying = nowPlaying;
+        renderOverlayData();
         updateUpcomingLabel(tempModDisplayName);
       } catch (e) {
         console.error("Failed to parse SSE data", e);
@@ -251,8 +505,9 @@ async function poll() {
 
     const queue = await queueResp.json();
     const nowPlaying = await nowPlayingResp.json();
-    updateQueue(queue);
-    updateNowPlaying(nowPlaying);
+    liveQueue = queue;
+    liveNowPlaying = nowPlaying;
+    renderOverlayData();
     await pollTempModStatus();
   } catch (e) {
     /* ignore polling errors */
@@ -268,6 +523,26 @@ if (!startSSE()) {
 }
 
 window.addEventListener("resize", fitQueueEntries);
+if (!isPreview) {
+  try {
+    const stream = new EventSource("/overlay/style/stream");
+    stream.addEventListener("message", (event) => {
+      try {
+        applyOverlayStyle(JSON.parse(event.data));
+      } catch (_error) {
+        console.warn("Could not parse overlay appearance update");
+      }
+    });
+    stream.addEventListener("error", () => {
+      stream.close();
+      refreshOverlayStyle();
+      setInterval(refreshOverlayStyle, 15000);
+    });
+  } catch (_error) {
+    refreshOverlayStyle();
+    setInterval(refreshOverlayStyle, 15000);
+  }
+}
 if (document.fonts && document.fonts.ready) {
   document.fonts.ready.then(fitQueueEntries);
 }

@@ -99,6 +99,17 @@ The control panel provides:
 - Search songs and make unlimited requests as the streamer
 - Enable/disable prioritizing viewer requests above streamer requests
 - Constrain which charts can be requested during a session (see [Request constraints](#request-constraints))
+- Customize the request overlay with a live preview and saved appearance profiles
+
+## Overlay appearance
+
+Open **Overlay Appearance** in the streamer control panel to customize the OBS request overlay. Changes preview immediately and remain a draft until **Save Changes**. Saved styles reach connected OBS browser sources immediately; if the style event stream is unavailable, the overlay falls back to periodic settings refresh. **Discard** restores the saved style, and **Reset to Default** restores the original transparent, white-text appearance.
+
+The editor includes six locally bundled font choices: Inter (default), Barlow Condensed, Oswald, Lora, Space Grotesk, and IBM Plex Mono. Each selected family falls back to the embedded Noto Sans JP/KR/SC faces for CJK text and Noto Color Emoji for emoji. Font files are served locally; no external font request is made at runtime. The repository includes the SIL Open Font License 1.1 text for each bundled family under `public/fonts/` (for example, `INTER-OFL.txt`, `NOTO-SANS-JP-OFL.txt`, and `BARLOW-CONDENSED-OFL.txt`).
+
+You can adjust the overall layout and separately style labels, song titles, metadata, and requester text. The live preview supports 1920×1080, 1280×720, 2560×1440, and 1080×1920 canvas presets, a sample queue, and a safe-area guide. A readability notice flags low-contrast combinations and text below 24 px; it is advisory and does not override your choices.
+
+Save up to 20 named appearance profiles for alternate scenes. Select a profile to preview it, then save the active overlay style to update that profile. Use **Export** to download profiles as JSON or **Import** to append profiles from a compatible export; duplicate names are skipped, existing profiles are preserved, and the combined set is capped at 20. Imported data is bounded and normalized before storage. Profiles are private to the authenticated control panel and are not exposed by the public overlay API.
 
 ## Course generation
 

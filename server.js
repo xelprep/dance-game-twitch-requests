@@ -800,6 +800,144 @@ function setSetting(key, value) {
   db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)").run(key, val);
 }
 
+const DEFAULT_OVERLAY_STYLE = Object.freeze({
+  version: 1,
+  font: "default",
+  fontSize: 48,
+  textColor: "#ffffff",
+  textShadow: true,
+  shadowStrength: 1,
+  backgroundEnabled: false,
+  backgroundColor: "#000000",
+  backgroundOpacity: 0.6,
+  maxWidth: "auto",
+  padding: 0,
+  position: "bottom-left",
+  margin: 0,
+  contentOpacity: 1,
+  safeArea: 5,
+  canvasWidth: 1920,
+  canvasHeight: 1080,
+  queueEntries: 3,
+  sections: {
+    labels: { color: "#ffffff", fontSize: 48 },
+    title: { color: "#ffffff", fontSize: 48 },
+    metadata: { color: "#ffffff", fontSize: 48 },
+    requester: { color: "#ffffff", fontSize: 48 },
+  },
+  showLabels: true,
+  showNowPlaying: true,
+  showArtwork: true,
+});
+
+function normalizeOverlayStyle(value) {
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const boundedNumber = (key, fallback, min, max, integer = false) => {
+    const parsed = Number(input[key]);
+    if (!Number.isFinite(parsed)) return fallback;
+    const bounded = Math.min(max, Math.max(min, parsed));
+    return integer ? Math.round(bounded) : Math.round(bounded * 100) / 100;
+  };
+  const color = (key, fallback) =>
+    typeof input[key] === "string" && /^#[0-9a-f]{6}$/i.test(input[key])
+      ? input[key].toLowerCase()
+      : fallback;
+  const boolean = (key, fallback) => (typeof input[key] === "boolean" ? input[key] : fallback);
+  const positions = [
+    "top-left",
+    "top-center",
+    "top-right",
+    "middle-left",
+    "middle-center",
+    "middle-right",
+    "bottom-left",
+    "bottom-center",
+    "bottom-right",
+  ];
+  const canvasWidths = [1080, 1280, 1920, 2560, 3840];
+  const canvasHeights = [720, 1080, 1440, 1920, 2160];
+  const sectionStyles = {};
+  for (const section of ["labels", "title", "metadata", "requester"]) {
+    const sectionInput =
+      input.sections && typeof input.sections === "object" ? input.sections[section] || {} : {};
+    sectionStyles[section] = {
+      color:
+        typeof sectionInput.color === "string" && /^#[0-9a-f]{6}$/i.test(sectionInput.color)
+          ? sectionInput.color.toLowerCase()
+          : DEFAULT_OVERLAY_STYLE.sections[section].color,
+      fontSize: Number.isFinite(Number(sectionInput.fontSize))
+        ? Math.round(Math.min(128, Math.max(16, Number(sectionInput.fontSize))))
+        : DEFAULT_OVERLAY_STYLE.sections[section].fontSize,
+    };
+  }
+
+  return {
+    ...DEFAULT_OVERLAY_STYLE,
+    font: ["default", "barlow", "oswald", "lora", "space-grotesk", "ibm-plex-mono"].includes(
+      input.font,
+    )
+      ? input.font
+      : DEFAULT_OVERLAY_STYLE.font,
+    fontSize: boundedNumber("fontSize", DEFAULT_OVERLAY_STYLE.fontSize, 16, 128, true),
+    textColor: color("textColor", DEFAULT_OVERLAY_STYLE.textColor),
+    textShadow: boolean("textShadow", DEFAULT_OVERLAY_STYLE.textShadow),
+    shadowStrength: boundedNumber("shadowStrength", 1, 0, 2),
+    backgroundEnabled: boolean("backgroundEnabled", DEFAULT_OVERLAY_STYLE.backgroundEnabled),
+    backgroundColor: color("backgroundColor", DEFAULT_OVERLAY_STYLE.backgroundColor),
+    backgroundOpacity: boundedNumber("backgroundOpacity", 0.6, 0, 1),
+    maxWidth:
+      input.maxWidth === undefined || input.maxWidth === "auto"
+        ? DEFAULT_OVERLAY_STYLE.maxWidth
+        : boundedNumber("maxWidth", 1920, 320, 3840, true),
+    padding: boundedNumber("padding", DEFAULT_OVERLAY_STYLE.padding, 0, 48, true),
+    position: positions.includes(input.position) ? input.position : DEFAULT_OVERLAY_STYLE.position,
+    margin: boundedNumber("margin", 0, 0, 120, true),
+    contentOpacity: boundedNumber("contentOpacity", 1, 0.1, 1),
+    safeArea: boundedNumber("safeArea", DEFAULT_OVERLAY_STYLE.safeArea, 2, 15, true),
+    canvasWidth: canvasWidths.includes(Number(input.canvasWidth))
+      ? Number(input.canvasWidth)
+      : DEFAULT_OVERLAY_STYLE.canvasWidth,
+    canvasHeight: canvasHeights.includes(Number(input.canvasHeight))
+      ? Number(input.canvasHeight)
+      : DEFAULT_OVERLAY_STYLE.canvasHeight,
+    queueEntries: boundedNumber("queueEntries", 3, 1, 3, true),
+    sections: sectionStyles,
+    showLabels: boolean("showLabels", DEFAULT_OVERLAY_STYLE.showLabels),
+    showNowPlaying: boolean("showNowPlaying", DEFAULT_OVERLAY_STYLE.showNowPlaying),
+    showArtwork: boolean("showArtwork", DEFAULT_OVERLAY_STYLE.showArtwork),
+  };
+}
+
+function normalizeOverlayProfiles(value) {
+  if (!Array.isArray(value)) return [];
+  const profiles = [];
+  const usedIds = new Set();
+  const usedNames = new Set();
+
+  for (const entry of value.slice(0, 20)) {
+    if (!entry || typeof entry !== "object") continue;
+    const idValue = String(entry.id || "")
+      .trim()
+      .toLowerCase();
+    const id = /^[a-z0-9-]{1,48}$/.test(idValue) ? idValue : crypto.randomUUID();
+    if (usedIds.has(id)) continue;
+    const name = String(entry.name || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 32);
+    const nameKey = name.toLowerCase();
+    if (!name || usedNames.has(nameKey)) continue;
+    usedIds.add(id);
+    usedNames.add(nameKey);
+    profiles.push({ id, name, style: normalizeOverlayStyle(entry.style) });
+  }
+  return profiles;
+}
+
+function getOverlayProfiles() {
+  return normalizeOverlayProfiles(getSetting("overlayProfiles", []));
+}
+
 function getModeratorCredentialsList() {
   const stored = getSetting("moderatorCredentials", null);
 
@@ -844,9 +982,11 @@ function getControlSettings() {
     requestConstraintBpmMax: getSetting("requestConstraintBpmMax", null),
     requestConstraintDurationMin: getSetting("requestConstraintDurationMin", null),
     requestConstraintDurationMax: getSetting("requestConstraintDurationMax", null),
+    overlayStyle: normalizeOverlayStyle(getSetting("overlayStyle", DEFAULT_OVERLAY_STYLE)),
     host: networkSettings.host,
     publicPort: networkSettings.publicPort,
     controlPort: networkSettings.controlPort,
+    publicHttps: PUBLIC_HTTPS,
     lanIPs: getLanIPv4Addresses(),
   };
 }
@@ -1975,6 +2115,22 @@ function createApi(app, options = {}) {
   if (options.moderator) {
     app.use("/api/moderator", authenticateModerator);
     app.get("/api/moderator/settings", (_req, res) => res.json(getControlSettings()));
+    app.get("/api/overlay/settings", (_req, res) =>
+      res.json(normalizeOverlayStyle(getSetting("overlayStyle", DEFAULT_OVERLAY_STYLE))),
+    );
+    app.get("/overlay/style/stream", (req, res) => {
+      res.set({
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+      res.flushHeaders && res.flushHeaders();
+      sseOverlayStyleClients.add(res);
+      req.on("close", () => sseOverlayStyleClients.delete(res));
+      res.write(
+        `data: ${JSON.stringify(normalizeOverlayStyle(getSetting("overlayStyle", DEFAULT_OVERLAY_STYLE)))}\n\n`,
+      );
+    });
     app.post("/api/moderator/settings", async (req, res) => {
       const current = getControlSettings();
       const settings = {
@@ -2440,6 +2596,15 @@ function createApi(app, options = {}) {
     app.get("/api/control/settings", (_req, res) => {
       res.json(getControlSettings());
     });
+    app.get("/api/control/overlay/profiles", (_req, res) => res.json(getOverlayProfiles()));
+    app.post("/api/control/overlay/profiles", (req, res) => {
+      if (!Array.isArray(req.body.profiles) || req.body.profiles.length > 20) {
+        return res.status(400).json({ error: "Provide up to 20 overlay profiles." });
+      }
+      const profiles = normalizeOverlayProfiles(req.body.profiles);
+      setSetting("overlayProfiles", profiles);
+      res.json({ ok: true, profiles });
+    });
     app.get("/api/control/artwork/status", (_req, res) => {
       res.json(artworkJobState);
     });
@@ -2515,6 +2680,9 @@ function createApi(app, options = {}) {
         instructionsMinutes: Number(req.body.instructionsMinutes),
         requestConstraintStyle: String(req.body.requestConstraintStyle || "any"),
         requestConstraintPack: String(req.body.requestConstraintPack || "").trim(),
+        overlayStyle: Object.prototype.hasOwnProperty.call(req.body, "overlayStyle")
+          ? normalizeOverlayStyle(req.body.overlayStyle)
+          : current.overlayStyle,
       };
 
       // Constraint range bounds: positive whole numbers, or null when absent/empty/invalid.
@@ -2606,6 +2774,9 @@ function createApi(app, options = {}) {
         )
           ? next.requestConstraintPack
           : current.requestConstraintPack,
+        overlayStyle: Object.prototype.hasOwnProperty.call(req.body, "overlayStyle")
+          ? next.overlayStyle
+          : current.overlayStyle,
         requestConstraintMeterMin: constraintNumber(
           "requestConstraintMeterMin",
           current.requestConstraintMeterMin,
@@ -2675,6 +2846,7 @@ function createApi(app, options = {}) {
       setSetting("requestConstraintBpmMax", settings.requestConstraintBpmMax);
       setSetting("requestConstraintDurationMin", settings.requestConstraintDurationMin);
       setSetting("requestConstraintDurationMax", settings.requestConstraintDurationMax);
+      setSetting("overlayStyle", settings.overlayStyle);
       setSetting("host", settings.host);
       setSetting("publicPort", settings.publicPort);
       setSetting("controlPort", settings.controlPort);
@@ -2700,6 +2872,9 @@ function createApi(app, options = {}) {
       try {
         if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
       } catch (e) {}
+      if (Object.prototype.hasOwnProperty.call(req.body, "overlayStyle")) {
+        broadcastOverlayStyle();
+      }
       res.json({ ok: true, ...settings });
     });
 
@@ -3182,6 +3357,7 @@ createApi(publicApp, { moderator: true });
 // Server-Sent Events (SSE) endpoint for OBS overlay to receive real-time overlay state.
 // Clients should connect to /overlay/queue/stream and will receive the merged overlay state in `message` events.
 const sseQueueClients = new Set();
+const sseOverlayStyleClients = new Set();
 function buildOverlayState() {
   const nowPlaying = getNowPlaying();
   const queue = getQueue();
@@ -3222,6 +3398,17 @@ publicApp.get("/overlay/queue/stream", (req, res) => {
   // Send initial state
   res.write(`data: ${JSON.stringify(buildOverlayState())}\n\n`);
 });
+
+function broadcastOverlayStyle() {
+  const payload = `data: ${JSON.stringify(normalizeOverlayStyle(getSetting("overlayStyle", DEFAULT_OVERLAY_STYLE)))}\n\n`;
+  for (const res of Array.from(sseOverlayStyleClients)) {
+    try {
+      res.write(payload);
+    } catch (_error) {
+      sseOverlayStyleClients.delete(res);
+    }
+  }
+}
 
 // Server-Sent Events (SSE) endpoint for the OBS chat overlay. Clients connect
 // to /overlay/chat/stream and receive one `message` event per chat message:
