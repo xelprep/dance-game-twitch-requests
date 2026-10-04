@@ -250,6 +250,16 @@
           <div class="section-head"><h2>Settings</h2></div>
           <div class="settings-form">
             <label>
+              <input type="checkbox" id="artworkEnabled" />
+              Enable song artwork
+            </label>
+            <div class="twitch-actions">
+              <button id="buildArtwork" type="button" disabled>Build artwork</button>
+              <button id="forceArtwork" type="button" disabled>Force refresh</button>
+              <span id="artworkJobStatus" class="small muted" role="status"></span>
+            </div>
+
+            <label>
               <input type="checkbox" id="prioritizeViewerRequests" checked />
               Prioritize viewer requests above streamer requests (chat requests &gt; streamer
               requests)

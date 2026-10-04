@@ -380,6 +380,14 @@ The app scans your `SONGS_DIR` (and `ADDITIONAL_SONGS_DIR` if set) on startup us
 
 If you add or remove songs while the app is running, click the "Rescan Songs" button on the streamer control panel or restart the app.
 
+### Optional song artwork
+
+Artwork processing is disabled by default. In the streamer control panel's **Settings**, enable **Enable song artwork**, then choose **Build artwork** to create optimized WebP thumbnails. The first build can take time; progress and a result summary appear in the panel. **Force refresh** rebuilds thumbnails even when the source appears unchanged. Later song rescans refresh changed artwork in the background while the setting is enabled.
+
+Artwork selection prefers a song's declared or conventional banner, then its declared or conventional jacket, then the pack banner. A pack's `Banner=` value in `pack.ini` takes precedence over conventional pack image names. CD title, disc, and background images are not used.
+
+Generated thumbnails are stored locally in `data/artwork-cache/` beside the default database, or in `ARTWORK_CACHE_DIR` when set. The app serves only these resized WebP files to the web cards and now-playing overlay; it does not serve original song-folder artwork files. The cache is incremental, so unchanged images are not decoded and resized again.
+
 ## Making the web page public
 
 The Twitch bot itself does not require the website to be public. It receives requests directly from Twitch chat.

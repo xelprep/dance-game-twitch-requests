@@ -349,6 +349,15 @@ input[type="checkbox"] {
   align-items: flex-start;
   gap: 12px;
 }
+.song-artwork {
+  display: block;
+  flex: 0 0 112px;
+  width: 112px;
+  height: 72px;
+  object-fit: contain;
+  background: #14181f;
+  border-radius: 4px;
+}
 .song-meta {
   flex: 1;
   min-width: 0;

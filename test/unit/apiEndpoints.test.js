@@ -8,12 +8,15 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const express = require("express");
+const sharp = require("sharp");
+process.env.ARTWORK_CACHE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "dance-artwork-api-cache-"));
 
 const {
   announceTempModNomination,
   createApi,
   db,
   formatVisibleUsername,
+  getQueue,
   hashModeratorPassword,
   setSetting,
 } = require("../../server.js");
@@ -50,6 +53,170 @@ test("public API search returns song rows and supports basic filtering", async (
     const json = await res.json();
     assert.equal(res.status, 200);
     assert.ok(Array.isArray(json));
+  } finally {
+    server.close();
+  }
+});
+
+test("song search exposes only generated artwork URL metadata", async () => {
+  resetSettings();
+  const artworkKey = `v1-${"a".repeat(64)}`;
+  const insert = db.prepare(
+    "INSERT INTO songs (file_path, title, last_modified, artwork_key, artwork_kind) VALUES (?, ?, 0, ?, ?)",
+  );
+  const info = insert.run("artwork-api-test.sm", "Artwork Metadata Test", artworkKey, "banner");
+  const server = await startPublicModeratorApp();
+
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/search?q=Artwork%20Metadata%20Test`,
+    );
+    const songs = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(songs[0].artworkUrl, `/artwork/${artworkKey}.webp`);
+    assert.equal(songs[0].artworkKind, "banner");
+  } finally {
+    server.close();
+    db.prepare("DELETE FROM songs WHERE id = ?").run(info.lastInsertRowid);
+  }
+});
+
+test("queue rows expose artwork URLs for the request overlay", () => {
+  const artworkKey = `v1-${"c".repeat(64)}`;
+  const song = db
+    .prepare(
+      "INSERT INTO songs (file_path, title, last_modified, artwork_key, artwork_kind) VALUES (?, ?, 0, ?, ?)",
+    )
+    .run("artwork-queue-test.sm", "Artwork Queue Test", artworkKey, "pack");
+  const request = db
+    .prepare(
+      "INSERT INTO requests (song_id, requested_by, requested_display, status, created_at) VALUES (?, ?, ?, 'queued', ?)",
+    )
+    .run(song.lastInsertRowid, "viewer", "Viewer", Date.now());
+
+  try {
+    const queueRow = getQueue(10000).find((row) => row.id === request.lastInsertRowid);
+    assert.equal(queueRow.artworkUrl, `/artwork/${artworkKey}.webp`);
+    assert.equal(queueRow.artworkKind, "pack");
+    assert.equal(Object.hasOwn(queueRow, "artwork_key"), false);
+  } finally {
+    db.prepare("DELETE FROM requests WHERE id = ?").run(request.lastInsertRowid);
+    db.prepare("DELETE FROM songs WHERE id = ?").run(song.lastInsertRowid);
+  }
+});
+
+test("now-playing still includes chart difficulty and meter", async () => {
+  const song = db
+    .prepare("INSERT INTO songs (file_path, title, last_modified) VALUES (?, ?, 0)")
+    .run("overlay-chart-test.sm", "Overlay Chart Test");
+  const chart = db
+    .prepare("INSERT INTO charts (song_id, chart_type, difficulty, meter) VALUES (?, ?, ?, ?)")
+    .run(song.lastInsertRowid, "dance-single", "Expert", "12");
+  const request = db
+    .prepare(
+      "INSERT INTO requests (song_id, chart_id, requested_by, requested_display, status, created_at, started_at) VALUES (?, ?, ?, ?, 'playing', ?, ?)",
+    )
+    .run(song.lastInsertRowid, chart.lastInsertRowid, "viewer", "Viewer", Date.now(), Date.now());
+  const server = await startPublicModeratorApp();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/now-playing`);
+    const nowPlaying = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(nowPlaying.chart.difficulty, "Expert");
+    assert.equal(nowPlaying.chart.meter, "12");
+  } finally {
+    server.close();
+    db.prepare("DELETE FROM requests WHERE id = ?").run(request.lastInsertRowid);
+    db.prepare("DELETE FROM songs WHERE id = ?").run(song.lastInsertRowid);
+  }
+});
+
+test("artwork controls are disabled by default and reject processing until enabled", async () => {
+  resetSettings();
+  const server = await startControlApp();
+  const headers = {
+    Authorization: "Basic " + Buffer.from("streamer:test-control-password").toString("base64"),
+    "Content-Type": "application/json",
+  };
+
+  try {
+    const settingsResponse = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/control/settings`,
+      {
+        headers,
+      },
+    );
+    const settings = await settingsResponse.json();
+    assert.equal(settings.artworkEnabled, false);
+
+    const processResponse = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/control/artwork/process`,
+      { method: "POST", headers, body: JSON.stringify({ force: false }) },
+    );
+    assert.equal(processResponse.status, 409);
+  } finally {
+    server.close();
+  }
+});
+
+test("enabled artwork control starts a job and exposes its status", async () => {
+  resetSettings();
+  setSetting("artworkEnabled", true);
+  const server = await startControlApp();
+  const headers = {
+    Authorization: "Basic " + Buffer.from("streamer:test-control-password").toString("base64"),
+    "Content-Type": "application/json",
+  };
+
+  try {
+    const startResponse = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/control/artwork/process`,
+      { method: "POST", headers, body: JSON.stringify({ force: false }) },
+    );
+    assert.equal(startResponse.status, 200);
+    assert.equal((await startResponse.json()).started, true);
+
+    const statusResponse = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/control/artwork/status`,
+      { headers },
+    );
+    assert.equal(statusResponse.status, 200);
+    assert.equal(typeof (await statusResponse.json()).running, "boolean");
+  } finally {
+    server.close();
+  }
+});
+
+test("artwork route rejects invalid cache keys", async () => {
+  const server = await startPublicModeratorApp();
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/artwork/not-a-key.webp`,
+    );
+    assert.equal(response.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
+test("artwork route serves only generated WebP assets with immutable caching", async () => {
+  const artworkKey = `v1-${"b".repeat(64)}`;
+  const imagePath = path.join(process.env.ARTWORK_CACHE_DIR, `${artworkKey}.webp`);
+  fs.mkdirSync(path.dirname(imagePath), { recursive: true });
+  await sharp({ create: { width: 2, height: 2, channels: 3, background: "#336699" } })
+    .webp()
+    .toFile(imagePath);
+  const server = await startPublicModeratorApp();
+
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/artwork/${artworkKey}.webp`,
+    );
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type"), /image\/webp/);
+    assert.match(response.headers.get("cache-control"), /immutable/);
+    assert.ok((await response.arrayBuffer()).byteLength > 0);
   } finally {
     server.close();
   }
@@ -108,6 +275,7 @@ test("control settings API stores valid streamer credentials and updates setting
         moderatorUsername: "alice",
         moderatorCredentials: [{ username: "alice", password: "hunter2" }],
         instructionsMinutes: 10,
+        artworkEnabled: true,
       }),
     });
 
@@ -115,6 +283,7 @@ test("control settings API stores valid streamer credentials and updates setting
     const payload = await response.json();
     assert.equal(payload.ok, true);
     assert.equal(payload.moderatorEnabled, true);
+    assert.equal(payload.artworkEnabled, true);
   } finally {
     server.close();
   }

@@ -18,6 +18,7 @@ const tmi = require("tmi.js");
 const WebSocket = require("ws");
 const { parseSecureMode, applySecureModeDefaults } = require("./secureMode");
 const { scanSongs } = require("./scanner");
+const { artworkFilePath, ensureArtworkSchema, processSongArtwork } = require("./artwork");
 
 // Network settings (bind address + public/control ports) are runtime settings managed from the
 // streamer control panel and persisted in the settings DB. These are only the fallback defaults.
@@ -302,6 +303,10 @@ function resolveDatabasePath(env = process.env) {
 }
 
 const DB_PATH = resolveDatabasePath();
+const ARTWORK_CACHE_DIR = path.resolve(
+  process.env.ARTWORK_CACHE_DIR || path.join(path.dirname(DB_PATH), "artwork-cache"),
+);
+let artworkJobState = { running: false, completed: 0, total: 0, result: null, error: null };
 let db;
 try {
   if (DB_PATH !== ":memory:") {
@@ -428,11 +433,51 @@ CREATE INDEX IF NOT EXISTS idx_songs_bpm_max ON songs(bpm_max);
 CREATE INDEX IF NOT EXISTS idx_songs_core_bpm ON songs(core_bpm);
 CREATE INDEX IF NOT EXISTS idx_songs_duration ON songs(duration_seconds);
 `);
+  ensureArtworkSchema(db);
 }
 
 async function refreshDatabase() {
   const additionalDirs = ADDITIONAL_SONGS_DIR ? [path.resolve(ADDITIONAL_SONGS_DIR)] : [];
-  return await scanSongs(SONGS_DIR, db, { additionalDirs });
+  const result = await scanSongs(SONGS_DIR, db, { additionalDirs });
+  if (getSetting("artworkEnabled", false)) {
+    setImmediate(() => startArtworkJob(false));
+  }
+  return result;
+}
+
+function startArtworkJob(force = false) {
+  if (artworkJobState.running) return false;
+  artworkJobState = { running: true, completed: 0, total: 0, result: null, error: null };
+  const songsRoots = [SONGS_DIR, ADDITIONAL_SONGS_DIR]
+    .filter(Boolean)
+    .map((directory) => path.resolve(directory));
+
+  processSongArtwork(db, {
+    songsRoots,
+    cacheDirectory: ARTWORK_CACHE_DIR,
+    force,
+    onProgress(completed, total) {
+      artworkJobState.completed = completed;
+      artworkJobState.total = total;
+    },
+  })
+    .then((result) => {
+      artworkJobState = {
+        running: false,
+        completed: result.total,
+        total: result.total,
+        result,
+        error: null,
+      };
+    })
+    .catch((error) => {
+      artworkJobState = {
+        ...artworkJobState,
+        running: false,
+        error: error.message || String(error),
+      };
+    });
+  return true;
 }
 
 // Temp-mod sessions are not persisted across restarts; initialize the state here
@@ -549,6 +594,7 @@ function getQueue(limit = QUEUE_LIMIT) {
     SELECT r.id, r.requested_by, r.requested_display, r.status, r.created_at,
            r.started_at, r.completed_at,
            s.id AS song_id, s.title, s.subtitle, s.artist, s.pack, s.pack_folder, s.music,
+          s.artwork_key, s.artwork_kind,
            c.id AS chart_id, c.chart_type, c.difficulty AS chart_difficulty,
            c.difficulty_raw AS chart_difficulty_raw, c.meter AS chart_meter
     FROM requests r
@@ -560,11 +606,16 @@ function getQueue(limit = QUEUE_LIMIT) {
   `,
     )
     .all(limit);
-  return rows.map((row) => ({
-    ...row,
-    chart: chartFromRow(row),
-    charts: getSongCharts(row.song_id),
-  }));
+  return rows.map((row) => {
+    const { artwork_key: artworkKey, artwork_kind: artworkKind, ...queueRow } = row;
+    return {
+      ...queueRow,
+      artworkUrl: artworkKey ? `/artwork/${artworkKey}.webp` : null,
+      artworkKind: artworkKind || null,
+      chart: chartFromRow(row),
+      charts: getSongCharts(row.song_id),
+    };
+  });
 }
 
 function getNowPlaying() {
@@ -573,6 +624,7 @@ function getNowPlaying() {
       `
    SELECT r.id, r.requested_by, r.requested_display, r.status,
            r.started_at, s.id AS song_id, s.title, s.subtitle, s.artist, s.pack, s.music,
+           s.artwork_key, s.artwork_kind,
            c.id AS chart_id, c.chart_type, c.difficulty AS chart_difficulty, c.meter AS chart_meter
     FROM requests r
     JOIN songs s ON s.id = r.song_id
@@ -582,7 +634,15 @@ function getNowPlaying() {
   `,
     )
     .get();
-  return row ? { ...row, chart: chartFromRow(row), charts: getSongCharts(row.song_id) } : null;
+  if (!row) return null;
+  const { artwork_key: artworkKey, artwork_kind: artworkKind, ...nowPlaying } = row;
+  return {
+    ...nowPlaying,
+    artworkUrl: artworkKey ? `/artwork/${artworkKey}.webp` : null,
+    artworkKind: artworkKind || null,
+    chart: chartFromRow(row),
+    charts: getSongCharts(row.song_id),
+  };
 }
 
 function getStats() {
@@ -767,6 +827,7 @@ function getControlSettings() {
   const networkSettings = getNetworkSettings();
 
   return {
+    artworkEnabled: !!getSetting("artworkEnabled", false),
     prioritizeViewerRequests: !!getSetting("prioritizeViewerRequests", true),
     chatRequestsEnabled: !!getSetting("chatRequestsEnabled", true),
     chatRequestsRequireRole: role,
@@ -1351,6 +1412,8 @@ function songRow(row) {
     bpmMax: row.bpm_max ?? null,
     coreBpm: row.core_bpm ?? row.bpm_min ?? null,
     durationSeconds: row.duration_seconds ?? null,
+    artworkUrl: row.artwork_key ? `/artwork/${row.artwork_key}.webp` : null,
+    artworkKind: row.artwork_kind || null,
 
     charts: getSongCharts(row.id),
   };
@@ -1901,6 +1964,14 @@ function stopChatUsersCleanup() {
 
 function createApi(app, options = {}) {
   app.use(express.json({ limit: "32kb" }));
+  app.get("/artwork/:file", (req, res) => {
+    const match = String(req.params.file || "").match(/^(v[0-9]+-[a-f0-9]{64})\.webp$/);
+    if (!match) return res.status(404).end();
+    const filePath = artworkFilePath(ARTWORK_CACHE_DIR, match[1]);
+    if (!filePath || !fs.existsSync(filePath)) return res.status(404).end();
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+    res.type("image/webp").sendFile(filePath);
+  });
   if (options.moderator) {
     app.use("/api/moderator", authenticateModerator);
     app.get("/api/moderator/settings", (_req, res) => res.json(getControlSettings()));
@@ -2369,6 +2440,20 @@ function createApi(app, options = {}) {
     app.get("/api/control/settings", (_req, res) => {
       res.json(getControlSettings());
     });
+    app.get("/api/control/artwork/status", (_req, res) => {
+      res.json(artworkJobState);
+    });
+    app.post("/api/control/artwork/process", (req, res) => {
+      if (!getControlSettings().artworkEnabled) {
+        return res
+          .status(409)
+          .json({ error: "Enable song artwork in Settings before processing." });
+      }
+      if (!startArtworkJob(!!req.body.force)) {
+        return res.status(409).json({ error: "Artwork processing is already running." });
+      }
+      res.json({ ok: true, started: true });
+    });
     app.post("/api/control/course/generate", (req, res) => {
       try {
         const requestedName = String(
@@ -2416,6 +2501,9 @@ function createApi(app, options = {}) {
       const next = {
         prioritizeViewerRequests: !!req.body.prioritizeViewerRequests,
         chatRequestsEnabled: !!req.body.chatRequestsEnabled,
+        artworkEnabled: Object.prototype.hasOwnProperty.call(req.body, "artworkEnabled")
+          ? !!req.body.artworkEnabled
+          : current.artworkEnabled,
         chatRequestsRequireRole: String(req.body.chatRequestsRequireRole || ""),
         moderatorEnabled: !!req.body.moderatorEnabled,
         moderatorUsername: String(req.body.moderatorUsername || "")
@@ -2475,6 +2563,9 @@ function createApi(app, options = {}) {
         chatRequestsEnabled: Object.prototype.hasOwnProperty.call(req.body, "chatRequestsEnabled")
           ? next.chatRequestsEnabled
           : current.chatRequestsEnabled,
+        artworkEnabled: Object.prototype.hasOwnProperty.call(req.body, "artworkEnabled")
+          ? next.artworkEnabled
+          : current.artworkEnabled,
         chatRequestsRequireRole: Object.prototype.hasOwnProperty.call(
           req.body,
           "chatRequestsRequireRole",
@@ -2571,6 +2662,7 @@ function createApi(app, options = {}) {
 
       setSetting("prioritizeViewerRequests", settings.prioritizeViewerRequests);
       setSetting("chatRequestsEnabled", settings.chatRequestsEnabled);
+      setSetting("artworkEnabled", settings.artworkEnabled);
       setSetting("chatRequestsRequireRole", settings.chatRequestsRequireRole);
       setSetting("moderatorEnabled", settings.moderatorEnabled);
       setSetting("moderatorCredentials", settings.moderatorCredentials);

@@ -97,6 +97,27 @@ body {
   width: max-content;
   max-width: none;
 }
+.now-playing-content {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  width: max-content;
+  max-width: none;
+}
+.now-playing-content .queue-lines {
+  flex: 0 0 auto;
+  width: max-content;
+  max-width: none;
+}
+.now-playing-artwork {
+  display: block;
+  flex: 0 0 3em;
+  width: 3em;
+  height: 3em;
+  object-fit: contain;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 4px;
+}
 
 /* Upcoming Requests section */
 .upcoming-section {

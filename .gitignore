@@ -3,6 +3,7 @@ node_modules/
 .env.*.bak
 data/*.db
 data/*.db-*
+data/artwork-cache/
 data/twitch.json
 data/control-panel/*.pem
 data/control-panel/hosts.json

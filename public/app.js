@@ -125,6 +125,7 @@ function songCard(song) {
   article.className = "song";
   article.innerHTML = `
     <div class="song-main">
+      ${song.artworkUrl ? `<img class="song-artwork" src="${escapeHTML(song.artworkUrl)}" alt="${escapeHTML(song.title)} artwork" loading="lazy" decoding="async" />` : ""}
       <div class="song-meta">
         <strong>ID: ${escapeHTML(String(song.id))} - ${escapeHTML(song.title)}</strong>
         ${song.subtitle ? `<span class="song-subtitle">${escapeHTML(song.subtitle)}</span>` : ""}

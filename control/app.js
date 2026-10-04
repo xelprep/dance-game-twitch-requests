@@ -97,6 +97,7 @@ function songCard(song) {
   article.className = "song";
   article.innerHTML = `
     <div class="song-main">
+      ${song.artworkUrl ? `<img class="song-artwork" src="${esc(song.artworkUrl)}" alt="${esc(song.title)} artwork" loading="lazy" decoding="async" />` : ""}
       <div class="song-meta">
         <strong>ID: ${esc(song.id)} - ${esc(song.title)}</strong>
         ${song.subtitle ? `<span class="song-subtitle">${esc(song.subtitle)}</span>` : ""}
@@ -533,6 +534,9 @@ async function render() {
       const chatRequestsEnabled = $("chatRequestsEnabled");
       const chatRequestsRequireRole = $("chatRequestsRequireRole");
       if (typeof settings !== "undefined") {
+        const artworkEnabled = $("artworkEnabled");
+        if (artworkEnabled) artworkEnabled.checked = !!(settings && settings.artworkEnabled);
+        updateArtworkControls(!!(settings && settings.artworkEnabled));
         const prioritizeElLocal = $("prioritizeViewerRequests");
         if (prioritizeElLocal)
           prioritizeElLocal.checked = !!(settings && settings.prioritizeViewerRequests);
@@ -556,11 +560,59 @@ async function render() {
 
       const allowChat = !!(chatRequestsEnabled && chatRequestsEnabled.checked);
       if (chatRequestsRequireRole) chatRequestsRequireRole.disabled = !allowChat;
+      refreshArtworkJobStatus();
     } catch (e) {
       /* ignore */
     }
   } catch (e) {
     toast(e.message);
+  }
+}
+
+function updateArtworkControls(enabled) {
+  const buildButton = $("buildArtwork");
+  const forceButton = $("forceArtwork");
+  if (buildButton) buildButton.disabled = !enabled;
+  if (forceButton) forceButton.disabled = !enabled;
+}
+
+let artworkStatusTimer = null;
+async function refreshArtworkJobStatus() {
+  const statusEl = $("artworkJobStatus");
+  if (!statusEl) return;
+  try {
+    const state = await api("/api/control/artwork/status");
+    if (state.running) {
+      statusEl.textContent = `Processing artwork: ${state.completed}/${state.total}`;
+      if (!artworkStatusTimer) {
+        artworkStatusTimer = setInterval(() => refreshArtworkJobStatus(), 1000);
+      }
+    } else {
+      clearInterval(artworkStatusTimer);
+      artworkStatusTimer = null;
+      if (state.error) {
+        statusEl.textContent = `Artwork processing failed: ${state.error}`;
+      } else if (state.result) {
+        const result = state.result;
+        statusEl.textContent = `Artwork: ${result.processed} processed, ${result.reused} reused, ${result.missing} missing, ${result.failed} failed`;
+      } else {
+        statusEl.textContent = "";
+      }
+    }
+  } catch (error) {
+    statusEl.textContent = error.message;
+  }
+}
+
+async function startArtworkProcessing(force) {
+  try {
+    await api("/api/control/artwork/process", {
+      method: "POST",
+      body: JSON.stringify({ force }),
+    });
+    await refreshArtworkJobStatus();
+  } catch (error) {
+    toast(error.message, "error");
   }
 }
 
@@ -842,6 +894,17 @@ if (chatRequestsRequireRoleEl) {
     saveControlSettings({ chatRequestsRequireRole: chatRequestsRequireRoleEl.value }),
   );
 }
+
+const artworkEnabledEl = $("artworkEnabled");
+if (artworkEnabledEl) {
+  artworkEnabledEl.addEventListener("change", () => {
+    updateArtworkControls(artworkEnabledEl.checked);
+    saveControlSettings({ artworkEnabled: artworkEnabledEl.checked });
+  });
+}
+
+$("buildArtwork")?.addEventListener("click", () => startArtworkProcessing(false));
+$("forceArtwork")?.addEventListener("click", () => startArtworkProcessing(true));
 
 // Request constraints: each select saves itself on change (empty bound = no limit).
 [
