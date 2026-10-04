@@ -128,6 +128,7 @@ function songCard(song) {
   article.className = "song";
   article.innerHTML = `
     <div class="song-main">
+      ${song.artworkUrl ? `<img class="song-artwork" src="${esc(song.artworkUrl)}" alt="${esc(song.title)} artwork" loading="lazy" decoding="async" />` : ""}
       <div class="song-meta">
         <strong>ID: ${esc(song.id)} - ${esc(song.title)}</strong>
         ${song.subtitle ? `<span class="song-subtitle">${esc(song.subtitle)}</span>` : ""}

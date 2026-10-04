@@ -5,7 +5,9 @@ function escapeHtml(s) {
   return String(s || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function styleLabel(chartType) {
@@ -33,13 +35,19 @@ function formatNowPlaying(song) {
   const pack = escapeHtml(song.pack || "Unknown Pack");
   const requester = escapeHtml(song.requested_display || song.requested_by || "unknown");
   const titleLine = subtitle ? `${title} (${subtitle})` : title;
+  const artwork = song.artworkUrl
+    ? `<img class="now-playing-artwork" src="${escapeHtml(song.artworkUrl)}" alt="${title} artwork" />`
+    : "";
   return `
-    <div class="queue-lines">
-      <div class="queue-line queue-line-title">${titleLine}</div>
-      <div class="queue-line queue-line-artist">${artist}</div>
-      ${chartLine(song.chart)}
-      <div class="queue-line queue-line-pack">${pack}</div>
-      <div class="queue-line queue-line-requester">Requested by: @${requester}</div>
+    <div class="now-playing-content">
+      ${artwork}
+      <div class="queue-lines">
+        <div class="queue-line queue-line-title">${titleLine}</div>
+        <div class="queue-line queue-line-artist">${artist}</div>
+        ${chartLine(song.chart)}
+        <div class="queue-line queue-line-pack">${pack}</div>
+        <div class="queue-line queue-line-requester">Requested by: @${requester}</div>
+      </div>
     </div>
   `;
 }
