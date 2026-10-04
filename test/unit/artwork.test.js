@@ -178,3 +178,77 @@ test("processing preserves artwork when configured Songs roots are unavailable",
   assert.equal(db.prepare("SELECT artwork_key FROM songs").get().artwork_key, artworkKey);
   db.close();
 });
+
+test("shared pack artwork is processed once and referenced by all fallback songs", async () => {
+  const root = tempDir();
+  const pack = path.join(root, "Pack");
+  const cacheDirectory = path.join(root, "cache");
+  fs.mkdirSync(pack, { recursive: true });
+  await writeImage(path.join(pack, "group.png"), "#336699");
+
+  const db = createDb();
+  const songCount = 3;
+  for (let i = 1; i <= songCount; i++) {
+    const songDir = path.join(pack, `Song${i}`);
+    fs.mkdirSync(songDir, { recursive: true });
+    // No banner/jacket tags or images, so every song falls back to the pack banner.
+    fs.writeFileSync(path.join(songDir, "chart.ssc"), `#TITLE:Song${i};\n`, "utf8");
+    db.prepare("INSERT INTO songs (file_path, title) VALUES (?, ?)").run(
+      path.join(songDir, "chart.ssc"),
+      `Song${i}`,
+    );
+  }
+
+  const result = await processSongArtwork(db, {
+    songsRoots: [root],
+    cacheDirectory,
+    threads: 4,
+  });
+
+  assert.equal(result.total, songCount);
+  assert.equal(result.failed, 0);
+  // One actual encode for the shared banner; the rest are reported as reuses.
+  assert.equal(result.processed, 1);
+  assert.equal(result.reused, songCount - 1);
+
+  const rows = db.prepare("SELECT artwork_key, artwork_kind FROM songs").all();
+  assert.equal(rows.length, songCount);
+  assert.equal(new Set(rows.map((row) => row.artwork_key)).size, 1);
+  for (const row of rows) {
+    assert.equal(row.artwork_kind, "pack");
+    assert.ok(fs.existsSync(artworkFilePath(cacheDirectory, row.artwork_key)));
+  }
+  // Exactly one generated derivative on disk.
+  const outputs = fs.readdirSync(cacheDirectory).filter((name) => name.endsWith(".webp"));
+  assert.equal(outputs.length, 1);
+  db.close();
+});
+
+test("processSongArtwork respects the threads option", async () => {
+  const root = tempDir();
+  const pack = path.join(root, "Pack");
+  const cacheDirectory = path.join(root, "cache");
+  fs.mkdirSync(pack, { recursive: true });
+  await writeImage(path.join(pack, "group.png"), "#336699");
+
+  const db = createDb();
+  for (let i = 1; i <= 2; i++) {
+    const songDir = path.join(pack, `Song${i}`);
+    fs.mkdirSync(songDir, { recursive: true });
+    fs.writeFileSync(path.join(songDir, "chart.ssc"), `#TITLE:Song${i};\n`, "utf8");
+    db.prepare("INSERT INTO songs (file_path, title) VALUES (?, ?)").run(
+      path.join(songDir, "chart.ssc"),
+      `Song${i}`,
+    );
+  }
+
+  const result = await processSongArtwork(db, {
+    songsRoots: [root],
+    cacheDirectory,
+    threads: 1,
+  });
+  assert.equal(result.threads, 1);
+  assert.equal(result.total, 2);
+  assert.equal(result.failed, 0);
+  db.close();
+});

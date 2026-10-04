@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const sharp = require("sharp");
+const { resolveThreadCount } = require("./scanner");
 
 const ARTWORK_PROCESSOR_VERSION = "webp-320-v1";
 const MAX_IMAGE_DIMENSION = 320;
@@ -236,9 +237,13 @@ async function processArtworkSource(db, sourcePath, cacheDirectory, { force = fa
 
 async function processSongArtwork(
   db,
-  { songsRoots, cacheDirectory, force = false, onProgress } = {},
+  { songsRoots, cacheDirectory, force = false, threads, onProgress } = {},
 ) {
   ensureArtworkSchema(db);
+  // Match the concurrency the user configured for the song scanner. An
+  // explicit `threads` option wins; otherwise fall back to SCANNER_THREADS
+  // (or all cores), the same value `scanSongs` uses.
+  const numThreads = resolveThreadCount(threads);
   const roots = [...new Set((songsRoots || []).map((root) => path.resolve(root)))];
   if (
     !roots.length ||
@@ -254,11 +259,33 @@ async function processSongArtwork(
     reused: 0,
     missing: 0,
     failed: 0,
+    threads: numThreads,
     errors: [],
   };
   let completed = 0;
 
-  for (const song of songs) {
+  // In-flight dedup: several songs can resolve to the same source image
+  // (e.g. a shared pack banner). Only the first caller does the actual
+  // hash/encode work; the rest await the same promise and are reported as
+  // reuses. A settled entry is dropped on success so a later song takes the
+  // fast cache path; a failed entry is kept so later callers fail fast
+  // instead of repeating the same failed work.
+  const inFlight = new Map();
+  const processSource = (sourcePath) => {
+    const pending = inFlight.get(sourcePath);
+    if (pending) {
+      return pending.then((processed) => ({ ...processed, reused: true }));
+    }
+    const promise = processArtworkSource(db, sourcePath, cacheDirectory, { force });
+    inFlight.set(sourcePath, promise);
+    promise.then(
+      () => inFlight.delete(sourcePath),
+      () => {},
+    );
+    return promise;
+  };
+
+  const processOne = async (song) => {
     try {
       const candidates = resolveSongArtworkCandidates(song.file_path, roots);
       if (!candidates.length) {
@@ -271,9 +298,7 @@ async function processSongArtwork(
         let candidateError = null;
         for (const candidate of candidates) {
           try {
-            const processed = await processArtworkSource(db, candidate.sourcePath, cacheDirectory, {
-              force,
-            });
+            const processed = await processSource(candidate.sourcePath);
             resolved = { ...candidate, ...processed };
             break;
           } catch (error) {
@@ -302,7 +327,25 @@ async function processSongArtwork(
     }
     completed++;
     if (onProgress) onProgress(completed, songs.length, result);
-  }
+  };
+
+  // Bounded concurrency: at most `numThreads` songs are in flight at once.
+  // A shared cursor hands each worker the next unfinished song, so a slow
+  // image never idles a worker (dynamic work stealing). Sharp's async API
+  // keeps the CPU work off the event loop, so the SQLite writes above stay
+  // serialized on the main thread.
+  let nextSongIndex = 0;
+  const workerCount = Math.min(numThreads, songs.length);
+  const workers = Array.from({ length: workerCount }, () =>
+    (async () => {
+      for (;;) {
+        const index = nextSongIndex++;
+        if (index >= songs.length) break;
+        await processOne(songs[index]);
+      }
+    })(),
+  );
+  await Promise.all(workers);
 
   if (result.failed === 0) {
     const referencedKeys = new Set(

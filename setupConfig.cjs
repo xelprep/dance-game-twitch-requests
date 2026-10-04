@@ -36,7 +36,7 @@ const ENV_OPTIONS = [
     key: "SCANNER_THREADS",
     label: "Scanner worker threads",
     description:
-      "-1 uses all available CPU cores; a positive number caps parallel scanner workers.",
+      "-1 uses all available CPU cores; a positive number caps parallel scanner and artwork workers.",
     type: "integer",
     validate: (value) => value === -1 || value > 0,
     validationMessage: "Enter -1 or a positive whole number.",

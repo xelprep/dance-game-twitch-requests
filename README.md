@@ -244,7 +244,7 @@ Optionally Set:
 SCANNER_THREADS=-1
 ```
 
-This controls the number of worker threads used for parallel song library scanning. Defaults to `-1` (use all available CPU cores on the host machine). Set to a positive integer (e.g. `SCANNER_THREADS=2`) to restrict thread usage.
+This controls the number of worker threads used for parallel song library scanning and the concurrency of background artwork processing. Defaults to `-1` (use all available CPU cores on the host machine). Set to a positive integer (e.g. `SCANNER_THREADS=2`) to restrict thread usage.
 
 Optionally Set:
 
@@ -385,9 +385,9 @@ The app scans your `SONGS_DIR` (and `ADDITIONAL_SONGS_DIR` if set) on startup us
 
 - **Parallel Parsing**: Parsing `.sm` and `.ssc` simfile metadata is distributed across multiple worker threads to significantly accelerate song scanning speed on multi-core host CPUs.
 - **Progress Indicator & Elapsed Time**: The console displays a live progress indicator (`Scanning songs: 150/1000 (15.0%) - 0.23s elapsed`) and logs the total elapsed time upon scan completion (`Scan complete: 1000 songs, 4200 charts in 0.85s.`).
-- **Configurable Concurrency**: Set `SCANNER_THREADS` in `.env` to control worker thread count:
+- **Configurable Concurrency**: Set `SCANNER_THREADS` in `.env` to control worker thread count for both the song scanner and background artwork processing:
   - `SCANNER_THREADS=-1` (default): Automatically uses all available CPU threads on the host machine.
-  - `SCANNER_THREADS=N`: Restricts scanning to `N` worker threads.
+  - `SCANNER_THREADS=N`: Restricts scanning and artwork processing to `N` worker threads.
 
 If you add or remove songs while the app is running, click the "Rescan Songs" button on the streamer control panel or restart the app.
 
