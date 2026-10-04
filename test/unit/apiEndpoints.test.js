@@ -408,7 +408,7 @@ test("overlay settings normalize v2 fonts, canvas, density, and section styles",
         font: "lora",
         canvasWidth: 1080,
         canvasHeight: 1920,
-        queueEntries: 2,
+        queueEntries: 8,
         safeArea: 12,
         sections: {
           title: { color: "#12ABEF", fontSize: 140 },
@@ -424,7 +424,7 @@ test("overlay settings normalize v2 fonts, canvas, density, and section styles",
     assert.equal(settings.overlayStyle.font, "lora");
     assert.equal(settings.overlayStyle.canvasWidth, 1080);
     assert.equal(settings.overlayStyle.canvasHeight, 1920);
-    assert.equal(settings.overlayStyle.queueEntries, 2);
+    assert.equal(settings.overlayStyle.queueEntries, 8);
     assert.equal(settings.overlayStyle.safeArea, 12);
     assert.equal(settings.overlayStyle.sections.title.color, "#12abef");
     assert.equal(settings.overlayStyle.sections.title.fontSize, 128);

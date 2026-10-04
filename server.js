@@ -903,7 +903,7 @@ function normalizeOverlayStyle(value) {
     canvasHeight: canvasHeights.includes(Number(input.canvasHeight))
       ? Number(input.canvasHeight)
       : DEFAULT_OVERLAY_STYLE.canvasHeight,
-    queueEntries: boundedNumber("queueEntries", 3, 1, 3, true),
+    queueEntries: boundedNumber("queueEntries", 3, 1, 10, true),
     sections: sectionStyles,
     showLabels: boolean("showLabels", DEFAULT_OVERLAY_STYLE.showLabels),
     showNowPlaying: boolean("showNowPlaying", DEFAULT_OVERLAY_STYLE.showNowPlaying),

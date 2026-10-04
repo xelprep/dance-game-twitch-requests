@@ -118,7 +118,7 @@ function normalizeOverlayStyle(value) {
     canvasHeight: [720, 1080, 1440, 1920, 2160].includes(Number(input.canvasHeight))
       ? Number(input.canvasHeight)
       : 1080,
-    queueEntries: boundedNumber("queueEntries", 3, 1, 3, true),
+    queueEntries: boundedNumber("queueEntries", 3, 1, 10, true),
     sections,
     showLabels: boolean("showLabels", true),
     showNowPlaying: boolean("showNowPlaying", true),
@@ -400,6 +400,55 @@ const sampleQueue = [
     pack: "High Chance of Tech",
     requested_display: "turntable_lee",
     chart: { chartType: "dance-single", difficulty: "Hard", meter: "10" },
+  },
+  {
+    title: "Solar Eclipse",
+    artist: "Vortex Theory",
+    pack: "Cosmic Beat Pack",
+    requested_display: "rhythm_master",
+    chart: { chartType: "dance-single", difficulty: "Challenge", meter: "15" },
+  },
+  {
+    title: "Velocity",
+    artist: "HyperDrive",
+    pack: "Speed Revolution",
+    requested_display: "arrow_runner",
+    chart: { chartType: "dance-single", difficulty: "Expert", meter: "12" },
+  },
+  {
+    title: "Starlight Voyage",
+    artist: "Celestia",
+    pack: "Heavenly Rhythms",
+    requested_display: "galaxy_pad",
+    chart: { chartType: "dance-double", difficulty: "Challenge", meter: "17" },
+  },
+  {
+    title: "Quantum Drift",
+    artist: "Subatomic",
+    pack: "Particle Physics",
+    requested_display: "tech_stepper",
+    chart: { chartType: "dance-single", difficulty: "Hard", meter: "11" },
+  },
+  {
+    title: "Cyber City 2099",
+    artist: "Neon Syndicate",
+    pack: "Future Bass Pack",
+    requested_display: "cyber_fox",
+    chart: { chartType: "dance-single", difficulty: "Expert", meter: "14" },
+  },
+  {
+    title: "Echo Chamber",
+    artist: "Resonance",
+    pack: "Acoustic Elements",
+    requested_display: "soundwave99",
+    chart: { chartType: "dance-double", difficulty: "Expert", meter: "13" },
+  },
+  {
+    title: "Overdrive Rush",
+    artist: "Maximum Power",
+    pack: "Final Boss Collection",
+    requested_display: "boss_maniac",
+    chart: { chartType: "dance-single", difficulty: "Challenge", meter: "19" },
   },
 ];
 
