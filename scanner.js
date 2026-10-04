@@ -359,7 +359,7 @@ function activeNumerator(timeSignatures, beat) {
 // This excludes the terminating `;` line and `//` comments that some editors
 // leave inside the final measure of a chart.
 function isNoteRow(raw) {
-  return /^[0-9XOMAM][0-9XOMAM\[\]0-9]*$/.test(raw);
+  return /^[0-9XOMA][0-9XOMA\[\]0-9]*$/.test(raw);
 }
 
 // Beat of the last row in the note data that contains a note. Rows are
@@ -976,4 +976,5 @@ module.exports = {
   buildTimingStates,
   timeAtBeat,
   computeDuration,
+  isNoteRow,
 };

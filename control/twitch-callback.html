@@ -17,6 +17,7 @@
         </p>
         <input id="clientId" placeholder="Client ID" /><br />
         <input id="clientSecret" placeholder="Client Secret" /><br />
+        <input id="channel" placeholder="Twitch channel (optional)" /><br />
         <button id="finish">Finish Connect</button>
         <p class="small muted">
           Important: After a successful exchange the server will persist the Client Secret, access
@@ -41,7 +42,7 @@
         return res.json();
       }
 
-      async function finishWith(clientId, clientSecret) {
+      async function finishWith(state, clientId, clientSecret) {
         const code = qs("code");
         const redirectUri = `${location.origin}/twitch-callback.html`;
         if (!code) {
@@ -51,10 +52,17 @@
         }
         try {
           document.getElementById("status").textContent = "Exchanging code for token...";
-          const channel = sessionStorage.getItem("twitch_channel") || undefined;
+          const credentials = state
+            ? { state }
+            : {
+                clientId,
+                clientSecret,
+                redirectUri,
+                channel: document.getElementById("channel").value.trim() || undefined,
+              };
           const r = await api("/api/twitch/exchange", {
             method: "POST",
-            body: JSON.stringify({ code, clientId, clientSecret, redirectUri, channel }),
+            body: JSON.stringify({ code, ...credentials }),
           });
           if (r && r.ok) {
             document.getElementById("status").textContent =
@@ -75,16 +83,12 @@
       }
 
       window.addEventListener("load", async () => {
-        const clientId = sessionStorage.getItem("twitch_clientId");
-        const clientSecret = sessionStorage.getItem("twitch_clientSecret");
-        if (clientId && clientSecret) {
-          await finishWith(clientId, clientSecret);
-          // clear secrets from sessionStorage after use
-          sessionStorage.removeItem("twitch_clientSecret");
-          // leave clientId for convenience
+        const state = qs("state");
+        if (state) {
+          await finishWith(state);
         } else {
           document.getElementById("status").textContent =
-            "Client credentials not found in this browser session.";
+            "Authorization state not found. Enter your Twitch app credentials to finish setup.";
           document.getElementById("manual").style.display = "block";
         }
 
@@ -92,7 +96,7 @@
           const cid = document.getElementById("clientId").value.trim();
           const csec = document.getElementById("clientSecret").value.trim();
           if (!cid || !csec) return alert("Client ID and secret required");
-          await finishWith(cid, csec);
+          await finishWith(null, cid, csec);
         };
       });
     </script>

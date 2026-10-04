@@ -507,7 +507,7 @@ async function render() {
           <button onclick="play(${r.id})">Play</button>
           <button onclick="skip(${r.id})">Skip</button>
           <button onclick="blockSong(${r.song_id})">Block Song</button>
-          <button onclick="blockUser('${esc(r.requested_by)}')">Block User</button>
+          <button data-control-action="block-user" data-username="${esc(r.requested_by)}">Block User</button>
         </div>
       </article>
     `,
@@ -1330,15 +1330,13 @@ $("connectTwitch").onclick = async () => {
     return;
   }
   try {
-    // store the secret in sessionStorage temporarily so the callback can complete the exchange
-    sessionStorage.setItem("twitch_clientId", clientId);
-    sessionStorage.setItem("twitch_clientSecret", clientSecret);
-    if (channel) sessionStorage.setItem("twitch_channel", channel);
     const redirectUri = `${location.origin}/twitch-callback.html`;
     const r = await api("/api/twitch/start-auth", {
       method: "POST",
       body: JSON.stringify({
         clientId,
+        clientSecret,
+        channel,
         redirectUri,
         scopes: "chat:read chat:edit user:manage:whispers",
       }),
@@ -1472,13 +1470,13 @@ function renderTempModUserList(filter = "") {
       const isActive =
         activeTempModUsername && u.username.toLowerCase() === activeTempModUsername.toLowerCase();
       const endEarlyButton = isActive
-        ? `<button class="temp-mod-end-early-btn" onclick="endTempModEarly('${esc(u.username)}')">End Early</button>`
+        ? `<button class="temp-mod-end-early-btn" data-control-action="temp-mod-end" data-username="${esc(u.username)}">End Early</button>`
         : "";
       return `
     <div class="temp-mod-user-item${isActive ? " active" : ""}" data-username="${esc(u.username)}">
       <span class="username">@${esc(u.displayName)}</span>
       <div class="temp-mod-user-actions">
-        <button class="temp-mod-nominate-btn" onclick="nominateTempMod('${esc(u.username)}')">Nominate</button>
+        <button class="temp-mod-nominate-btn" data-control-action="temp-mod-nominate" data-username="${esc(u.username)}">Nominate</button>
         ${endEarlyButton}
       </div>
     </div>
@@ -1523,6 +1521,15 @@ async function endTempModEarly(username) {
 // Make nominateTempMod available globally for onclick
 window.nominateTempMod = nominateTempMod;
 window.endTempModEarly = endTempModEarly;
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-control-action]");
+  if (!button) return;
+  const username = button.dataset.username || "";
+  if (button.dataset.controlAction === "block-user") window.blockUser(username);
+  if (button.dataset.controlAction === "temp-mod-nominate") window.nominateTempMod(username);
+  if (button.dataset.controlAction === "temp-mod-end") window.endTempModEarly(username);
+});
 
 // Search filter for temp mod users
 const tempModSearch = $("tempModSearch");

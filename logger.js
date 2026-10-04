@@ -1,5 +1,3 @@
-const util = require("util");
-
 const LEVELS = {
   log: "INFO",
   info: "INFO",
@@ -18,7 +16,7 @@ function installConsoleLogger() {
 
     console[method] = (...args) => {
       const timestamp = new Date().toISOString();
-      original.call(console, `[${timestamp}] [${level}] ${util.format(...args)}`);
+      original.call(console, `[${timestamp}] [${level}]`, ...args);
     };
   }
 }

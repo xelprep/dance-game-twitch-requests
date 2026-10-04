@@ -10,7 +10,6 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const {
   ENV_OPTIONS,
-  generateControlPassword,
   isDirectory,
   isValidControlPassword,
   writeEnvFile,
@@ -46,7 +45,7 @@ function displayDefault(option, value) {
   if (option.type === "password") {
     return isValidControlPassword(value)
       ? "configured password (hidden; choose Keep to retain)"
-      : "a generated secure password";
+      : "enter a secure password";
   }
   if (option.type === "directory" || option.type === "path") return value || "(blank / disabled)";
   return value;
@@ -168,21 +167,19 @@ async function askUrl(option, currentValue, canGoBack) {
   return canGoBack && answer.trim() === BACK_INPUT ? BACK_STEP : answer;
 }
 
-async function askPassword(currentValue, canGoBack, currentWasGenerated) {
+async function askPassword(currentValue, canGoBack) {
   const keepExisting = isValidControlPassword(currentValue);
   const method = await select({
-    message: `Control-panel password (default: ${keepExisting ? "keep current, hidden" : "generate secure password"})`,
-    default: keepExisting ? "keep" : "generate",
+    message: `Control-panel password (default: ${keepExisting ? "keep current, hidden" : "enter a secure password"})`,
+    default: keepExisting ? "keep" : "custom",
     choices: [
       ...(keepExisting ? [{ name: "Keep current password", value: "keep" }] : []),
-      { name: "Generate a strong password", value: "generate" },
       { name: "Enter a custom password", value: "custom" },
       ...backChoice(canGoBack),
     ],
   });
   if (method === BACK_STEP) return BACK_STEP;
-  if (method === "keep") return { value: currentValue, generated: currentWasGenerated };
-  if (method === "generate") return { value: generateControlPassword(), generated: true };
+  if (method === "keep") return { value: currentValue };
   while (true) {
     const value = await password({
       message: `New control-panel password (minimum 12 characters; type ${BACK_INPUT} to go back)`,
@@ -190,7 +187,7 @@ async function askPassword(currentValue, canGoBack, currentWasGenerated) {
       validate: (answer) =>
         (canGoBack && answer.trim() === BACK_INPUT) ||
         answer.trim().length >= 12 ||
-        "Use at least 12 characters, or choose a generated password.",
+        "Use at least 12 characters.",
     });
     if (canGoBack && value.trim() === BACK_INPUT) return BACK_STEP;
     const confirmation = await password({
@@ -202,7 +199,7 @@ async function askPassword(currentValue, canGoBack, currentWasGenerated) {
         "Passwords do not match. Enter the same password again.",
     });
     if (canGoBack && confirmation.trim() === BACK_INPUT) continue;
-    return { value: value.trim(), generated: false };
+    return { value: value.trim() };
   }
 }
 
@@ -248,7 +245,6 @@ async function runSetup({ envPath = path.resolve(process.cwd(), ".env") } = {}) 
 
   const values = readValues(envPath);
   const updates = {};
-  let generatedPassword = false;
   console.log(
     "\nDance Game Twitch Requests setup\nConfigure the local settings below. Twitch authorization remains in the control panel.\n",
   );
@@ -274,7 +270,7 @@ async function runSetup({ envPath = path.resolve(process.cwd(), ".env") } = {}) 
       } else if (option.type === "boolean") {
         answer = await askBoolean(option, currentValue, canGoBack);
       } else if (option.type === "password") {
-        answer = await askPassword(currentValue, canGoBack, generatedPassword);
+        answer = await askPassword(currentValue, canGoBack);
       } else if (option.type === "url") {
         answer = await askUrl(option, currentValue, canGoBack);
       } else {
@@ -287,7 +283,6 @@ async function runSetup({ envPath = path.resolve(process.cwd(), ".env") } = {}) 
       if (answer === null) return false;
       if (option.type === "password") {
         updates[option.key] = answer.value;
-        generatedPassword = answer.generated;
       } else {
         updates[option.key] = option.type === "boolean" ? String(answer) : answer;
       }
@@ -338,8 +333,6 @@ async function runSetup({ envPath = path.resolve(process.cwd(), ".env") } = {}) 
   const result = await writeEnvFile(envPath, updates);
   console.log(`\nConfiguration saved to ${envPath}.`);
   if (result.backupPath) console.log(`Previous configuration backed up to ${result.backupPath}.`);
-  if (generatedPassword)
-    console.log(`Control-panel password (shown once): ${updates.CONTROL_PASSWORD}`);
   console.log(
     "Start the app with `npm start`, then open https://localhost:3001 and sign in as streamer.",
   );

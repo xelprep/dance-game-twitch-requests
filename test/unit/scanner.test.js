@@ -18,6 +18,7 @@ const {
   buildTimingStates,
   timeAtBeat,
   computeDuration,
+  isNoteRow,
 } = require("../../scanner.js");
 
 function tempDir() {
@@ -82,6 +83,15 @@ function createMemoryDb() {
   `);
   return db;
 }
+
+test("note rows accept only documented lane and keysound characters", () => {
+  assert.equal(isNoteRow("0123"), true);
+  assert.equal(isNoteRow("XOM A".replace(/ /g, "")), true);
+  assert.equal(isNoteRow("1[12]"), true);
+  assert.equal(isNoteRow("B"), false);
+  assert.equal(isNoteRow("Z"), false);
+  assert.equal(isNoteRow("123;"), false);
+});
 
 test("readSongFile parses metadata and chart data from .sm files", () => {
   const tmp = tempDir();

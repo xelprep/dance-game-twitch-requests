@@ -8,12 +8,15 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const express = require("express");
+const { rateLimit } = require("express-rate-limit");
 const sharp = require("sharp");
 process.env.ARTWORK_CACHE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "dance-artwork-api-cache-"));
 
 const {
   announceTempModNomination,
   createApi,
+  createTwitchAuthTransaction,
+  consumeTwitchAuthTransaction,
   db,
   formatVisibleUsername,
   getQueue,
@@ -40,6 +43,66 @@ function startControlApp() {
     const server = app.listen(0, () => resolve(server));
   });
 }
+
+test("rate limiter returns 429 and retry headers after the configured allowance", async () => {
+  const app = express();
+  app.use(
+    rateLimit({
+      windowMs: 60_000,
+      limit: 1,
+      standardHeaders: "draft-8",
+      legacyHeaders: false,
+      message: { error: "Too many requests. Please slow down." },
+    }),
+  );
+  app.get("/limited", (_req, res) => res.json({ ok: true }));
+  const server = await new Promise((resolve) => {
+    const listener = app.listen(0, () => resolve(listener));
+  });
+
+  try {
+    const url = `http://127.0.0.1:${server.address().port}/limited`;
+    const allowed = await fetch(url);
+    const limited = await fetch(url);
+    assert.equal(allowed.status, 200);
+    assert.equal(limited.status, 429);
+    assert.ok(limited.headers.get("retry-after"));
+    assert.ok(limited.headers.get("ratelimit"));
+    assert.deepEqual(await limited.json(), { error: "Too many requests. Please slow down." });
+  } finally {
+    server.close();
+  }
+});
+
+test("Twitch OAuth transactions retain credentials only server-side and are one-time/expiring", () => {
+  const credentials = {
+    clientId: "client-id",
+    clientSecret: "client-secret",
+    channel: "channel-name",
+    redirectUri: "https://localhost:3001/twitch-callback.html",
+  };
+  const state = createTwitchAuthTransaction(credentials, 1000);
+  assert.notEqual(state, "client-secret");
+  assert.deepEqual(consumeTwitchAuthTransaction(state, 1001), {
+    ...credentials,
+    expiresAt: 601_000,
+  });
+  assert.equal(consumeTwitchAuthTransaction(state, 1002), null);
+
+  const expiredState = createTwitchAuthTransaction(credentials, 1000);
+  assert.equal(consumeTwitchAuthTransaction(expiredState, 601_000), null);
+});
+
+test("Twitch browser flow never stores the client secret in Web Storage", () => {
+  const fs = require("node:fs");
+  const controlApp = fs.readFileSync(path.join(__dirname, "../../control/app.js"), "utf8");
+  const callback = fs.readFileSync(
+    path.join(__dirname, "../../control/twitch-callback.html"),
+    "utf8",
+  );
+  assert.doesNotMatch(controlApp, /sessionStorage\.setItem\([^\n]*clientSecret/i);
+  assert.doesNotMatch(callback, /sessionStorage\.(?:getItem|setItem)\([^\n]*clientSecret/i);
+});
 
 test("public API search returns song rows and supports basic filtering", async () => {
   resetSettings();

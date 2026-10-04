@@ -5,6 +5,7 @@ require("dotenv").config({ quiet: true });
 const SHOULD_START_APP = !(process.env.NODE_ENV === "test" || process.env.SKIP_APP_STARTUP === "1");
 
 const express = require("express");
+const { rateLimit } = require("express-rate-limit");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -722,11 +723,13 @@ function isConfiguredCustomCoursesDir() {
 function sanitizeCourseName(raw) {
   const value = String(raw || "").trim();
   if (!value) return "";
-  return value
+  const sanitized = value
     .replace(/[\\/:*?"<>|]+/g, "-")
     .replace(/\s+/g, " ")
-    .replace(/\.+$/g, "")
     .trim();
+  let end = sanitized.length;
+  while (end > 0 && sanitized[end - 1] === ".") end--;
+  return sanitized.slice(0, end).trim();
 }
 
 function getDefaultCourseName() {
@@ -1009,26 +1012,67 @@ function verifyModeratorPassword(password, encoded) {
   }
 }
 
+const MAX_AUTH_HEADER_LENGTH = 8192;
+const MAX_AUTH_VALUE_LENGTH = 1024;
+
+function parseAuthorizationCredential(authHeader, expectedScheme) {
+  const header = String(authHeader || "");
+  if (!header || header.length > MAX_AUTH_HEADER_LENGTH) return null;
+
+  let separator = 0;
+  while (separator < header.length) {
+    const code = header.charCodeAt(separator);
+    if (code === 0x20 || (code >= 0x09 && code <= 0x0d)) break;
+    separator++;
+  }
+  if (header.slice(0, separator).toLowerCase() !== expectedScheme.toLowerCase()) return null;
+
+  while (separator < header.length) {
+    const code = header.charCodeAt(separator);
+    if (code !== 0x20 && (code < 0x09 || code > 0x0d)) break;
+    separator++;
+  }
+  const credential = header.slice(separator);
+  if (!credential || credential.length > MAX_AUTH_VALUE_LENGTH) return null;
+  for (let index = 0; index < credential.length; index++) {
+    const code = credential.charCodeAt(index);
+    if (code === 0x20 || (code >= 0x09 && code <= 0x0d)) return null;
+  }
+  return credential;
+}
+
+function timingSafeStringEqual(actual, expected) {
+  const actualBuffer = Buffer.from(String(actual));
+  const expectedBuffer = Buffer.from(String(expected));
+  if (
+    actualBuffer.length > MAX_AUTH_VALUE_LENGTH ||
+    expectedBuffer.length > MAX_AUTH_VALUE_LENGTH
+  ) {
+    return false;
+  }
+
+  const actualFixed = Buffer.alloc(MAX_AUTH_VALUE_LENGTH);
+  const expectedFixed = Buffer.alloc(MAX_AUTH_VALUE_LENGTH);
+  actualBuffer.copy(actualFixed);
+  expectedBuffer.copy(expectedFixed);
+  const valuesMatch = crypto.timingSafeEqual(actualFixed, expectedFixed);
+  return valuesMatch && actualBuffer.length === expectedBuffer.length;
+}
+
 function verifyStreamerAuth(authHeader, expectedPassword) {
   if (!expectedPassword) return true;
-  const match = String(authHeader || "").match(/^Basic\s+(.+)$/i);
-  if (!match) return false;
+  const credential = parseAuthorizationCredential(authHeader, "Basic");
+  if (!credential) return false;
   try {
-    const decoded = Buffer.from(match[1], "base64").toString("utf8");
+    const decoded = Buffer.from(credential, "base64").toString("utf8");
     const separator = decoded.indexOf(":");
     if (separator < 0) return false;
     const username = decoded.slice(0, separator);
     const password = decoded.slice(separator + 1);
-
-    const expectedUserHash = crypto.createHash("sha256").update("streamer").digest();
-    const actualUserHash = crypto.createHash("sha256").update(username).digest();
-    const userMatch = crypto.timingSafeEqual(expectedUserHash, actualUserHash);
-
-    const expectedPassHash = crypto.createHash("sha256").update(expectedPassword).digest();
-    const actualPassHash = crypto.createHash("sha256").update(password).digest();
-    const passMatch = crypto.timingSafeEqual(expectedPassHash, actualPassHash);
-
-    return userMatch && passMatch;
+    return (
+      timingSafeStringEqual(username, "streamer") &&
+      timingSafeStringEqual(password, expectedPassword)
+    );
   } catch (_error) {
     return false;
   }
@@ -1096,9 +1140,8 @@ function verifyTempModeratorToken(token) {
 // ?token= query parameter (top-level page navigation on mobile, where the
 // browser cannot attach an auth header).
 function extractModeratorToken(req) {
-  const auth = String(req.headers.authorization || "");
-  const m = auth.match(/^Bearer\s+(.+)$/i);
-  if (m && m[1]) return m[1];
+  const bearerToken = parseAuthorizationCredential(req.headers.authorization, "Bearer");
+  if (bearerToken) return bearerToken;
   const q = req.query && req.query.token;
   if (typeof q === "string") return q;
   return null;
@@ -1119,13 +1162,12 @@ function getModeratorCredentials() {
 
 function authenticateModerator(req, res, next) {
   const credentials = getModeratorCredentials();
-  const auth = String(req.headers.authorization || "");
-  const match = auth.match(/^Basic\s+(.+)$/i);
+  const basicCredential = parseAuthorizationCredential(req.headers.authorization, "Basic");
   let username = "";
   let password = "";
-  if (match) {
+  if (basicCredential) {
     try {
-      const decoded = Buffer.from(match[1], "base64").toString("utf8");
+      const decoded = Buffer.from(basicCredential, "base64").toString("utf8");
       const separator = decoded.indexOf(":");
       if (separator >= 0) {
         username = decoded.slice(0, separator);
@@ -1189,49 +1231,30 @@ function authenticateModerator(req, res, next) {
     });
 }
 
-function createRateLimiter({ windowMs = 60 * 1000, max = 120 } = {}) {
-  const hits = new Map();
-
-  const cleanupTimer = setInterval(() => {
-    const now = Date.now();
-    for (const [ip, data] of hits.entries()) {
-      if (now - data.startTime > windowMs) {
-        hits.delete(ip);
-      }
-    }
-  }, windowMs);
-  if (cleanupTimer.unref) cleanupTimer.unref();
-
-  return (req, res, next) => {
-    const ip = req.ip || req.socket?.remoteAddress || "127.0.0.1";
-    const now = Date.now();
-    let record = hits.get(ip);
-
-    if (!record || now - record.startTime > windowMs) {
-      record = { count: 0, startTime: now };
-    }
-
-    record.count++;
-    hits.set(ip, record);
-
-    const remaining = Math.max(0, max - record.count);
-    const resetTime = Math.ceil((record.startTime + windowMs) / 1000);
-
-    res.setHeader("X-RateLimit-Limit", max);
-    res.setHeader("X-RateLimit-Remaining", remaining);
-    res.setHeader("X-RateLimit-Reset", resetTime);
-
-    if (record.count > max) {
-      console.warn(
-        `[rate-limit] IP ${ip} exceeded ${max} requests in ${windowMs / 1000}s window (count: ${record.count})`,
-      );
-      res.setHeader("Retry-After", Math.ceil((record.startTime + windowMs - now) / 1000));
-      return res.status(429).json({ error: "Too many requests. Please slow down." });
-    }
-
-    next();
-  };
-}
+const publicApiRequestLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Too many requests. Please slow down." },
+});
+const controlApiRequestLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 600,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Too many requests. Please slow down." },
+});
+const failedAuthenticationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  skipSuccessfulRequests: true,
+  requestWasSuccessful: (_req, res) => res.statusCode !== 401,
+});
+const artworkRequestLimiter = rateLimit({ windowMs: 60 * 1000, limit: 600 });
+const rescanRequestLimiter = rateLimit({ windowMs: 60 * 1000, limit: 3 });
+const twitchAuthStartLimiter = rateLimit({ windowMs: 60 * 1000, limit: 10 });
+const twitchAuthExchangeLimiter = rateLimit({ windowMs: 60 * 1000, limit: 10 });
 
 function parseBadgeString(value) {
   if (!value) return [];
@@ -1818,10 +1841,9 @@ function formatVisibleUsername(username, displayName) {
 
 function generateRandomPassword(length = 12) {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // ambiguous chars omitted
-  const bytes = crypto.randomBytes(length);
   let password = "";
   for (let i = 0; i < length; i++) {
-    password += chars[bytes[i] % chars.length];
+    password += chars[crypto.randomInt(chars.length)];
   }
   return password;
 }
@@ -1975,8 +1997,7 @@ async function sendWhisper(username, message) {
     throw new Error("Cannot whisper the bot's own account.");
   }
 
-  const preview = String(message).replace(/\s+/g, " ").trim().slice(0, 60);
-  console.log(`[whisper] Sending whisper to ${username} (id ${recipientId}) via Helix: ${preview}`);
+  console.log(`[whisper] Sending whisper to ${username} (id ${recipientId}) via Helix.`);
 
   try {
     const resp = await fetch(
@@ -2103,8 +2124,13 @@ function stopChatUsersCleanup() {
 }
 
 function createApi(app, options = {}) {
+  if (options.control) {
+    app.use("/api/", controlApiRequestLimiter);
+  } else {
+    app.use("/api/", publicApiRequestLimiter);
+  }
   app.use(express.json({ limit: "32kb" }));
-  app.get("/artwork/:file", (req, res) => {
+  app.get("/artwork/:file", artworkRequestLimiter, (req, res) => {
     const match = String(req.params.file || "").match(/^(v[0-9]+-[a-f0-9]{64})\.webp$/);
     if (!match) return res.status(404).end();
     const filePath = artworkFilePath(ARTWORK_CACHE_DIR, match[1]);
@@ -2113,7 +2139,7 @@ function createApi(app, options = {}) {
     res.type("image/webp").sendFile(filePath);
   });
   if (options.moderator) {
-    app.use("/api/moderator", authenticateModerator);
+    app.use("/api/moderator", failedAuthenticationLimiter, authenticateModerator);
     app.get("/api/moderator/settings", (_req, res) => res.json(getControlSettings()));
     app.get("/api/overlay/settings", (_req, res) =>
       res.json(normalizeOverlayStyle(getSetting("overlayStyle", DEFAULT_OVERLAY_STYLE))),
@@ -2581,13 +2607,15 @@ function createApi(app, options = {}) {
     app.use((req, res, next) => {
       if (!CONTROL_PASSWORD) return next();
       if (req.path === "/api/control-login") return next();
-      if (!verifyStreamerAuth(req.headers.authorization, CONTROL_PASSWORD)) {
-        return res
-          .status(401)
-          .set("WWW-Authenticate", 'Basic realm="Streamer Control Panel"')
-          .json({ error: "Authentication required." });
-      }
-      next();
+      return failedAuthenticationLimiter(req, res, () => {
+        if (!verifyStreamerAuth(req.headers.authorization, CONTROL_PASSWORD)) {
+          return res
+            .status(401)
+            .set("WWW-Authenticate", 'Basic realm="Streamer Control Panel"')
+            .json({ error: "Authentication required." });
+        }
+        return next();
+      });
     });
 
     app.post("/api/control-login", (_req, res) => res.json({ ok: true }));
@@ -3236,7 +3264,7 @@ function createApi(app, options = {}) {
       res.json({ ok: info.changes > 0 });
     });
 
-    app.post("/api/rescan", async (_req, res) => {
+    app.post("/api/rescan", rescanRequestLimiter, async (_req, res) => {
       try {
         const result = await refreshDatabase();
         res.json({ ok: true, ...result });
@@ -3257,32 +3285,44 @@ function createApi(app, options = {}) {
       });
     });
 
-    app.post("/api/twitch/start-auth", (req, res) => {
+    app.post("/api/twitch/start-auth", twitchAuthStartLimiter, (req, res) => {
       const clientId = String(
         req.body.clientId || (twitchConfig && twitchConfig.clientId) || "",
       ).trim();
+      const clientSecret = String(req.body.clientSecret || "").trim();
+      const channel = String(req.body.channel || "").trim();
       const redirectUri = String(
         req.body.redirectUri ||
           req.body.redirect ||
           `https://localhost:${CONTROL_PORT}/twitch-callback.html`,
       ).trim();
       const scopes = String(req.body.scopes || "chat:read chat:edit user:manage:whispers");
-      if (!clientId || !redirectUri)
-        return res.status(400).json({ error: "clientId and redirectUri are required" });
-      const state = Math.random().toString(36).slice(2);
-      twitchAuthStates.add(state);
+      if (!clientId || !clientSecret || !redirectUri)
+        return res
+          .status(400)
+          .json({ error: "clientId, clientSecret and redirectUri are required" });
+      const state = createTwitchAuthTransaction({ clientId, clientSecret, channel, redirectUri });
       const url = `https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${encodeURIComponent(state)}`;
-      res.json({ url, state });
+      res.json({ url });
     });
 
-    app.post("/api/twitch/exchange", async (req, res) => {
+    app.post("/api/twitch/exchange", twitchAuthExchangeLimiter, async (req, res) => {
       const code = String(req.body.code || "").trim();
-      const clientId = String(req.body.clientId || "").trim();
-      const clientSecret = String(req.body.clientSecret || "").trim();
-      const redirectUri = String(
-        req.body.redirectUri || `https://localhost:${CONTROL_PORT}/twitch-callback.html`,
-      ).trim();
-      const channel = String(req.body.channel || "").trim();
+      const state = String(req.body.state || "").trim();
+      const transaction = state ? consumeTwitchAuthTransaction(state) : null;
+      if (state && !transaction) {
+        return res
+          .status(400)
+          .json({ error: "Twitch authorization expired. Start the connection again." });
+      }
+      const clientId = transaction?.clientId || String(req.body.clientId || "").trim();
+      const clientSecret = transaction?.clientSecret || String(req.body.clientSecret || "").trim();
+      const redirectUri =
+        transaction?.redirectUri ||
+        String(
+          req.body.redirectUri || `https://localhost:${CONTROL_PORT}/twitch-callback.html`,
+        ).trim();
+      const channel = transaction?.channel || String(req.body.channel || "").trim();
       if (!code || !clientId || !clientSecret)
         return res.status(400).json({ error: "code, clientId and clientSecret are required" });
       try {
@@ -3346,13 +3386,17 @@ function createApi(app, options = {}) {
 }
 
 const publicApp = express();
-publicApp.set("trust proxy", true);
-publicApp.use("/api/", createRateLimiter({ windowMs: 60 * 1000, max: 120 }));
-publicApp.get("/requestModerator.html", authenticateModerator, (_req, res) => {
-  res.sendFile(path.join(__dirname, "public", "requestModerator.html"));
-});
-publicApp.use(express.static(path.join(__dirname, "public")));
+publicApp.set("trust proxy", "loopback");
+publicApp.get(
+  "/requestModerator.html",
+  failedAuthenticationLimiter,
+  authenticateModerator,
+  (_req, res) => {
+    res.sendFile(path.join(__dirname, "public", "requestModerator.html"));
+  },
+);
 createApi(publicApp, { moderator: true });
+publicApp.use(express.static(path.join(__dirname, "public")));
 
 // Server-Sent Events (SSE) endpoint for OBS overlay to receive real-time overlay state.
 // Clients should connect to /overlay/queue/stream and will receive the merged overlay state in `message` events.
@@ -3446,8 +3490,8 @@ publicApp.get("/overlay/chat/stream", (req, res) => {
 const broadcastQueueUpdateRef = broadcastQueueUpdate; // no-op to keep reference semantics
 
 const controlApp = express();
-controlApp.use(express.static(path.join(__dirname, "control")));
 createApi(controlApp, { control: true });
+controlApp.use(express.static(path.join(__dirname, "control")));
 
 // --- HTTPS server lifecycle (startup + runtime restart) ---
 
@@ -3711,6 +3755,11 @@ module.exports = {
   hashModeratorPassword,
   verifyModeratorPassword,
   verifyStreamerAuth,
+  sanitizeCourseName,
+  generateRandomPassword,
+  normalizeEventSubUrl,
+  createTwitchAuthTransaction,
+  consumeTwitchAuthTransaction,
   parseSecureMode,
   PUBLIC_HTTPS,
   serverLabelUrl,
@@ -3727,7 +3776,28 @@ module.exports = {
 const TWITCH_DATA_FILE = path.resolve("./data/twitch.json");
 let twitchClient = null;
 let twitchConfig = null; // loaded config (clientId, clientSecret, username, channel, accessToken...)
-const twitchAuthStates = new Set();
+const TWITCH_AUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const MAX_TWITCH_AUTH_STATES = 32;
+const twitchAuthStates = new Map();
+
+function createTwitchAuthTransaction(credentials, now = Date.now()) {
+  for (const [state, transaction] of twitchAuthStates) {
+    if (transaction.expiresAt <= now) twitchAuthStates.delete(state);
+  }
+  while (twitchAuthStates.size >= MAX_TWITCH_AUTH_STATES) {
+    twitchAuthStates.delete(twitchAuthStates.keys().next().value);
+  }
+  const state = crypto.randomBytes(32).toString("base64url");
+  twitchAuthStates.set(state, { ...credentials, expiresAt: now + TWITCH_AUTH_STATE_TTL_MS });
+  return state;
+}
+
+function consumeTwitchAuthTransaction(state, now = Date.now()) {
+  const transaction = twitchAuthStates.get(String(state || ""));
+  if (!transaction) return null;
+  twitchAuthStates.delete(String(state));
+  return transaction.expiresAt > now ? transaction : null;
+}
 
 function saveTwitchConfig(cfg) {
   fs.mkdirSync(path.dirname(TWITCH_DATA_FILE), { recursive: true });
@@ -3962,6 +4032,26 @@ function armEventSubKeepalive(socket) {
   }, seconds * 1000);
 }
 
+function normalizeEventSubUrl(value) {
+  try {
+    const url = new URL(String(value));
+    if (
+      url.protocol !== "wss:" ||
+      url.hostname !== "eventsub.wss.twitch.tv" ||
+      url.port ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/ws" ||
+      url.hash
+    ) {
+      return null;
+    }
+    return url.href;
+  } catch (_error) {
+    return null;
+  }
+}
+
 // Create the user.whisper.message subscription over REST, bound to the given
 // EventSub WebSocket session. Returns true on success (202, or a benign 409
 // when an identical subscription already exists).
@@ -4127,7 +4217,7 @@ async function handleTempModWhisper(fromUsername, message) {
   } else {
     // Unrecognized reply: keep the nomination pending and nudge the user.
     console.log(
-      `[temp-mod] ${pendingNomination.displayname} sent an unrecognized whisper reply: "${message}" (nomination kept pending).`,
+      `[temp-mod] ${pendingNomination.displayname} sent an unrecognized whisper reply (nomination kept pending).`,
     );
     try {
       await sendWhisper(
@@ -4149,7 +4239,13 @@ async function handleTempModWhisper(fromUsername, message) {
 // exponential backoff.
 async function connectEventSub(cfg, opts = {}) {
   if (eventSubStopping) return;
-  const url = opts.reconnectUrl || "wss://eventsub.wss.twitch.tv/ws";
+  const url = opts.reconnectUrl
+    ? normalizeEventSubUrl(opts.reconnectUrl)
+    : "wss://eventsub.wss.twitch.tv/ws";
+  if (!url) {
+    console.warn("[eventsub] Rejected an unexpected reconnect URL; starting a fresh session.");
+    return connectEventSub(cfg);
+  }
   const socket = new WebSocket(url);
   eventSubSocket = socket;
 
@@ -4288,11 +4384,7 @@ async function connectEventSub(cfg, opts = {}) {
       }
       const rawWhisperMessage = event.whisper ?? event.message ?? event.text ?? event.content ?? "";
       const whisperText = extractWhisperText(rawWhisperMessage);
-      console.log(
-        `[eventsub] Whisper received from ${event.from_user_login || "unknown"}: ${String(
-          whisperText,
-        ).slice(0, 80)}`,
-      );
+      console.log(`[eventsub] Whisper received from ${event.from_user_login || "unknown"}.`);
       handleTempModWhisper(event.from_user_login, whisperText).catch((e) => {
         console.error("[eventsub] Whisper handler error:", e && e.message ? e.message : e);
       });

@@ -14,6 +14,9 @@ const {
   hashModeratorPassword,
   verifyModeratorPassword,
   verifyStreamerAuth,
+  sanitizeCourseName,
+  generateRandomPassword,
+  normalizeEventSubUrl,
   getModeratorCredentialsList,
   setSetting,
   getTwitchRefreshRetryDelay,
@@ -42,6 +45,45 @@ test("streamer auth accepts the expected basic auth credentials", () => {
     false,
   );
   assert.equal(verifyStreamerAuth("", "test-control-password"), false);
+  assert.equal(verifyStreamerAuth("Basic", "test-control-password"), false);
+  assert.equal(verifyStreamerAuth("Basic    ", "test-control-password"), false);
+  assert.equal(
+    verifyStreamerAuth(
+      `Basic ${Buffer.from("streamer:test-control-password").toString("base64")} extra`,
+      "test-control-password",
+    ),
+    false,
+  );
+  assert.equal(verifyStreamerAuth(`Basic ${"A".repeat(1025)}`, "test-control-password"), false);
+});
+
+test("course names remove arbitrarily long trailing periods without regex backtracking", () => {
+  assert.equal(sanitizeCourseName(`Course${".".repeat(20_000)}`), "Course");
+  assert.equal(sanitizeCourseName("  Course Name...  "), "Course Name");
+});
+
+test("temporary moderator passwords preserve their format", () => {
+  const password = generateRandomPassword(32);
+  assert.equal(password.length, 32);
+  assert.match(password, /^[A-HJ-NP-Z2-9]+$/);
+});
+
+test("EventSub reconnect URLs are restricted to Twitch's WebSocket endpoint", () => {
+  assert.equal(
+    normalizeEventSubUrl("wss://eventsub.wss.twitch.tv/ws?session_id=abc"),
+    "wss://eventsub.wss.twitch.tv/ws?session_id=abc",
+  );
+  for (const url of [
+    "http://eventsub.wss.twitch.tv/ws",
+    "wss://127.0.0.1/ws",
+    "wss://attacker.example/ws",
+    "wss://user@eventsub.wss.twitch.tv/ws",
+    "wss://eventsub.wss.twitch.tv:444/ws",
+    "wss://eventsub.wss.twitch.tv/other",
+    "not a URL",
+  ]) {
+    assert.equal(normalizeEventSubUrl(url), null, url);
+  }
 });
 
 test("getModeratorCredentialsList rehydrates stored multi-moderator credentials and drops invalid entries", () => {
