@@ -23,6 +23,9 @@
           <button type="button" class="category-button" data-category="configuration">
             Configuration
           </button>
+          <button type="button" class="category-button" data-category="overlay">
+            Overlay Appearance
+          </button>
         </nav>
         <div class="actions">
           <button id="next" class="category-action" data-visible-category="songs" type="button">
@@ -475,6 +478,148 @@
               automatically refresh tokens. Keep that file secure or use the Disconnect button to
               remove stored credentials.
             </p>
+          </div>
+        </section>
+      </div>
+
+      <div class="category-group" data-category="overlay" hidden>
+        <section class="panel overlay-editor-panel">
+          <div class="section-head">
+            <h2>Overlay Appearance</h2>
+            <span id="overlaySaveState" class="small muted" role="status">Loading settings…</span>
+          </div>
+          <div class="overlay-editor-layout">
+            <div class="overlay-preview-column">
+              <div class="overlay-preview-heading">
+                <strong>Live Preview</strong>
+                <span class="small muted">1920 × 1080</span>
+              </div>
+              <div class="overlay-preview-stage">
+                <iframe
+                  id="overlayPreview"
+                  title="Live request overlay preview"
+                  width="1920"
+                  height="1080"
+                ></iframe>
+                <div id="overlayPreviewStatus" class="overlay-preview-status">
+                  Preview loads when this tab opens.
+                </div>
+              </div>
+              <label class="overlay-preview-toggle">
+                <input id="overlaySampleData" type="checkbox" />
+                Show sample queue
+              </label>
+            </div>
+            <div class="overlay-controls">
+              <div class="overlay-control-grid">
+                <label class="settings-field">
+                  <span>Preset</span>
+                  <select id="overlayPreset">
+                    <option value="custom">Custom</option>
+                    <option value="default">Current Default</option>
+                    <option value="compact">Compact</option>
+                    <option value="high-contrast">High Contrast</option>
+                  </select>
+                </label>
+                <label class="settings-field">
+                  <span>Font</span>
+                  <select id="overlayFont">
+                    <option value="default">Inter (default)</option>
+                    <option value="barlow">Barlow Condensed</option>
+                  </select>
+                </label>
+                <label class="settings-field">
+                  <span>Text size <output id="overlayFontSizeValue">48 px</output></span>
+                  <input id="overlayFontSize" type="range" min="16" max="128" step="1" value="48" />
+                </label>
+                <label class="settings-field">
+                  <span>Shadow strength <output id="overlayShadowStrengthValue">100%</output></span>
+                  <input
+                    id="overlayShadowStrength"
+                    type="range"
+                    min="0"
+                    max="200"
+                    step="10"
+                    value="100"
+                  />
+                </label>
+                <label class="settings-field">
+                  <span>Text color</span>
+                  <input id="overlayTextColor" type="color" value="#ffffff" />
+                </label>
+                <label class="settings-field">
+                  <span>Position</span>
+                  <select id="overlayPosition">
+                    <option value="top-left">Top left</option>
+                    <option value="top-center">Top center</option>
+                    <option value="top-right">Top right</option>
+                    <option value="middle-left">Middle left</option>
+                    <option value="middle-center">Middle center</option>
+                    <option value="middle-right">Middle right</option>
+                    <option value="bottom-left">Bottom left</option>
+                    <option value="bottom-center">Bottom center</option>
+                    <option value="bottom-right">Bottom right</option>
+                  </select>
+                </label>
+                <label class="settings-field">
+                  <span>Safe-area margin <output id="overlayMarginValue">0 px</output></span>
+                  <input id="overlayMargin" type="range" min="0" max="120" step="4" value="0" />
+                </label>
+                <label class="settings-field">
+                  <span>Banner width</span>
+                  <select id="overlayMaxWidth">
+                    <option value="auto">Automatic</option>
+                    <option value="640">640 px</option>
+                    <option value="960">960 px</option>
+                    <option value="1280">1280 px</option>
+                    <option value="1600">1600 px</option>
+                  </select>
+                </label>
+                <label class="settings-field">
+                  <span>Banner padding <output id="overlayPaddingValue">0 px</output></span>
+                  <input id="overlayPadding" type="range" min="0" max="48" step="2" value="0" />
+                </label>
+                <label class="settings-field">
+                  <span>Overall opacity <output id="overlayOpacityValue">100%</output></span>
+                  <input id="overlayOpacity" type="range" min="10" max="100" step="1" value="100" />
+                </label>
+                <label class="settings-field">
+                  <span>Banner color</span>
+                  <input id="overlayBackgroundColor" type="color" value="#000000" />
+                </label>
+                <label class="settings-field">
+                  <span
+                    >Banner opacity <output id="overlayBackgroundOpacityValue">60%</output></span
+                  >
+                  <input
+                    id="overlayBackgroundOpacity"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="60"
+                  />
+                </label>
+              </div>
+              <div class="overlay-toggle-grid">
+                <label><input id="overlayBackgroundEnabled" type="checkbox" /> Show banner</label>
+                <label><input id="overlayTextShadow" type="checkbox" checked /> Text shadow</label>
+                <label
+                  ><input id="overlayShowLabels" type="checkbox" checked /> Section labels</label
+                >
+                <label
+                  ><input id="overlayShowNowPlaying" type="checkbox" checked /> Now Playing</label
+                >
+                <label
+                  ><input id="overlayShowArtwork" type="checkbox" checked /> Song artwork</label
+                >
+              </div>
+              <div class="overlay-editor-actions">
+                <button id="saveOverlayStyle" type="button">Save Changes</button>
+                <button id="discardOverlayStyle" type="button">Discard</button>
+                <button id="resetOverlayStyle" type="button">Reset to Default</button>
+              </div>
+            </div>
           </div>
         </section>
       </div>

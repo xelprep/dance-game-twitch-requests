@@ -1,5 +1,120 @@
 // Overlay script: listens for server-sent events with the queue and updates the multi-line display.
 const $ = (id) => document.getElementById(id);
+const DEFAULT_OVERLAY_STYLE = {
+  version: 1,
+  font: "default",
+  fontSize: 48,
+  textColor: "#ffffff",
+  textShadow: true,
+  shadowStrength: 1,
+  backgroundEnabled: false,
+  backgroundColor: "#000000",
+  backgroundOpacity: 0.6,
+  maxWidth: "auto",
+  padding: 0,
+  position: "bottom-left",
+  margin: 0,
+  contentOpacity: 1,
+  showLabels: true,
+  showNowPlaying: true,
+  showArtwork: true,
+};
+const isPreview = new URLSearchParams(window.location.search).get("preview") === "1";
+let previewParentOrigin = "";
+try {
+  previewParentOrigin = document.referrer ? new URL(document.referrer).origin : "";
+} catch (_error) {
+  previewParentOrigin = "";
+}
+let showSampleData = false;
+let liveQueue = [];
+let liveNowPlaying = null;
+
+function normalizeOverlayStyle(value) {
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const boundedNumber = (key, fallback, min, max, integer = false) => {
+    const parsed = Number(input[key]);
+    if (!Number.isFinite(parsed)) return fallback;
+    const bounded = Math.min(max, Math.max(min, parsed));
+    return integer ? Math.round(bounded) : Math.round(bounded * 100) / 100;
+  };
+  const color = (key, fallback) =>
+    typeof input[key] === "string" && /^#[0-9a-f]{6}$/i.test(input[key])
+      ? input[key].toLowerCase()
+      : fallback;
+  const boolean = (key, fallback) => (typeof input[key] === "boolean" ? input[key] : fallback);
+  const positions = [
+    "top-left",
+    "top-center",
+    "top-right",
+    "middle-left",
+    "middle-center",
+    "middle-right",
+    "bottom-left",
+    "bottom-center",
+    "bottom-right",
+  ];
+
+  return {
+    ...DEFAULT_OVERLAY_STYLE,
+    font: ["default", "barlow"].includes(input.font) ? input.font : "default",
+    fontSize: boundedNumber("fontSize", 48, 16, 128, true),
+    textColor: color("textColor", "#ffffff"),
+    textShadow: boolean("textShadow", true),
+    shadowStrength: boundedNumber("shadowStrength", 1, 0, 2),
+    backgroundEnabled: boolean("backgroundEnabled", false),
+    backgroundColor: color("backgroundColor", "#000000"),
+    backgroundOpacity: boundedNumber("backgroundOpacity", 0.6, 0, 1),
+    maxWidth:
+      input.maxWidth === undefined || input.maxWidth === "auto"
+        ? DEFAULT_OVERLAY_STYLE.maxWidth
+        : boundedNumber("maxWidth", 1920, 320, 3840, true),
+    padding: boundedNumber("padding", 0, 0, 48, true),
+    position: positions.includes(input.position) ? input.position : "bottom-left",
+    margin: boundedNumber("margin", 0, 0, 120, true),
+    contentOpacity: boundedNumber("contentOpacity", 1, 0.1, 1),
+    showLabels: boolean("showLabels", true),
+    showNowPlaying: boolean("showNowPlaying", true),
+    showArtwork: boolean("showArtwork", true),
+  };
+}
+
+function applyOverlayStyle(value) {
+  const style = normalizeOverlayStyle(value);
+  const overlay = $("overlay");
+  const root = document.documentElement;
+  const textShadow = style.textShadow
+    ? `0 0 6px rgba(0, 0, 0, ${Math.min(1, 0.9 * style.shadowStrength)}), 0 1px 0 rgba(0, 0, 0, ${Math.min(1, 0.6 * style.shadowStrength)})`
+    : "none";
+  const [red, green, blue] = style.backgroundColor
+    .match(/[\da-f]{2}/gi)
+    .map((part) => parseInt(part, 16));
+  const background = style.backgroundEnabled
+    ? `rgba(${red}, ${green}, ${blue}, ${style.backgroundOpacity})`
+    : "transparent";
+  const maxWidth = style.maxWidth === "auto" ? "100%" : `${style.maxWidth}px`;
+  const fontFamily =
+    style.font === "barlow"
+      ? '"Barlow Condensed", Inter, "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", system-ui, sans-serif, "Noto Color Emoji"'
+      : 'Inter, "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif, "Noto Color Emoji"';
+
+  root.style.setProperty("--overlay-font-family", fontFamily);
+  root.style.setProperty("--overlay-font-size", `${style.fontSize}px`);
+  root.style.setProperty("--overlay-text-color", style.textColor);
+  root.style.setProperty("--overlay-text-shadow", textShadow);
+  root.style.setProperty("--overlay-content-opacity", style.contentOpacity);
+  root.style.setProperty("--overlay-background", background);
+  root.style.setProperty("--overlay-padding", `${style.padding}px`);
+  root.style.setProperty("--overlay-margin", `${style.margin}px`);
+  root.style.setProperty("--overlay-max-width", maxWidth);
+  overlay.dataset.position = style.position;
+  overlay.classList.toggle("hide-labels", !style.showLabels);
+  overlay.classList.toggle("hide-now-playing", !style.showNowPlaying);
+  overlay.classList.toggle("hide-artwork", !style.showArtwork);
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(fitQueueEntries);
+  }
+}
 
 function escapeHtml(s) {
   return String(s || "")
@@ -192,6 +307,76 @@ function updateOverlay(nowPlaying, queue) {
   updateQueue(queue);
 }
 
+const sampleNowPlaying = {
+  title: "Neon Skyline",
+  subtitle: "After Hours Mix",
+  artist: "Mira Nova",
+  pack: "City Lights",
+  requested_display: "DJ Example",
+  chart: { chartType: "dance-single", difficulty: "Expert", meter: "14" },
+};
+const sampleQueue = [
+  {
+    title: "Pulse Driver",
+    artist: "Kinetic Form",
+    pack: "Arcade Classics",
+    requested_display: "StepFan42",
+    chart: { chartType: "dance-single", difficulty: "Challenge", meter: "16" },
+  },
+  {
+    title: "Paper Satellites",
+    artist: "The Northbound",
+    pack: "Blue Shift Phase 2",
+    requested_display: "mika_moves",
+    chart: { chartType: "dance-double", difficulty: "Expert", meter: "13" },
+  },
+  {
+    title: "Midnight Circuit",
+    artist: "Aster & Co.",
+    pack: "High Chance of Tech",
+    requested_display: "turntable_lee",
+    chart: { chartType: "dance-single", difficulty: "Hard", meter: "10" },
+  },
+];
+
+function renderOverlayData() {
+  updateNowPlaying(showSampleData ? sampleNowPlaying : liveNowPlaying);
+  updateQueue(showSampleData ? sampleQueue : liveQueue);
+}
+
+window.addEventListener("message", (event) => {
+  if (
+    !isPreview ||
+    event.source !== window.parent ||
+    (previewParentOrigin && event.origin !== previewParentOrigin) ||
+    !event.data
+  )
+    return;
+  if (event.data.type === "overlay-style-preview" && event.data.version === 1) {
+    applyOverlayStyle(event.data.style);
+  } else if (event.data.type === "overlay-sample-preview" && event.data.version === 1) {
+    showSampleData = !!event.data.enabled;
+    renderOverlayData();
+  }
+});
+
+if (isPreview && window.parent !== window) {
+  window.parent.postMessage(
+    { type: "overlay-preview-ready", version: 1 },
+    previewParentOrigin || "*",
+  );
+}
+
+async function refreshOverlayStyle() {
+  try {
+    const response = await fetch("/api/overlay/settings", { cache: "no-store" });
+    if (!response.ok) throw new Error("Overlay settings unavailable");
+    applyOverlayStyle(await response.json());
+  } catch (error) {
+    if (!isPreview) console.warn("Could not load overlay appearance settings", error);
+  }
+}
+
 async function pollTempModStatus() {
   try {
     const resp = await fetch("/api/overlay/temp-mod-status");
@@ -220,9 +405,10 @@ function startSSE() {
           data && "tempModDisplayName" in data ? data.tempModDisplayName : null;
 
         if (queue) {
-          updateQueue(queue);
+          liveQueue = queue;
         }
-        updateNowPlaying(nowPlaying);
+        liveNowPlaying = nowPlaying;
+        renderOverlayData();
         updateUpcomingLabel(tempModDisplayName);
       } catch (e) {
         console.error("Failed to parse SSE data", e);
@@ -251,8 +437,9 @@ async function poll() {
 
     const queue = await queueResp.json();
     const nowPlaying = await nowPlayingResp.json();
-    updateQueue(queue);
-    updateNowPlaying(nowPlaying);
+    liveQueue = queue;
+    liveNowPlaying = nowPlaying;
+    renderOverlayData();
     await pollTempModStatus();
   } catch (e) {
     /* ignore polling errors */
@@ -268,6 +455,10 @@ if (!startSSE()) {
 }
 
 window.addEventListener("resize", fitQueueEntries);
+if (!isPreview) {
+  refreshOverlayStyle();
+  setInterval(refreshOverlayStyle, 15000);
+}
 if (document.fonts && document.fonts.ready) {
   document.fonts.ready.then(fitQueueEntries);
 }

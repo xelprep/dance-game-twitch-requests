@@ -800,6 +800,75 @@ function setSetting(key, value) {
   db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)").run(key, val);
 }
 
+const DEFAULT_OVERLAY_STYLE = Object.freeze({
+  version: 1,
+  font: "default",
+  fontSize: 48,
+  textColor: "#ffffff",
+  textShadow: true,
+  shadowStrength: 1,
+  backgroundEnabled: false,
+  backgroundColor: "#000000",
+  backgroundOpacity: 0.6,
+  maxWidth: "auto",
+  padding: 0,
+  position: "bottom-left",
+  margin: 0,
+  contentOpacity: 1,
+  showLabels: true,
+  showNowPlaying: true,
+  showArtwork: true,
+});
+
+function normalizeOverlayStyle(value) {
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const boundedNumber = (key, fallback, min, max, integer = false) => {
+    const parsed = Number(input[key]);
+    if (!Number.isFinite(parsed)) return fallback;
+    const bounded = Math.min(max, Math.max(min, parsed));
+    return integer ? Math.round(bounded) : Math.round(bounded * 100) / 100;
+  };
+  const color = (key, fallback) =>
+    typeof input[key] === "string" && /^#[0-9a-f]{6}$/i.test(input[key])
+      ? input[key].toLowerCase()
+      : fallback;
+  const boolean = (key, fallback) => (typeof input[key] === "boolean" ? input[key] : fallback);
+  const positions = [
+    "top-left",
+    "top-center",
+    "top-right",
+    "middle-left",
+    "middle-center",
+    "middle-right",
+    "bottom-left",
+    "bottom-center",
+    "bottom-right",
+  ];
+
+  return {
+    ...DEFAULT_OVERLAY_STYLE,
+    font: ["default", "barlow"].includes(input.font) ? input.font : DEFAULT_OVERLAY_STYLE.font,
+    fontSize: boundedNumber("fontSize", DEFAULT_OVERLAY_STYLE.fontSize, 16, 128, true),
+    textColor: color("textColor", DEFAULT_OVERLAY_STYLE.textColor),
+    textShadow: boolean("textShadow", DEFAULT_OVERLAY_STYLE.textShadow),
+    shadowStrength: boundedNumber("shadowStrength", 1, 0, 2),
+    backgroundEnabled: boolean("backgroundEnabled", DEFAULT_OVERLAY_STYLE.backgroundEnabled),
+    backgroundColor: color("backgroundColor", DEFAULT_OVERLAY_STYLE.backgroundColor),
+    backgroundOpacity: boundedNumber("backgroundOpacity", 0.6, 0, 1),
+    maxWidth:
+      input.maxWidth === undefined || input.maxWidth === "auto"
+        ? DEFAULT_OVERLAY_STYLE.maxWidth
+        : boundedNumber("maxWidth", 1920, 320, 3840, true),
+    padding: boundedNumber("padding", 12, 0, 48, true),
+    position: positions.includes(input.position) ? input.position : DEFAULT_OVERLAY_STYLE.position,
+    margin: boundedNumber("margin", 0, 0, 120, true),
+    contentOpacity: boundedNumber("contentOpacity", 1, 0.1, 1),
+    showLabels: boolean("showLabels", DEFAULT_OVERLAY_STYLE.showLabels),
+    showNowPlaying: boolean("showNowPlaying", DEFAULT_OVERLAY_STYLE.showNowPlaying),
+    showArtwork: boolean("showArtwork", DEFAULT_OVERLAY_STYLE.showArtwork),
+  };
+}
+
 function getModeratorCredentialsList() {
   const stored = getSetting("moderatorCredentials", null);
 
@@ -844,9 +913,11 @@ function getControlSettings() {
     requestConstraintBpmMax: getSetting("requestConstraintBpmMax", null),
     requestConstraintDurationMin: getSetting("requestConstraintDurationMin", null),
     requestConstraintDurationMax: getSetting("requestConstraintDurationMax", null),
+    overlayStyle: normalizeOverlayStyle(getSetting("overlayStyle", DEFAULT_OVERLAY_STYLE)),
     host: networkSettings.host,
     publicPort: networkSettings.publicPort,
     controlPort: networkSettings.controlPort,
+    publicHttps: PUBLIC_HTTPS,
     lanIPs: getLanIPv4Addresses(),
   };
 }
@@ -1975,6 +2046,9 @@ function createApi(app, options = {}) {
   if (options.moderator) {
     app.use("/api/moderator", authenticateModerator);
     app.get("/api/moderator/settings", (_req, res) => res.json(getControlSettings()));
+    app.get("/api/overlay/settings", (_req, res) =>
+      res.json(normalizeOverlayStyle(getSetting("overlayStyle", DEFAULT_OVERLAY_STYLE))),
+    );
     app.post("/api/moderator/settings", async (req, res) => {
       const current = getControlSettings();
       const settings = {
@@ -2515,6 +2589,9 @@ function createApi(app, options = {}) {
         instructionsMinutes: Number(req.body.instructionsMinutes),
         requestConstraintStyle: String(req.body.requestConstraintStyle || "any"),
         requestConstraintPack: String(req.body.requestConstraintPack || "").trim(),
+        overlayStyle: Object.prototype.hasOwnProperty.call(req.body, "overlayStyle")
+          ? normalizeOverlayStyle(req.body.overlayStyle)
+          : current.overlayStyle,
       };
 
       // Constraint range bounds: positive whole numbers, or null when absent/empty/invalid.
@@ -2606,6 +2683,9 @@ function createApi(app, options = {}) {
         )
           ? next.requestConstraintPack
           : current.requestConstraintPack,
+        overlayStyle: Object.prototype.hasOwnProperty.call(req.body, "overlayStyle")
+          ? next.overlayStyle
+          : current.overlayStyle,
         requestConstraintMeterMin: constraintNumber(
           "requestConstraintMeterMin",
           current.requestConstraintMeterMin,
@@ -2675,6 +2755,7 @@ function createApi(app, options = {}) {
       setSetting("requestConstraintBpmMax", settings.requestConstraintBpmMax);
       setSetting("requestConstraintDurationMin", settings.requestConstraintDurationMin);
       setSetting("requestConstraintDurationMax", settings.requestConstraintDurationMax);
+      setSetting("overlayStyle", settings.overlayStyle);
       setSetting("host", settings.host);
       setSetting("publicPort", settings.publicPort);
       setSetting("controlPort", settings.controlPort);

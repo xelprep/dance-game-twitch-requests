@@ -556,6 +556,7 @@ async function render() {
         renderModeratorCredentials(settings);
         renderNetworkSettings(settings);
         renderRequestConstraints(settings);
+        renderOverlaySettings(settings);
       }
 
       const allowChat = !!(chatRequestsEnabled && chatRequestsEnabled.checked);
@@ -1533,6 +1534,266 @@ if (tempModSearch) {
 
 // --- Category navigation ---
 
+const DEFAULT_OVERLAY_STYLE = {
+  version: 1,
+  font: "default",
+  fontSize: 48,
+  textColor: "#ffffff",
+  textShadow: true,
+  shadowStrength: 1,
+  backgroundEnabled: false,
+  backgroundColor: "#000000",
+  backgroundOpacity: 0.6,
+  maxWidth: "auto",
+  padding: 0,
+  position: "bottom-left",
+  margin: 0,
+  contentOpacity: 1,
+  showLabels: true,
+  showNowPlaying: true,
+  showArtwork: true,
+};
+let overlaySavedStyle = { ...DEFAULT_OVERLAY_STYLE };
+let overlayDraftStyle = { ...DEFAULT_OVERLAY_STYLE };
+let overlayStyleDirty = false;
+let currentControlSettings = null;
+let overlayPreviewStarted = false;
+let selectedOverlayPreset = "custom";
+const OVERLAY_PRESETS = {
+  default: { ...DEFAULT_OVERLAY_STYLE },
+  compact: {
+    ...DEFAULT_OVERLAY_STYLE,
+    fontSize: 36,
+    backgroundEnabled: true,
+    backgroundOpacity: 0.76,
+    maxWidth: 1100,
+    padding: 14,
+    margin: 12,
+  },
+  "high-contrast": {
+    ...DEFAULT_OVERLAY_STYLE,
+    fontSize: 52,
+    textColor: "#fff200",
+    backgroundEnabled: true,
+    backgroundOpacity: 0.9,
+    maxWidth: 1440,
+    padding: 18,
+    shadowStrength: 1.5,
+  },
+};
+
+function setOverlayEditorStatus(message, isDirty = false) {
+  const status = $("overlaySaveState");
+  if (!status) return;
+  status.textContent = message;
+  status.classList.toggle("overlay-unsaved", isDirty);
+}
+
+function renderOverlaySettings(settings) {
+  currentControlSettings = settings;
+  if (overlayStyleDirty || !settings.overlayStyle) return;
+  overlaySavedStyle = { ...DEFAULT_OVERLAY_STYLE, ...settings.overlayStyle };
+  overlayDraftStyle = { ...overlaySavedStyle };
+  selectedOverlayPreset =
+    JSON.stringify(overlaySavedStyle) === JSON.stringify(DEFAULT_OVERLAY_STYLE)
+      ? "default"
+      : "custom";
+  syncOverlayStyleControls();
+  setOverlayEditorStatus("Saved", false);
+  postOverlayPreview("overlay-style-preview", { style: overlayDraftStyle });
+}
+
+function syncOverlayStyleControls() {
+  const style = overlayDraftStyle;
+  const values = {
+    overlayFont: style.font,
+    overlayFontSize: style.fontSize,
+    overlayTextColor: style.textColor,
+    overlayShadowStrength: Math.round(style.shadowStrength * 100),
+    overlayPosition: style.position,
+    overlayMargin: style.margin,
+    overlayMaxWidth: String(style.maxWidth),
+    overlayPadding: style.padding,
+    overlayOpacity: Math.round(style.contentOpacity * 100),
+    overlayBackgroundColor: style.backgroundColor,
+    overlayBackgroundOpacity: Math.round(style.backgroundOpacity * 100),
+    overlayBackgroundEnabled: style.backgroundEnabled,
+    overlayTextShadow: style.textShadow,
+    overlayShowLabels: style.showLabels,
+    overlayShowNowPlaying: style.showNowPlaying,
+    overlayShowArtwork: style.showArtwork,
+    overlayPreset: selectedOverlayPreset,
+  };
+  Object.entries(values).forEach(([id, value]) => {
+    const input = $(id);
+    if (input) input.type === "checkbox" ? (input.checked = value) : (input.value = value);
+  });
+  $("overlayFontSizeValue").value = `${style.fontSize} px`;
+  $("overlayShadowStrengthValue").value = `${Math.round(style.shadowStrength * 100)}%`;
+  $("overlayMarginValue").value = `${style.margin} px`;
+  $("overlayPaddingValue").value = `${style.padding} px`;
+  $("overlayOpacityValue").value = `${Math.round(style.contentOpacity * 100)}%`;
+  $("overlayBackgroundOpacityValue").value = `${Math.round(style.backgroundOpacity * 100)}%`;
+  $("saveOverlayStyle").disabled = !overlayStyleDirty;
+  $("discardOverlayStyle").disabled = !overlayStyleDirty;
+}
+
+function readOverlayStyleControls() {
+  return {
+    version: 1,
+    font: $("overlayFont").value,
+    fontSize: Number($("overlayFontSize").value),
+    textColor: $("overlayTextColor").value,
+    textShadow: $("overlayTextShadow").checked,
+    shadowStrength: Number($("overlayShadowStrength").value) / 100,
+    backgroundEnabled: $("overlayBackgroundEnabled").checked,
+    backgroundColor: $("overlayBackgroundColor").value,
+    backgroundOpacity: Number($("overlayBackgroundOpacity").value) / 100,
+    maxWidth: $("overlayMaxWidth").value === "auto" ? "auto" : Number($("overlayMaxWidth").value),
+    padding: Number($("overlayPadding").value),
+    position: $("overlayPosition").value,
+    margin: Number($("overlayMargin").value),
+    contentOpacity: Number($("overlayOpacity").value) / 100,
+    showLabels: $("overlayShowLabels").checked,
+    showNowPlaying: $("overlayShowNowPlaying").checked,
+    showArtwork: $("overlayShowArtwork").checked,
+  };
+}
+
+function updateOverlayDraft(preservePreset = false) {
+  overlayDraftStyle = readOverlayStyleControls();
+  if (!preservePreset) selectedOverlayPreset = "custom";
+  overlayStyleDirty = JSON.stringify(overlayDraftStyle) !== JSON.stringify(overlaySavedStyle);
+  syncOverlayStyleControls();
+  setOverlayEditorStatus(overlayStyleDirty ? "Unsaved changes" : "Saved", overlayStyleDirty);
+  postOverlayPreview("overlay-style-preview", { style: overlayDraftStyle });
+}
+
+function postOverlayPreview(type, payload) {
+  const frame = $("overlayPreview");
+  if (!frame || !frame.contentWindow || !frame.src) return;
+  try {
+    frame.contentWindow.postMessage({ type, version: 1, ...payload }, new URL(frame.src).origin);
+  } catch (_error) {
+    // Preview may not have been initialized or loaded yet.
+  }
+}
+
+function scaleOverlayPreview() {
+  const stage = $("overlayPreview")?.parentElement;
+  const frame = $("overlayPreview");
+  if (!stage || !frame) return;
+  frame.style.transform = `scale(${stage.clientWidth / 1920})`;
+}
+
+function ensureOverlayPreview() {
+  if (overlayPreviewStarted || !currentControlSettings) return;
+  const frame = $("overlayPreview");
+  const status = $("overlayPreviewStatus");
+  if (!frame || !status) return;
+  overlayPreviewStarted = true;
+  const protocol = currentControlSettings.publicHttps ? "https" : "http";
+  const url = new URL(
+    `${protocol}://${location.hostname}:${currentControlSettings.publicPort}/overlay.html`,
+  );
+  url.searchParams.set("preview", "1");
+  frame.addEventListener("load", () => {
+    scaleOverlayPreview();
+  });
+  window.addEventListener("message", (event) => {
+    if (
+      event.source !== frame.contentWindow ||
+      event.origin !== url.origin ||
+      event.data?.type !== "overlay-preview-ready"
+    )
+      return;
+    status.hidden = true;
+    postOverlayPreview("overlay-style-preview", { style: overlayDraftStyle });
+    postOverlayPreview("overlay-sample-preview", { enabled: $("overlaySampleData").checked });
+  });
+  frame.src = url.toString();
+  scaleOverlayPreview();
+  setTimeout(() => {
+    if (status.hidden) return;
+    status.textContent =
+      "Preview unavailable. Check that the public site is reachable and its certificate is trusted.";
+  }, 10000);
+}
+
+const overlayStyleInputs = [
+  "overlayFont",
+  "overlayFontSize",
+  "overlayTextColor",
+  "overlayShadowStrength",
+  "overlayPosition",
+  "overlayMargin",
+  "overlayMaxWidth",
+  "overlayPadding",
+  "overlayOpacity",
+  "overlayBackgroundColor",
+  "overlayBackgroundOpacity",
+  "overlayBackgroundEnabled",
+  "overlayTextShadow",
+  "overlayShowLabels",
+  "overlayShowNowPlaying",
+  "overlayShowArtwork",
+];
+overlayStyleInputs.forEach((id) => {
+  const input = $(id);
+  input.addEventListener(
+    input.type === "range" || input.type === "color" ? "input" : "change",
+    updateOverlayDraft,
+  );
+});
+
+$("overlayPreset").addEventListener("change", (event) => {
+  const preset = OVERLAY_PRESETS[event.target.value];
+  if (!preset) return;
+  selectedOverlayPreset = event.target.value;
+  overlayDraftStyle = { ...preset };
+  syncOverlayStyleControls();
+  updateOverlayDraft(true);
+});
+
+$("saveOverlayStyle").addEventListener("click", async () => {
+  try {
+    const response = await api("/api/control/settings", {
+      method: "POST",
+      body: JSON.stringify({ overlayStyle: overlayDraftStyle }),
+    });
+    overlaySavedStyle = { ...response.overlayStyle };
+    overlayDraftStyle = { ...response.overlayStyle };
+    overlayStyleDirty = false;
+    syncOverlayStyleControls();
+    setOverlayEditorStatus("Saved", false);
+    postOverlayPreview("overlay-style-preview", { style: overlayDraftStyle });
+    toast("Overlay appearance saved");
+  } catch (error) {
+    setOverlayEditorStatus("Save failed; your draft is still here", true);
+    toast(error.message, "error");
+  }
+});
+
+$("discardOverlayStyle").addEventListener("click", () => {
+  overlayDraftStyle = { ...overlaySavedStyle };
+  overlayStyleDirty = false;
+  syncOverlayStyleControls();
+  setOverlayEditorStatus("Saved", false);
+  postOverlayPreview("overlay-style-preview", { style: overlayDraftStyle });
+});
+
+$("resetOverlayStyle").addEventListener("click", () => {
+  selectedOverlayPreset = "default";
+  overlayDraftStyle = { ...DEFAULT_OVERLAY_STYLE };
+  syncOverlayStyleControls();
+  updateOverlayDraft(true);
+});
+
+$("overlaySampleData").addEventListener("change", (event) => {
+  postOverlayPreview("overlay-sample-preview", { enabled: event.target.checked });
+});
+new ResizeObserver(scaleOverlayPreview).observe($("overlayPreview").parentElement);
+
 const categoryButtons = document.querySelectorAll(".category-button");
 const categoryGroups = document.querySelectorAll(".category-group");
 const categoryActions = document.querySelectorAll(".category-action");
@@ -1549,6 +1810,7 @@ function setActiveCategory(category) {
     const visible = button.dataset.visibleCategory === category;
     button.hidden = !visible;
   });
+  if (category === "overlay") ensureOverlayPreview();
 }
 
 categoryButtons.forEach((button) => {

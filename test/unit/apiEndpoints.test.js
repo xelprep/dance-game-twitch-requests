@@ -289,6 +289,89 @@ test("control settings API stores valid streamer credentials and updates setting
   }
 });
 
+test("control settings validate and persist overlay style without changing other settings", async () => {
+  resetSettings();
+  setSetting("artworkEnabled", true);
+  const server = await startControlApp();
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: "Basic " + Buffer.from("streamer:test-control-password").toString("base64"),
+  };
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/control/settings`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        overlayStyle: {
+          font: "url(https://example.com/font)",
+          fontSize: 999,
+          textColor: "red",
+          position: "not-a-position",
+          backgroundOpacity: -1,
+          margin: 999,
+          arbitraryCss: "body { display: none }",
+        },
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const settings = await response.json();
+    assert.equal(settings.artworkEnabled, true);
+    assert.equal(settings.overlayStyle.font, "default");
+    assert.equal(settings.overlayStyle.fontSize, 128);
+    assert.equal(settings.overlayStyle.textColor, "#ffffff");
+    assert.equal(settings.overlayStyle.position, "bottom-left");
+    assert.equal(settings.overlayStyle.maxWidth, "auto");
+    assert.equal(settings.overlayStyle.backgroundOpacity, 0);
+    assert.equal(settings.overlayStyle.margin, 120);
+    assert.equal(Object.hasOwn(settings.overlayStyle, "arbitraryCss"), false);
+  } finally {
+    server.close();
+  }
+});
+
+test("public overlay settings expose only the normalized style", async () => {
+  resetSettings();
+  setSetting("moderatorCredentials", [{ username: "private-user", passwordHash: "private-hash" }]);
+  setSetting("host", "192.168.1.20");
+  setSetting("overlayStyle", { fontSize: 36, textColor: "#12ABEF" });
+  const server = await startPublicModeratorApp();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/overlay/settings`);
+    const style = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(style.fontSize, 36);
+    assert.equal(style.textColor, "#12abef");
+    assert.equal(style.position, "bottom-left");
+    assert.equal(Object.hasOwn(style, "moderatorCredentials"), false);
+    assert.equal(Object.hasOwn(style, "host"), false);
+  } finally {
+    server.close();
+  }
+});
+
+test("public overlay settings preserve the existing appearance when no style is stored", async () => {
+  resetSettings();
+  const server = await startPublicModeratorApp();
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/overlay/settings`);
+    const style = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(style.font, "default");
+    assert.equal(style.fontSize, 48);
+    assert.equal(style.textColor, "#ffffff");
+    assert.equal(style.backgroundEnabled, false);
+    assert.equal(style.padding, 0);
+    assert.equal(style.margin, 0);
+    assert.equal(style.position, "bottom-left");
+  } finally {
+    server.close();
+  }
+});
+
 test("announceTempModNomination sends a chat reminder with the username and duration", async () => {
   const calls = [];
 
