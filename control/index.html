@@ -509,8 +509,42 @@
                 <input id="overlaySampleData" type="checkbox" />
                 Show sample queue
               </label>
+              <label class="overlay-preview-toggle">
+                <input id="overlaySafeArea" type="checkbox" />
+                Safe-area guide
+              </label>
             </div>
             <div class="overlay-controls">
+              <div class="overlay-profiles-row">
+                <label class="settings-field">
+                  <span>Appearance profile</span>
+                  <select id="overlayProfile">
+                    <option value="">Current appearance</option>
+                  </select>
+                </label>
+                <label class="settings-field">
+                  <span>Profile name</span>
+                  <input
+                    id="overlayProfileName"
+                    type="text"
+                    maxlength="32"
+                    placeholder="Name this style"
+                  />
+                </label>
+                <div class="overlay-profile-actions">
+                  <button id="saveOverlayProfile" type="button">Save profile</button>
+                  <button id="renameOverlayProfile" type="button" disabled>Rename</button>
+                  <button id="deleteOverlayProfile" type="button" disabled>Delete</button>
+                  <button id="exportOverlayProfiles" type="button">Export</button>
+                  <button id="importOverlayProfiles" type="button">Import</button>
+                  <input
+                    id="overlayProfilesFile"
+                    type="file"
+                    accept="application/json,.json"
+                    hidden
+                  />
+                </div>
+              </div>
               <div class="overlay-control-grid">
                 <label class="settings-field">
                   <span>Preset</span>
@@ -526,6 +560,38 @@
                   <select id="overlayFont">
                     <option value="default">Inter (default)</option>
                     <option value="barlow">Barlow Condensed</option>
+                    <option value="oswald">Oswald</option>
+                    <option value="lora">Lora</option>
+                    <option value="space-grotesk">Space Grotesk</option>
+                    <option value="ibm-plex-mono">IBM Plex Mono</option>
+                  </select>
+                </label>
+                <label class="settings-field">
+                  <span>Preview canvas</span>
+                  <select id="overlayCanvas">
+                    <option value="1920x1080">1920 × 1080 · Landscape</option>
+                    <option value="1280x720">1280 × 720 · Landscape</option>
+                    <option value="2560x1440">2560 × 1440 · Landscape</option>
+                    <option value="1080x1920">1080 × 1920 · Portrait</option>
+                  </select>
+                </label>
+                <label class="settings-field">
+                  <span>Safe-area inset <output id="overlaySafeAreaValue">5%</output></span>
+                  <input
+                    id="overlaySafeAreaPercent"
+                    type="range"
+                    min="2"
+                    max="15"
+                    step="1"
+                    value="5"
+                  />
+                </label>
+                <label class="settings-field">
+                  <span>Visible queue entries</span>
+                  <select id="overlayQueueEntries">
+                    <option value="1">1 entry</option>
+                    <option value="2">2 entries</option>
+                    <option value="3">3 entries</option>
                   </select>
                 </label>
                 <label class="settings-field">
@@ -544,7 +610,7 @@
                   />
                 </label>
                 <label class="settings-field">
-                  <span>Text color</span>
+                  <span>Text color (all sections)</span>
                   <input id="overlayTextColor" type="color" value="#ffffff" />
                 </label>
                 <label class="settings-field">
@@ -601,6 +667,48 @@
                   />
                 </label>
               </div>
+              <fieldset class="overlay-section-styles">
+                <legend>Section styling</legend>
+                <div class="overlay-section-style-grid">
+                  <strong>Section</strong><strong>Color</strong><strong>Size</strong>
+                  <span>Labels</span
+                  ><input id="overlayLabelsColor" type="color" value="#ffffff" /><input
+                    id="overlayLabelsSize"
+                    type="number"
+                    min="16"
+                    max="128"
+                    value="48"
+                    aria-label="Label text size in pixels"
+                  />
+                  <span>Song title</span
+                  ><input id="overlayTitleColor" type="color" value="#ffffff" /><input
+                    id="overlayTitleSize"
+                    type="number"
+                    min="16"
+                    max="128"
+                    value="48"
+                    aria-label="Title text size in pixels"
+                  />
+                  <span>Metadata</span
+                  ><input id="overlayMetadataColor" type="color" value="#ffffff" /><input
+                    id="overlayMetadataSize"
+                    type="number"
+                    min="16"
+                    max="128"
+                    value="48"
+                    aria-label="Metadata text size in pixels"
+                  />
+                  <span>Requester</span
+                  ><input id="overlayRequesterColor" type="color" value="#ffffff" /><input
+                    id="overlayRequesterSize"
+                    type="number"
+                    min="16"
+                    max="128"
+                    value="48"
+                    aria-label="Requester text size in pixels"
+                  />
+                </div>
+              </fieldset>
               <div class="overlay-toggle-grid">
                 <label><input id="overlayBackgroundEnabled" type="checkbox" /> Show banner</label>
                 <label><input id="overlayTextShadow" type="checkbox" checked /> Text shadow</label>
@@ -619,6 +727,12 @@
                 <button id="discardOverlayStyle" type="button">Discard</button>
                 <button id="resetOverlayStyle" type="button">Reset to Default</button>
               </div>
+              <p
+                id="overlayReadabilityWarning"
+                class="overlay-readability-warning"
+                role="status"
+                aria-live="polite"
+              ></p>
             </div>
           </div>
         </section>

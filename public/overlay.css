@@ -28,6 +28,15 @@ body {
   --overlay-padding: 0px;
   --overlay-margin: 0px;
   --overlay-max-width: 100%;
+  --overlay-labels-color: #ffffff;
+  --overlay-labels-size: 48px;
+  --overlay-title-color: #ffffff;
+  --overlay-title-size: 48px;
+  --overlay-metadata-color: #ffffff;
+  --overlay-metadata-size: 48px;
+  --overlay-requester-color: #ffffff;
+  --overlay-requester-size: 48px;
+  --overlay-safe-area: 5%;
 }
 ::-webkit-scrollbar {
   display: none;
@@ -105,6 +114,14 @@ body {
 .overlay.hide-artwork .now-playing-artwork {
   display: none;
 }
+.preview-safe-area:not([hidden]) {
+  position: fixed;
+  z-index: 5;
+  inset: var(--overlay-safe-area);
+  border: 2px dashed rgba(255, 255, 255, 0.75);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+}
 
 /* Now Playing section */
 .now-playing-section {
@@ -114,9 +131,9 @@ body {
   align-self: flex-start;
 }
 .now-playing-label {
-  color: var(--overlay-text-color);
+  color: var(--overlay-labels-color);
   font-weight: 700;
-  font-size: var(--overlay-font-size);
+  font-size: var(--overlay-labels-size);
   line-height: 1;
   /* Same 0.3em gap below the label as between the text lines. */
   padding-bottom: 0.3em;
@@ -168,9 +185,9 @@ body {
   gap: 0;
 }
 .upcoming-label {
-  color: var(--overlay-text-color);
+  color: var(--overlay-labels-color);
   font-weight: 700;
-  font-size: var(--overlay-font-size);
+  font-size: var(--overlay-labels-size);
   line-height: 1;
   /* Same 0.3em gap below the label as between the text lines. */
   padding-bottom: 0.3em;
@@ -182,13 +199,13 @@ body {
 .section-divider {
   width: 100%;
   height: 3px;
-  background: var(--overlay-text-color);
+  background: var(--overlay-labels-color);
   box-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
   border-radius: 999px;
   /* Same 0.3em gap below the bar as between text lines. font-size is set
      so the em tracks the 48px overlay text (the divider has no text of its
      own and would otherwise inherit the 16px browser default). */
-  font-size: var(--overlay-font-size);
+  font-size: var(--overlay-labels-size);
   margin-bottom: 0.3em;
 }
 
@@ -281,13 +298,25 @@ body {
 .queue-line-pack {
   max-width: 100%;
 }
+.queue-line-title {
+  color: var(--overlay-title-color);
+  font-size: var(--overlay-title-size);
+}
+.queue-line-artist,
+.queue-line-pack {
+  color: var(--overlay-metadata-color);
+  font-size: var(--overlay-metadata-size);
+}
 /* Chart details (style, difficulty, meter) — secondary info, so a bit
    smaller than the song/pack lines. */
 .queue-line-chart {
   max-width: 100%;
-  font-size: 0.8em;
+  color: var(--overlay-metadata-color);
+  font-size: calc(var(--overlay-metadata-size) * 0.8);
 }
 .queue-line-requester {
+  color: var(--overlay-requester-color);
+  font-size: var(--overlay-requester-size);
   max-width: none;
   overflow: visible;
   text-overflow: clip;
@@ -302,7 +331,7 @@ body {
 #message .queue-divider {
   width: 4px;
   margin: 0 14px;
-  background: var(--overlay-text-color);
+  background: var(--overlay-labels-color);
   box-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
   border-radius: 999px;
 }

@@ -250,6 +250,30 @@ input[type="checkbox"] {
 .overlay-controls {
   min-width: 0;
 }
+.overlay-profiles-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #303846;
+  margin-bottom: 12px;
+}
+.overlay-profiles-row .settings-field {
+  flex: 1;
+  min-width: 140px;
+  margin: 0;
+}
+.overlay-profile-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.overlay-profile-actions button {
+  padding: 6px 8px;
+  font-size: 12px;
+}
 .overlay-preview-heading {
   display: flex;
   align-items: baseline;
@@ -352,6 +376,53 @@ input[type="checkbox"] {
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+.overlay-section-styles {
+  min-width: 0;
+  padding: 10px 0 0;
+  margin: 14px 0 0;
+  border: 0;
+  border-top: 1px solid #303846;
+}
+.overlay-section-styles legend {
+  padding: 0 8px 0 0;
+  color: #dfe5ec;
+  font-weight: 600;
+}
+.overlay-section-style-grid {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) minmax(64px, 84px) minmax(72px, 94px);
+  align-items: center;
+  gap: 7px 10px;
+}
+.overlay-section-style-grid strong {
+  color: #9da8b7;
+  font-size: 12px;
+  font-weight: 600;
+}
+.overlay-section-style-grid span {
+  min-width: 0;
+  color: #dfe5ec;
+  font-size: 13px;
+}
+.overlay-section-style-grid input[type="color"] {
+  width: 100%;
+  height: 34px;
+  min-width: 0;
+  padding: 3px;
+}
+.overlay-section-style-grid input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  padding: 7px;
+}
+.overlay-readability-warning {
+  margin: 12px 0 0;
+  color: #f4c877;
+  font-size: 13px;
+}
+.overlay-readability-warning:empty {
+  display: none;
 }
 .overlay-editor-actions {
   display: flex;
@@ -596,6 +667,13 @@ input[type="checkbox"] {
   }
   .overlay-control-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .overlay-profiles-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .overlay-profile-actions {
+    justify-content: flex-start;
   }
   .blocked-form input {
     flex: 1;

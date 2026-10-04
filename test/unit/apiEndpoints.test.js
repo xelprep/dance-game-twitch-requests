@@ -331,6 +331,47 @@ test("control settings validate and persist overlay style without changing other
   }
 });
 
+test("overlay settings normalize v2 fonts, canvas, density, and section styles", async () => {
+  resetSettings();
+  const server = await startControlApp();
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/control/settings`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Basic " + Buffer.from("streamer:test-control-password").toString("base64"),
+    },
+    body: JSON.stringify({
+      overlayStyle: {
+        font: "lora",
+        canvasWidth: 1080,
+        canvasHeight: 1920,
+        queueEntries: 2,
+        safeArea: 12,
+        sections: {
+          title: { color: "#12ABEF", fontSize: 140 },
+          requester: { color: "invalid", fontSize: 8 },
+        },
+      },
+    }),
+  });
+
+  try {
+    assert.equal(response.status, 200);
+    const settings = await response.json();
+    assert.equal(settings.overlayStyle.font, "lora");
+    assert.equal(settings.overlayStyle.canvasWidth, 1080);
+    assert.equal(settings.overlayStyle.canvasHeight, 1920);
+    assert.equal(settings.overlayStyle.queueEntries, 2);
+    assert.equal(settings.overlayStyle.safeArea, 12);
+    assert.equal(settings.overlayStyle.sections.title.color, "#12abef");
+    assert.equal(settings.overlayStyle.sections.title.fontSize, 128);
+    assert.equal(settings.overlayStyle.sections.requester.color, "#ffffff");
+    assert.equal(settings.overlayStyle.sections.requester.fontSize, 16);
+  } finally {
+    server.close();
+  }
+});
+
 test("public overlay settings expose only the normalized style", async () => {
   resetSettings();
   setSetting("moderatorCredentials", [{ username: "private-user", passwordHash: "private-hash" }]);
@@ -369,6 +410,92 @@ test("public overlay settings preserve the existing appearance when no style is 
     assert.equal(style.position, "bottom-left");
   } finally {
     server.close();
+  }
+});
+
+test("overlay profiles are authenticated, bounded, and normalized", async () => {
+  resetSettings();
+  const server = await startControlApp();
+  const publicServer = await startPublicModeratorApp();
+  const url = `http://127.0.0.1:${server.address().port}/api/control/overlay/profiles`;
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: "Basic " + Buffer.from("streamer:test-control-password").toString("base64"),
+  };
+
+  try {
+    const publicResponse = await fetch(
+      `http://127.0.0.1:${publicServer.address().port}/api/control/overlay/profiles`,
+    );
+    assert.equal(publicResponse.status, 404);
+
+    const unauthorized = await fetch(url);
+    assert.equal(unauthorized.status, 401);
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        profiles: [
+          { id: "neon", name: "Neon", style: { font: "lora", fontSize: 40 } },
+          { id: "duplicate", name: " neon ", style: { fontSize: 72 } },
+        ],
+      }),
+    });
+    const result = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(result.profiles.length, 1);
+    assert.equal(result.profiles[0].style.font, "lora");
+    assert.equal(result.profiles[0].style.fontSize, 40);
+    assert.equal(result.profiles[0].style.canvasWidth, 1920);
+
+    const tooMany = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        profiles: Array.from({ length: 21 }, (_, index) => ({ name: `p${index}` })),
+      }),
+    });
+    assert.equal(tooMany.status, 400);
+  } finally {
+    server.close();
+    publicServer.close();
+  }
+});
+
+test("saved overlay styles are pushed on the dedicated SSE stream", async () => {
+  resetSettings();
+  const publicServer = await startPublicModeratorApp();
+  const controlServer = await startControlApp();
+  const streamUrl = `http://127.0.0.1:${publicServer.address().port}/overlay/style/stream`;
+  let reader;
+
+  try {
+    const stream = await fetch(streamUrl);
+    reader = stream.body.getReader();
+    const decoder = new TextDecoder();
+    const initial = decoder.decode((await reader.read()).value);
+    assert.match(initial, /"fontSize":48/);
+
+    const response = await fetch(
+      `http://127.0.0.1:${controlServer.address().port}/api/control/settings`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization:
+            "Basic " + Buffer.from("streamer:test-control-password").toString("base64"),
+        },
+        body: JSON.stringify({ overlayStyle: { fontSize: 64 } }),
+      },
+    );
+    assert.equal(response.status, 200);
+    const updated = decoder.decode((await reader.read()).value);
+    assert.match(updated, /"fontSize":64/);
+  } finally {
+    if (reader) await reader.cancel();
+    publicServer.close();
+    controlServer.close();
   }
 });
 
