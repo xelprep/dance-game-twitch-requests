@@ -505,38 +505,72 @@
                   Preview loads when this tab opens.
                 </div>
               </div>
-              <label class="overlay-preview-toggle">
-                <input id="overlaySampleData" type="checkbox" />
-                Show sample queue
-              </label>
-              <label class="overlay-preview-toggle">
-                <input id="overlaySafeArea" type="checkbox" />
-                Safe-area guide
-              </label>
+              <div class="overlay-preview-toggles">
+                <label class="overlay-preview-toggle">
+                  <input id="overlaySampleData" type="checkbox" />
+                  Show sample queue
+                </label>
+                <label class="overlay-preview-toggle">
+                  <input id="overlaySafeArea" type="checkbox" />
+                  Safe-area guide
+                </label>
+              </div>
+              <div class="overlay-preview-bg-bar">
+                <label class="settings-field">
+                  <span>Preview background</span>
+                  <select id="overlayPreviewBgType">
+                    <option value="checkerboard">Checkerboard</option>
+                    <option value="solid">Solid color</option>
+                    <option value="image">Custom image</option>
+                  </select>
+                </label>
+                <label id="overlayPreviewBgColorContainer" class="settings-field" hidden>
+                  <span>Fill color</span>
+                  <input id="overlayPreviewBgColor" type="color" value="#1a1d24" />
+                </label>
+                <label id="overlayPreviewBgFitContainer" class="settings-field" hidden>
+                  <span>Image fit</span>
+                  <select id="overlayPreviewBgFit">
+                    <option value="stretch">Stretch to fill</option>
+                    <option value="zoom">Zoom to fill</option>
+                  </select>
+                </label>
+                <div id="overlayPreviewBgImageActions" class="overlay-preview-image-actions" hidden>
+                  <button id="uploadOverlayPreviewBg" type="button">Upload image</button>
+                  <button id="clearOverlayPreviewBg" type="button">Clear image</button>
+                  <input id="overlayPreviewBgFile" type="file" accept="image/*" hidden />
+                </div>
+              </div>
             </div>
             <div class="overlay-controls">
               <div class="overlay-profiles-row">
                 <label class="settings-field">
-                  <span>Appearance profile</span>
-                  <select id="overlayProfile">
-                    <option value="">Current appearance</option>
+                  <span>Preset</span>
+                  <select id="overlayPreset">
+                    <optgroup label="Built-in Presets">
+                      <option value="default">Default</option>
+                      <option value="compact">Compact</option>
+                      <option value="high-contrast">High Contrast</option>
+                    </optgroup>
+                    <optgroup id="overlayCustomPresetsGroup" label="Saved Presets"></optgroup>
+                    <option value="custom" hidden>Custom (unsaved)</option>
                   </select>
                 </label>
                 <label class="settings-field">
-                  <span>Profile name</span>
+                  <span>Preset name</span>
                   <input
-                    id="overlayProfileName"
+                    id="overlayPresetName"
                     type="text"
                     maxlength="32"
-                    placeholder="Name this style"
+                    placeholder="Name this preset"
                   />
                 </label>
                 <div class="overlay-profile-actions">
-                  <button id="saveOverlayProfile" type="button">Save profile</button>
-                  <button id="renameOverlayProfile" type="button" disabled>Rename</button>
-                  <button id="deleteOverlayProfile" type="button" disabled>Delete</button>
-                  <button id="exportOverlayProfiles" type="button">Export</button>
-                  <button id="importOverlayProfiles" type="button">Import</button>
+                  <button id="saveOverlayPreset" type="button">Save preset</button>
+                  <button id="renameOverlayPreset" type="button" disabled>Rename</button>
+                  <button id="deleteOverlayPreset" type="button" disabled>Delete</button>
+                  <button id="exportOverlayPresets" type="button">Export</button>
+                  <button id="importOverlayPresets" type="button">Import</button>
                   <input
                     id="overlayProfilesFile"
                     type="file"
@@ -546,15 +580,6 @@
                 </div>
               </div>
               <div class="overlay-control-grid">
-                <label class="settings-field">
-                  <span>Preset</span>
-                  <select id="overlayPreset">
-                    <option value="custom">Custom</option>
-                    <option value="default">Current Default</option>
-                    <option value="compact">Compact</option>
-                    <option value="high-contrast">High Contrast</option>
-                  </select>
-                </label>
                 <label class="settings-field">
                   <span>Font</span>
                   <select id="overlayFont">
@@ -592,6 +617,13 @@
                     <option value="1">1 entry</option>
                     <option value="2">2 entries</option>
                     <option value="3">3 entries</option>
+                    <option value="4">4 entries</option>
+                    <option value="5">5 entries</option>
+                    <option value="6">6 entries</option>
+                    <option value="7">7 entries</option>
+                    <option value="8">8 entries</option>
+                    <option value="9">9 entries</option>
+                    <option value="10">10 entries</option>
                   </select>
                 </label>
                 <label class="settings-field">
@@ -608,10 +640,6 @@
                     step="10"
                     value="100"
                   />
-                </label>
-                <label class="settings-field">
-                  <span>Text color (all sections)</span>
-                  <input id="overlayTextColor" type="color" value="#ffffff" />
                 </label>
                 <label class="settings-field">
                   <span>Position</span>

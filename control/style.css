@@ -300,6 +300,19 @@ input[type="checkbox"] {
     12px -12px,
     -12px 0;
 }
+.overlay-preview-stage.bg-solid {
+  background-image: none !important;
+}
+.overlay-preview-stage.bg-image-stretch {
+  background-size: 100% 100% !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+}
+.overlay-preview-stage.bg-image-zoom {
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+}
 .overlay-preview-stage iframe {
   position: absolute;
   inset: 0 auto auto 0;
@@ -322,11 +335,36 @@ input[type="checkbox"] {
 .overlay-preview-status[hidden] {
   display: none;
 }
+.overlay-preview-toggles {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 10px;
+}
 .overlay-preview-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.overlay-preview-bg-bar {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #303846;
+}
+.overlay-preview-bg-bar .settings-field {
+  min-width: 120px;
+}
+.overlay-preview-image-actions {
+  display: flex;
+  gap: 6px;
+}
+.overlay-preview-image-actions button {
+  padding: 6px 10px;
+  font-size: 12px;
 }
 .overlay-preview-toggle input,
 .overlay-toggle-grid input {

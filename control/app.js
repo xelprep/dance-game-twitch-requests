@@ -1664,7 +1664,6 @@ function syncOverlayStyleControls() {
   const values = {
     overlayFont: style.font,
     overlayFontSize: style.fontSize,
-    overlayTextColor: style.textColor,
     overlayCanvas: `${style.canvasWidth}x${style.canvasHeight}`,
     overlayQueueEntries: style.queueEntries,
     overlaySafeAreaPercent: style.safeArea,
@@ -1681,8 +1680,7 @@ function syncOverlayStyleControls() {
     overlayShowLabels: style.showLabels,
     overlayShowNowPlaying: style.showNowPlaying,
     overlayShowArtwork: style.showArtwork,
-    overlayPreset: selectedOverlayPreset,
-    overlayProfile: selectedOverlayProfileId,
+    overlayPreset: selectedOverlayProfileId || selectedOverlayPreset || "default",
   };
   for (const section of ["labels", "title", "metadata", "requester"]) {
     values[`overlay${section[0].toUpperCase()}${section.slice(1)}Color`] =
@@ -1703,16 +1701,20 @@ function syncOverlayStyleControls() {
   $("overlaySafeAreaValue").value = `${style.safeArea}%`;
   $("saveOverlayStyle").disabled = !overlayStyleDirty;
   $("discardOverlayStyle").disabled = !overlayStyleDirty;
-  $("renameOverlayProfile").disabled = !selectedOverlayProfileId;
-  $("deleteOverlayProfile").disabled = !selectedOverlayProfileId;
+  const isCustomProfileSelected = !!selectedOverlayProfileId;
+  const renameBtn = $("renameOverlayPreset");
+  const deleteBtn = $("deleteOverlayPreset");
+  if (renameBtn) renameBtn.disabled = !isCustomProfileSelected;
+  if (deleteBtn) deleteBtn.disabled = !isCustomProfileSelected;
 }
 
 function readOverlayStyleControls() {
+  const titleColor = $("overlayTitleColor") ? $("overlayTitleColor").value : "#ffffff";
   return {
     version: 1,
     font: $("overlayFont").value,
     fontSize: Number($("overlayFontSize").value),
-    textColor: $("overlayTextColor").value,
+    textColor: titleColor,
     textShadow: $("overlayTextShadow").checked,
     shadowStrength: Number($("overlayShadowStrength").value) / 100,
     backgroundEnabled: $("overlayBackgroundEnabled").checked,
@@ -1864,19 +1866,41 @@ function updateAllOverlaySections(field, value) {
 $("overlayFontSize").addEventListener("input", (event) =>
   updateAllOverlaySections("Size", Number(event.target.value)),
 );
-$("overlayTextColor").addEventListener("input", (event) =>
-  updateAllOverlaySections("Color", event.target.value),
-);
 
 $("overlayPreset").addEventListener("change", (event) => {
-  const preset = OVERLAY_PRESETS[event.target.value];
-  if (!preset) return;
-  selectedOverlayProfileId = "";
-  $("overlayProfileName").value = "";
-  selectedOverlayPreset = event.target.value;
-  overlayDraftStyle = { ...preset };
-  syncOverlayStyleControls();
-  updateOverlayDraft({ preservePreset: true });
+  const val = event.target.value;
+  const preset = OVERLAY_PRESETS[val];
+  if (preset) {
+    selectedOverlayProfileId = "";
+    selectedOverlayPreset = val;
+    overlayDraftStyle = { ...preset };
+    const nameInput = $("overlayPresetName");
+    if (nameInput && document.activeElement !== nameInput) {
+      nameInput.value = "";
+    }
+    syncOverlayStyleControls();
+    updateOverlayDraft({ preservePreset: true });
+  } else {
+    const profile = overlayProfiles.find((item) => item.id === val);
+    if (profile) {
+      selectedOverlayProfileId = profile.id;
+      selectedOverlayPreset = "custom";
+      overlayDraftStyle = {
+        ...DEFAULT_OVERLAY_STYLE,
+        ...profile.style,
+      };
+      overlayDraftStyle.sections = {
+        ...DEFAULT_OVERLAY_STYLE.sections,
+        ...profile.style.sections,
+      };
+      const nameInput = $("overlayPresetName");
+      if (nameInput && document.activeElement !== nameInput) {
+        nameInput.value = profile.name;
+      }
+      syncOverlayStyleControls();
+      updateOverlayDraft({ preservePreset: true });
+    }
+  }
 });
 
 $("saveOverlayStyle").addEventListener("click", async () => {
@@ -1908,7 +1932,10 @@ $("discardOverlayStyle").addEventListener("click", () => {
 
 $("resetOverlayStyle").addEventListener("click", () => {
   selectedOverlayProfileId = "";
-  $("overlayProfileName").value = "";
+  const nameInput = $("overlayPresetName");
+  if (nameInput && document.activeElement !== nameInput) {
+    nameInput.value = "";
+  }
   selectedOverlayPreset = "default";
   overlayDraftStyle = { ...DEFAULT_OVERLAY_STYLE };
   syncOverlayStyleControls();
@@ -1924,23 +1951,124 @@ $("overlaySafeArea").addEventListener("change", (event) => {
 $("overlayCanvas").addEventListener("change", () => updateOverlayDraft());
 new ResizeObserver(scaleOverlayPreview).observe($("overlayPreview").parentElement);
 
+function initOverlayPreviewBackground() {
+  const bgTypeSelect = $("overlayPreviewBgType");
+  const bgColorInput = $("overlayPreviewBgColor");
+  const bgFitSelect = $("overlayPreviewBgFit");
+  const bgFileInput = $("overlayPreviewBgFile");
+  const uploadBtn = $("uploadOverlayPreviewBg");
+  const clearBtn = $("clearOverlayPreviewBg");
+  const stage = $("overlayPreview")?.parentElement;
+  if (!stage || !bgTypeSelect) return;
+
+  let bgType = localStorage.getItem("overlay_preview_bg_type") || "checkerboard";
+  let bgColor = localStorage.getItem("overlay_preview_bg_color") || "#1a1d24";
+  let bgImage = localStorage.getItem("overlay_preview_bg_image") || "";
+  let bgFit = localStorage.getItem("overlay_preview_bg_fit") || "stretch";
+
+  function applyBg() {
+    stage.classList.remove("bg-solid", "bg-image-stretch", "bg-image-zoom");
+    stage.style.backgroundColor = "";
+    stage.style.backgroundImage = "";
+
+    bgTypeSelect.value = bgType;
+    bgColorInput.value = bgColor;
+    bgFitSelect.value = bgFit;
+
+    const colorContainer = $("overlayPreviewBgColorContainer");
+    const fitContainer = $("overlayPreviewBgFitContainer");
+    const imageActions = $("overlayPreviewBgImageActions");
+
+    if (colorContainer) colorContainer.hidden = bgType !== "solid";
+    if (fitContainer) fitContainer.hidden = bgType !== "image";
+    if (imageActions) imageActions.hidden = bgType !== "image";
+
+    if (bgType === "solid") {
+      stage.classList.add("bg-solid");
+      stage.style.backgroundColor = bgColor;
+    } else if (bgType === "image" && bgImage) {
+      stage.classList.add(bgFit === "zoom" ? "bg-image-zoom" : "bg-image-stretch");
+      stage.style.backgroundImage = `url(${bgImage})`;
+    }
+
+    localStorage.setItem("overlay_preview_bg_type", bgType);
+    localStorage.setItem("overlay_preview_bg_color", bgColor);
+    if (bgImage) localStorage.setItem("overlay_preview_bg_image", bgImage);
+    else localStorage.removeItem("overlay_preview_bg_image");
+    localStorage.setItem("overlay_preview_bg_fit", bgFit);
+  }
+
+  bgTypeSelect.addEventListener("change", (e) => {
+    bgType = e.target.value;
+    applyBg();
+  });
+  bgColorInput.addEventListener("input", (e) => {
+    bgColor = e.target.value;
+    applyBg();
+  });
+  bgFitSelect.addEventListener("change", (e) => {
+    bgFit = e.target.value;
+    applyBg();
+  });
+
+  if (uploadBtn) uploadBtn.addEventListener("click", () => bgFileInput?.click());
+  if (bgFileInput) {
+    bgFileInput.addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = "";
+      if (!file) return;
+      if (file.size > 5 * 1024 * 1024) return toast("Image must be smaller than 5MB", "error");
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        bgImage = ev.target.result;
+        bgType = "image";
+        applyBg();
+        toast("Preview background image set");
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      bgImage = "";
+      bgType = "checkerboard";
+      applyBg();
+      toast("Preview background image cleared");
+    });
+  }
+
+  applyBg();
+}
+
 function renderOverlayProfileSelect() {
-  const select = $("overlayProfile");
-  if (!select) return;
-  select.innerHTML = '<option value="">Current appearance</option>';
+  const select = $("overlayPreset");
+  const customGroup = $("overlayCustomPresetsGroup");
+  if (!select || !customGroup) return;
+
+  customGroup.innerHTML = "";
   overlayProfiles.forEach((profile) => {
     const option = document.createElement("option");
     option.value = profile.id;
     option.textContent = profile.name;
-    select.append(option);
+    customGroup.append(option);
   });
-  select.value = selectedOverlayProfileId;
+
+  const selectedValue = selectedOverlayProfileId || selectedOverlayPreset || "default";
+  select.value = selectedValue;
+
   const selectedProfile = overlayProfiles.find(
     (profile) => profile.id === selectedOverlayProfileId,
   );
-  $("overlayProfileName").value = selectedProfile ? selectedProfile.name : "";
-  $("renameOverlayProfile").disabled = !selectedOverlayProfileId;
-  $("deleteOverlayProfile").disabled = !selectedOverlayProfileId;
+  const nameInput = $("overlayPresetName");
+  if (nameInput && document.activeElement !== nameInput) {
+    nameInput.value = selectedProfile ? selectedProfile.name : "";
+  }
+
+  const isCustomProfileSelected = !!selectedOverlayProfileId;
+  const renameBtn = $("renameOverlayPreset");
+  const deleteBtn = $("deleteOverlayPreset");
+  if (renameBtn) renameBtn.disabled = !isCustomProfileSelected;
+  if (deleteBtn) deleteBtn.disabled = !isCustomProfileSelected;
 }
 
 async function loadOverlayProfiles() {
@@ -1968,147 +2096,148 @@ async function persistOverlayProfiles(nextProfiles) {
   return overlayProfiles;
 }
 
-$("overlayProfile").addEventListener("change", (event) => {
-  const profile = overlayProfiles.find((item) => item.id === event.target.value);
-  selectedOverlayProfileId = profile ? profile.id : "";
-  overlayDraftStyle = {
-    ...DEFAULT_OVERLAY_STYLE,
-    ...(profile ? profile.style : overlaySavedStyle),
-  };
-  overlayDraftStyle.sections = {
-    ...DEFAULT_OVERLAY_STYLE.sections,
-    ...(profile ? profile.style.sections : overlaySavedStyle.sections),
-  };
-  $("overlayProfileName").value = profile ? profile.name : "";
-  selectedOverlayPreset =
-    profile || JSON.stringify(overlaySavedStyle) !== JSON.stringify(DEFAULT_OVERLAY_STYLE)
-      ? "custom"
-      : "default";
-  overlayStyleDirty = JSON.stringify(overlayDraftStyle) !== JSON.stringify(overlaySavedStyle);
-  syncOverlayStyleControls();
-  setOverlayEditorStatus(overlayStyleDirty ? "Unsaved changes" : "Saved", overlayStyleDirty);
-  postOverlayPreview("overlay-style-preview", { style: overlayDraftStyle });
-  updateOverlayReadabilityWarning(overlayDraftStyle);
-});
+const savePresetBtn = $("saveOverlayPreset");
+if (savePresetBtn) {
+  savePresetBtn.addEventListener("click", async () => {
+    const nameInput = $("overlayPresetName");
+    const name = nameInput ? nameInput.value.trim() : "";
+    if (!name) return toast("Enter a preset name", "error");
 
-$("saveOverlayProfile").addEventListener("click", async () => {
-  const name = $("overlayProfileName").value.trim();
-  if (!name || !name.trim()) return;
-  const selectedProfile = overlayProfiles.find(
-    (profile) => profile.id === selectedOverlayProfileId,
-  );
-  if (overlayProfiles.some((profile) => profile.name.toLowerCase() === name.toLowerCase())) {
-    if (!selectedProfile || selectedProfile.name.toLowerCase() !== name.toLowerCase()) {
-      return toast("A profile with that name already exists", "error");
+    const selectedProfile = overlayProfiles.find(
+      (profile) => profile.id === selectedOverlayProfileId,
+    );
+    if (overlayProfiles.some((profile) => profile.name.toLowerCase() === name.toLowerCase())) {
+      if (!selectedProfile || selectedProfile.name.toLowerCase() !== name.toLowerCase()) {
+        return toast("A preset with that name already exists", "error");
+      }
     }
-  }
-  try {
-    const profile = selectedProfile
-      ? { ...selectedProfile, name: name.trim(), style: overlayDraftStyle }
-      : { id: crypto.randomUUID().slice(0, 36), name: name.trim(), style: overlayDraftStyle };
-    const nextProfiles = selectedProfile
-      ? overlayProfiles.map((item) => (item.id === profile.id ? profile : item))
-      : [...overlayProfiles, profile];
-    await persistOverlayProfiles(nextProfiles);
-    selectedOverlayProfileId = profile.id;
-    renderOverlayProfileSelect();
-    toast("Appearance profile saved");
-  } catch (error) {
-    toast(error.message, "error");
-  }
-});
+    try {
+      const profile = selectedProfile
+        ? { ...selectedProfile, name: name.trim(), style: overlayDraftStyle }
+        : { id: crypto.randomUUID().slice(0, 36), name: name.trim(), style: overlayDraftStyle };
+      const nextProfiles = selectedProfile
+        ? overlayProfiles.map((item) => (item.id === profile.id ? profile : item))
+        : [...overlayProfiles, profile];
+      await persistOverlayProfiles(nextProfiles);
+      selectedOverlayProfileId = profile.id;
+      renderOverlayProfileSelect();
+      toast("Preset saved");
+    } catch (error) {
+      toast(error.message, "error");
+    }
+  });
+}
 
-$("renameOverlayProfile").addEventListener("click", async () => {
-  const profile = overlayProfiles.find((item) => item.id === selectedOverlayProfileId);
-  if (!profile) return;
-  const name = $("overlayProfileName").value.trim();
-  if (!name || !name.trim()) return;
-  if (
-    overlayProfiles.some(
-      (item) => item.id !== profile.id && item.name.toLowerCase() === name.toLowerCase(),
-    )
-  ) {
-    return toast("A profile with that name already exists", "error");
-  }
-  try {
-    await persistOverlayProfiles(
-      overlayProfiles.map((item) =>
-        item.id === profile.id ? { ...item, name: name.trim() } : item,
-      ),
-    );
-    toast("Appearance profile renamed");
-  } catch (error) {
-    toast(error.message, "error");
-  }
-});
-
-$("deleteOverlayProfile").addEventListener("click", async () => {
-  if (!selectedOverlayProfileId) return;
-  try {
-    await persistOverlayProfiles(
-      overlayProfiles.filter((item) => item.id !== selectedOverlayProfileId),
-    );
-    selectedOverlayProfileId = "";
-    renderOverlayProfileSelect();
-    toast("Appearance profile deleted");
-  } catch (error) {
-    toast(error.message, "error");
-  }
-});
-
-$("exportOverlayProfiles").addEventListener("click", () => {
-  const blob = new Blob(
-    [
-      JSON.stringify(
-        { format: "dance-game-overlay-profiles", version: 1, profiles: overlayProfiles },
-        null,
-        2,
-      ),
-    ],
-    { type: "application/json" },
-  );
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "overlay-profiles.json";
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-});
-
-$("importOverlayProfiles").addEventListener("click", () => $("overlayProfilesFile").click());
-$("overlayProfilesFile").addEventListener("change", async (event) => {
-  const file = event.target.files && event.target.files[0];
-  event.target.value = "";
-  if (!file) return;
-  if (file.size > 128 * 1024) return toast("Profile file is too large", "error");
-  try {
-    const imported = JSON.parse(await file.text());
+const renamePresetBtn = $("renameOverlayPreset");
+if (renamePresetBtn) {
+  renamePresetBtn.addEventListener("click", async () => {
+    const profile = overlayProfiles.find((item) => item.id === selectedOverlayProfileId);
+    if (!profile) return;
+    const nameInput = $("overlayPresetName");
+    const name = nameInput ? nameInput.value.trim() : "";
+    if (!name) return toast("Enter a preset name", "error");
     if (
-      imported.format !== "dance-game-overlay-profiles" ||
-      imported.version !== 1 ||
-      !Array.isArray(imported.profiles) ||
-      imported.profiles.length > 20
+      overlayProfiles.some(
+        (item) => item.id !== profile.id && item.name.toLowerCase() === name.toLowerCase(),
+      )
     ) {
-      throw new Error("Unsupported overlay profile file");
+      return toast("A preset with that name already exists", "error");
     }
-    const names = new Set(overlayProfiles.map((profile) => profile.name.toLowerCase()));
-    const additions = [];
-    for (const profile of imported.profiles) {
-      const name = String(profile && profile.name ? profile.name : "").trim();
-      const nameKey = name.toLowerCase();
-      if (!name || names.has(nameKey)) continue;
-      names.add(nameKey);
-      additions.push({ ...profile, id: crypto.randomUUID().slice(0, 36), name });
+    try {
+      await persistOverlayProfiles(
+        overlayProfiles.map((item) =>
+          item.id === profile.id ? { ...item, name: name.trim() } : item,
+        ),
+      );
+      toast("Preset renamed");
+    } catch (error) {
+      toast(error.message, "error");
     }
-    if (overlayProfiles.length + additions.length > 20) {
-      throw new Error("Import would exceed the 20-profile limit");
+  });
+}
+
+const deletePresetBtn = $("deleteOverlayPreset");
+if (deletePresetBtn) {
+  deletePresetBtn.addEventListener("click", async () => {
+    if (!selectedOverlayProfileId) return;
+    try {
+      await persistOverlayProfiles(
+        overlayProfiles.filter((item) => item.id !== selectedOverlayProfileId),
+      );
+      selectedOverlayProfileId = "";
+      renderOverlayProfileSelect();
+      toast("Preset deleted");
+    } catch (error) {
+      toast(error.message, "error");
     }
-    await persistOverlayProfiles([...overlayProfiles, ...additions]);
-    toast(`Imported ${additions.length} appearance profile${additions.length === 1 ? "" : "s"}`);
-  } catch (error) {
-    toast(error.message || "Could not read profile file", "error");
-  }
-});
+  });
+}
+
+const exportPresetsBtn = $("exportOverlayPresets");
+if (exportPresetsBtn) {
+  exportPresetsBtn.addEventListener("click", () => {
+    const blob = new Blob(
+      [
+        JSON.stringify(
+          { format: "dance-game-overlay-profiles", version: 1, profiles: overlayProfiles },
+          null,
+          2,
+        ),
+      ],
+      { type: "application/json" },
+    );
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "overlay-presets.json";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+}
+
+const importPresetsBtn = $("importOverlayPresets");
+if (importPresetsBtn) {
+  importPresetsBtn.addEventListener("click", () => $("overlayProfilesFile")?.click());
+}
+
+const profilesFileInput = $("overlayProfilesFile");
+if (profilesFileInput) {
+  profilesFileInput.addEventListener("change", async (event) => {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 128 * 1024) return toast("Preset file is too large", "error");
+    try {
+      const imported = JSON.parse(await file.text());
+      if (
+        imported.format !== "dance-game-overlay-profiles" ||
+        imported.version !== 1 ||
+        !Array.isArray(imported.profiles) ||
+        imported.profiles.length > 20
+      ) {
+        throw new Error("Unsupported overlay preset file");
+      }
+      const names = new Set(overlayProfiles.map((profile) => profile.name.toLowerCase()));
+      const additions = [];
+      for (const profile of imported.profiles) {
+        const name = String(profile && profile.name ? profile.name : "").trim();
+        const nameKey = name.toLowerCase();
+        if (!name || names.has(nameKey)) continue;
+        names.add(nameKey);
+        additions.push({ ...profile, id: crypto.randomUUID().slice(0, 36), name });
+      }
+      if (overlayProfiles.length + additions.length > 20) {
+        throw new Error("Import would exceed the 20-preset limit");
+      }
+      await persistOverlayProfiles([...overlayProfiles, ...additions]);
+      toast(`Imported ${additions.length} preset${additions.length === 1 ? "" : "s"}`);
+    } catch (error) {
+      toast(error.message || "Could not read preset file", "error");
+    }
+  });
+}
+
+initOverlayPreviewBackground();
 
 function relativeLuminance(hex) {
   const channels = hex.match(/[\da-f]{2}/gi).map((part) => parseInt(part, 16) / 255);
