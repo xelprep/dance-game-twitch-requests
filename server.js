@@ -1934,9 +1934,7 @@ async function resolveTwitchUserId(login, cfg) {
   });
   if (!resp.ok) {
     const body = await resp.text().catch(() => "");
-    console.error(
-      `[whisper] Failed to resolve user id for "${login}" (status ${resp.status}): ${body}`,
-    );
+    console.error(`[whisper] Failed to resolve user id (status ${resp.status}): ${body}`);
     return null;
   }
   const json = await resp.json();
@@ -1979,7 +1977,7 @@ async function sendWhisper(username, message) {
 
   const senderId = await resolveTwitchUserId(cfg.username, cfg);
   if (!senderId) {
-    console.error(`[whisper] Could not resolve sender id for ${cfg.username}; aborting whisper.`);
+    console.error(`[whisper] Could not resolve sender id; aborting whisper.`);
     throw new Error("Could not resolve sender user id");
   }
   const recipientId = await resolveTwitchUserId(username, cfg);
@@ -4188,7 +4186,7 @@ async function handleTempModWhisper(fromUsername, message) {
       );
     } catch (e) {
       console.error(
-        `[temp-mod] Failed to send credentials to ${wasPending.username}:`,
+        `[temp-mod] Failed to send credentials to nominated user:`,
         e && e.message ? e.message : e,
       );
       // Rollback on failure
@@ -4209,7 +4207,7 @@ async function handleTempModWhisper(fromUsername, message) {
       await sendWhisper(wasPending.username, `No problem!`);
     } catch (e) {
       console.error(
-        `[temp-mod] Failed to send rejection reply to ${wasPending.username}:`,
+        `[temp-mod] Failed to send rejection reply to nominated user:`,
         e && e.message ? e.message : e,
       );
     }
@@ -4239,12 +4237,19 @@ async function handleTempModWhisper(fromUsername, message) {
 // exponential backoff.
 async function connectEventSub(cfg, opts = {}) {
   if (eventSubStopping) return;
-  const url = opts.reconnectUrl
-    ? normalizeEventSubUrl(opts.reconnectUrl)
-    : "wss://eventsub.wss.twitch.tv/ws";
-  if (!url) {
-    console.warn("[eventsub] Rejected an unexpected reconnect URL; starting a fresh session.");
-    return connectEventSub(cfg);
+  let url;
+  if (opts.reconnectUrl) {
+    // Strictly validate: only allow wss://eventsub.wss.twitch.tv/ws (Twitch
+    // EventSub reconnect endpoint). normalizeEventSubUrl returns null for
+    // anything else; the result is a re-serialized URL object href, not the
+    // raw user-provided string.
+    url = normalizeEventSubUrl(opts.reconnectUrl);
+    if (!url) {
+      console.warn("[eventsub] Rejected an unexpected reconnect URL; starting a fresh session.");
+      return connectEventSub(cfg);
+    }
+  } else {
+    url = "wss://eventsub.wss.twitch.tv/ws";
   }
   const socket = new WebSocket(url);
   eventSubSocket = socket;

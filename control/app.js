@@ -1042,7 +1042,15 @@ function startServerRestart() {
       delay -= 1;
       if (delay <= 0) {
         clearInterval(timer);
-        window.location.href = openAt;
+        // Only navigate to http/https URLs to guard against javascript: injection.
+        try {
+          const dest = new URL(openAt);
+          if (dest.protocol === "http:" || dest.protocol === "https:") {
+            window.location.href = dest.href;
+          }
+        } catch (_) {
+          // openAt is not a parseable URL — do not navigate.
+        }
         return;
       }
       setNetworkStatus(`Restarting… opening ${openAt} in ${delay}s`);
