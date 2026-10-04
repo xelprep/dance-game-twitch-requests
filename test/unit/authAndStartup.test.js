@@ -1,6 +1,8 @@
 process.env.NODE_ENV = "test";
 process.env.SKIP_APP_STARTUP = "1";
 process.env.CONTROL_PASSWORD = "test-control-password";
+// Pin the default so a local .env vanity name (loaded via dotenv) cannot leak in.
+process.env.STREAMER_VANITY_NAME = "Streamer";
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -55,6 +57,16 @@ test("streamer auth accepts the expected basic auth credentials", () => {
     false,
   );
   assert.equal(verifyStreamerAuth(`Basic ${"A".repeat(1025)}`, "test-control-password"), false);
+});
+
+test("streamer auth accepts the vanity name username case-insensitively and rejects other usernames", () => {
+  // STREAMER_VANITY_NAME is unset in this test, so the vanity name defaults to "Streamer".
+  const header = (username) =>
+    "Basic " + Buffer.from(`${username}:test-control-password`).toString("base64");
+  assert.equal(verifyStreamerAuth(header("Streamer"), "test-control-password"), true);
+  assert.equal(verifyStreamerAuth(header("STREAMER"), "test-control-password"), true);
+  assert.equal(verifyStreamerAuth(header("viewer"), "test-control-password"), false);
+  assert.equal(verifyStreamerAuth(header("streamer"), "wrong-password"), false);
 });
 
 test("course names remove arbitrarily long trailing periods without regex backtracking", () => {

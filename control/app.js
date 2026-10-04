@@ -33,6 +33,10 @@ function toast(msg, type) {
   );
 }
 
+// Username used for control-panel requests: the streamer's vanity name from the
+// initial setup (STREAMER_VANITY_NAME), refreshed from the settings endpoint.
+let streamerName = "Streamer";
+
 function getSongSearchPerPage() {
   return Number($("per-page").value) || 25;
 }
@@ -428,8 +432,8 @@ window.addToQueue = async (songId, chartId) => {
       body: JSON.stringify({
         songId,
         chartId,
-        username: "streamer",
-        displayName: "Streamer",
+        username: streamerName,
+        displayName: streamerName,
       }),
     });
     const chart = result.request.chart;
@@ -499,7 +503,7 @@ async function render() {
           ${r.subtitle ? `<span class="subtitle">${esc(r.subtitle)}</span>` : ""}
           <span>${esc(r.artist)}${r.pack ? " • " + esc(r.pack) : ""}</span>
           ${r.chart ? `<small class="request-chart">${esc(chartText(r.chart))}</small>` : ""}
-          <small>Requested by ${esc(r.requested_display)}${String(r.requested_by.toLowerCase() || "") === "streamer" ? " (Control Panel)" : ""}</small>
+          <small>Requested by ${esc(r.requested_display)}${r.viaControlPanel ? " (Control Panel)" : ""}</small>
         </div>
         <div class="row-actions">
           <button onclick="move(${r.id},'up')">↑</button>
@@ -534,6 +538,7 @@ async function render() {
       const chatRequestsEnabled = $("chatRequestsEnabled");
       const chatRequestsRequireRole = $("chatRequestsRequireRole");
       if (typeof settings !== "undefined") {
+        if (settings && settings.streamerVanityName) streamerName = settings.streamerVanityName;
         const artworkEnabled = $("artworkEnabled");
         if (artworkEnabled) artworkEnabled.checked = !!(settings && settings.artworkEnabled);
         updateArtworkControls(!!(settings && settings.artworkEnabled));

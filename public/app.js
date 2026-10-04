@@ -169,7 +169,7 @@ async function queue() {
           ${r.subtitle ? `<span class="subtitle">${escapeHTML(r.subtitle)}</span>` : ""}
           <span>${escapeHTML(r.artist)}${r.pack ? " • " + escapeHTML(r.pack) : ""}</span>
           ${r.chart ? `<small class="request-chart">${escapeHTML(chartText(r.chart))}</small>` : ""}
-          <small>Requested by ${escapeHTML(r.requested_display)}${String(r.requested_by || "").toLowerCase() === "streamer" ? " (Control Panel)" : ""}</small>
+          <small>Requested by ${escapeHTML(r.requested_display)}${r.viaControlPanel ? " (Control Panel)" : ""}</small>
         </div>
       </article>
     `,

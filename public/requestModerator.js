@@ -300,7 +300,7 @@ async function render() {
           ${r.subtitle ? `<span class="subtitle">${esc(r.subtitle)}</span>` : ""}
           <span>${esc(r.artist)}${r.pack ? " • " + esc(r.pack) : ""}</span>
           ${r.chart ? `<small class="request-chart">${esc(chartText(r.chart))}</small>` : ""}
-          <small>Requested by ${esc(r.requested_display)}${String(r.requested_by || "").toLowerCase() === "streamer" ? " (Control Panel)" : ""}</small>
+          <small>Requested by ${esc(r.requested_display)}${r.viaControlPanel ? " (Control Panel)" : ""}</small>
         </div>
         <div class="row-actions">
           <button onclick="move(${r.id},'up')">↑</button>

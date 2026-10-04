@@ -1,6 +1,8 @@
 process.env.NODE_ENV = "test";
 process.env.SKIP_APP_STARTUP = "1";
 process.env.CONTROL_PASSWORD = "test-control-password";
+// Pin the default so a local .env vanity name (loaded via dotenv) cannot leak in.
+process.env.STREAMER_VANITY_NAME = "Streamer";
 
 const fs = require("node:fs");
 const os = require("node:os");

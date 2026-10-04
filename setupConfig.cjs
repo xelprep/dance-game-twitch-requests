@@ -104,7 +104,8 @@ const ENV_OPTIONS = [
   {
     key: "STREAMER_VANITY_NAME",
     label: "Streamer display name",
-    description: "Name shown for streamer-added requests; defaults to Streamer.",
+    description:
+      "Name shown for streamer-added requests and used as the control panel username; defaults to Streamer.",
     type: "string",
   },
 ];

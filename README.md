@@ -262,7 +262,7 @@ CONTROL_PASSWORD=a-long-random-password
 
 The control panel then uses HTTP Basic Authentication. The browser will ask for:
 
-- Username: `streamer`
+- Username: your streamer display name (the `STREAMER_VANITY_NAME` you chose during setup, e.g. `Manblingo`)
 - Password: your `CONTROL_PASSWORD`
 
 This page is now served with HTTPS using a locally generated self-signed certificate, so it stays private on your LAN while allowing Twitch OAuth redirects from a custom port.
@@ -309,7 +309,9 @@ Optionally Set:
 STREAMER_VANITY_NAME=Manblingo
 ```
 
-If this variable is set, this will be the display name posted in the request overlay browser source. It defaults to Streamer.
+If this variable is set, this will be the display name posted in the request overlay browser source, and the username the control panel uses for its requests (it is also accepted for the control panel's Basic Authentication login). It defaults to Streamer.
+
+The display name doubles as the streamer's request identity, so be aware of one edge case: if a viewer's Twitch username happens to match it, that viewer's chat requests are treated as streamer requests — they are queued behind viewer requests when "prioritize viewer requests" is enabled. (Such a viewer is still subject to the per-viewer request limit, since chat requests never bypass it.) Pick a display name that is unlikely to collide with a viewer's chat name.
 
 Then:
 

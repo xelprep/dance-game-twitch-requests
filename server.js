@@ -52,6 +52,14 @@ const PUBLIC_HTTPS =
     .toLowerCase() !== "false";
 // Streamer vanity name shown when adding requests from the control panel. Defaults to "Streamer".
 const STREAMER_VANITY_NAME = String(process.env.STREAMER_VANITY_NAME || "Streamer").slice(0, 50);
+// The streamer's vanity name (STREAMER_VANITY_NAME, default "Streamer") is the
+// control panel's identity: it authenticates the panel and identifies
+// streamer-side requests. Note: a chat viewer whose Twitch username matches it
+// is treated as the streamer (documented in the README).
+function isStreamerUsername(username) {
+  const name = String(username || "").toLowerCase();
+  return !!name && name === STREAMER_VANITY_NAME.toLowerCase();
+}
 const DEFAULT_INSTRUCTIONS_MINUTES = 10;
 const DEFAULT_COURSES_DIR = path.resolve("./data/courses");
 const GENERATED_COURSES_DIR_NAME = "Generated Courses";
@@ -613,6 +621,7 @@ function getQueue(limit = QUEUE_LIMIT) {
       ...queueRow,
       artworkUrl: artworkKey ? `/artwork/${artworkKey}.webp` : null,
       artworkKind: artworkKind || null,
+      viaControlPanel: isStreamerUsername(row.requested_by),
       chart: chartFromRow(row),
       charts: getSongCharts(row.song_id),
     };
@@ -641,6 +650,7 @@ function getNowPlaying() {
     ...nowPlaying,
     artworkUrl: artworkKey ? `/artwork/${artworkKey}.webp` : null,
     artworkKind: artworkKind || null,
+    viaControlPanel: isStreamerUsername(row.requested_by),
     chart: chartFromRow(row),
     charts: getSongCharts(row.song_id),
   };
@@ -972,6 +982,7 @@ function getControlSettings() {
     prioritizeViewerRequests: !!getSetting("prioritizeViewerRequests", true),
     chatRequestsEnabled: !!getSetting("chatRequestsEnabled", true),
     chatRequestsRequireRole: role,
+    streamerVanityName: STREAMER_VANITY_NAME,
     moderatorEnabled: !!getSetting("moderatorEnabled", false),
     moderatorUsername: primaryModerator.username,
     moderatorPasswordConfigured: moderatorCredentials.some((entry) => !!entry.passwordHash),
@@ -1067,10 +1078,10 @@ function verifyStreamerAuth(authHeader, expectedPassword) {
     const decoded = Buffer.from(credential, "base64").toString("utf8");
     const separator = decoded.indexOf(":");
     if (separator < 0) return false;
-    const username = decoded.slice(0, separator);
+    const username = decoded.slice(0, separator).toLowerCase();
     const password = decoded.slice(separator + 1);
     return (
-      timingSafeStringEqual(username, "streamer") &&
+      timingSafeStringEqual(username, STREAMER_VANITY_NAME.toLowerCase()) &&
       timingSafeStringEqual(password, expectedPassword)
     );
   } catch (_error) {
@@ -1440,7 +1451,7 @@ function addRequest(songId, username, displayName, options = {}) {
     .get(chartId);
   if (duplicate) throw new Error("That chart is already queued or playing.");
 
-  const isViewerRequest = String(username).toLowerCase() !== "streamer";
+  const isViewerRequest = !isStreamerUsername(username);
   const prioritize = getSetting("prioritizeViewerRequests", true);
   const insertRequest = db.transaction(() => {
     const queued = db
@@ -1457,7 +1468,7 @@ function addRequest(songId, username, displayName, options = {}) {
     if (prioritize && prioritizeViewerInsertion && isViewerRequest) {
       const lastViewerIndex = queued.reduce(
         (lastIndex, request, index) =>
-          request.requested_by.toLowerCase() === "streamer" ? lastIndex : index,
+          isStreamerUsername(request.requested_by) ? lastIndex : index,
         -1,
       );
       insertIndex = lastViewerIndex + 1;
@@ -2582,12 +2593,11 @@ function createApi(app, options = {}) {
       );
 
       // If this API is mounted as the control panel (options.control === true) and the
-      // control client is submitting a request as the special 'streamer' sentinel username,
-      // treat it as the streamer and bypass MAX_REQUESTS_PER_USER. Also use the configured
-      // STREAMER_VANITY_NAME for the displayed name so overlays show the streamer's chosen name.
-      const isControlStreamer = !!(
-        options.control && String(username || "").toLowerCase() === "streamer"
-      );
+      // control client is submitting a request as the streamer's vanity name,
+      // treat it as the streamer and bypass MAX_REQUESTS_PER_USER. Also use the
+      // configured STREAMER_VANITY_NAME for the displayed name so overlays show the
+      // streamer's chosen name.
+      const isControlStreamer = !!(options.control && isStreamerUsername(username));
 
       const r = addRequest(
         Number(req.body.songId),
@@ -3772,6 +3782,7 @@ module.exports = {
   hashModeratorPassword,
   verifyModeratorPassword,
   verifyStreamerAuth,
+  isStreamerUsername,
   sanitizeCourseName,
   generateRandomPassword,
   normalizeEventSubUrl,

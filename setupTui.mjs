@@ -334,7 +334,7 @@ async function runSetup({ envPath = path.resolve(process.cwd(), ".env") } = {}) 
   console.log(`\nConfiguration saved to ${envPath}.`);
   if (result.backupPath) console.log(`Previous configuration backed up to ${result.backupPath}.`);
   console.log(
-    "Start the app with `npm start`, then open https://localhost:3001 and sign in as streamer.",
+    "Start the app with `npm start`, then open https://localhost:3001 and sign in with your streamer display name.",
   );
   return true;
 }
