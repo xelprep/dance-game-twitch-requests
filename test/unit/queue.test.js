@@ -77,6 +77,24 @@ test("addRequest requires a chartId and rejects charts that do not belong to the
   );
 });
 
+test("rescanning songs preserves chart info for queued requests", async () => {
+  resetRequests();
+  const song = getSongSearchRows(10, "")[0];
+  const chartId = getChartId(song.id);
+  const request = addRequest(song.id, `queue-user-${Date.now()}-rescan`, "Alice", {
+    chartId,
+  });
+
+  await scanSongs(tmpSongsDir, db);
+
+  const queuedRequest = getQueue().find((entry) => entry.id === request.id);
+  assert.ok(queuedRequest, "expected the request to remain queued after rescanning");
+  assert.equal(queuedRequest.chart.id, chartId);
+  assert.equal(queuedRequest.chart.chartType, "dance-single");
+  assert.equal(queuedRequest.chart.difficulty, "Hard");
+  assert.equal(queuedRequest.chart.meter, "12");
+});
+
 test("setRequestStatus moves a queued request into playing and then completed", () => {
   resetRequests();
   const song = getSongSearchRows(10, "")[0];
