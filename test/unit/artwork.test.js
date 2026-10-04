@@ -68,6 +68,22 @@ test("song artwork follows banner, jacket, then pack fallback order", async () =
   });
 });
 
+test("bn.png is treated as a banner fallback when no explicit banner or banner.* exists", async () => {
+  const root = tempDir();
+  const pack = path.join(root, "Pack");
+  const song = path.join(pack, "Song");
+  const filePath = path.join(song, "chart.ssc");
+  fs.mkdirSync(song, { recursive: true });
+  fs.writeFileSync(filePath, "#TITLE:Song;", "utf8");
+  await writeImage(path.join(song, "bn.png"), "#ff9900");
+  await writeImage(path.join(pack, "group.png"), "#336699");
+
+  assert.deepEqual(resolveSongArtwork(filePath, [root]), {
+    sourcePath: fs.realpathSync(path.join(song, "bn.png")),
+    kind: "banner",
+  });
+});
+
 test("pack.ini Banner takes priority over conventional pack images", async () => {
   const root = tempDir();
   const pack = path.join(root, "Pack");

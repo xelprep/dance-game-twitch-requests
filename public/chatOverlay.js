@@ -101,17 +101,22 @@ function addMessage(entry) {
 }
 
 function startSSE() {
-  const s = new EventSource("/overlay/chat/stream");
-  s.addEventListener("message", (ev) => {
+  let source = new EventSource("/overlay/chat/stream");
+
+  source.addEventListener("message", (ev) => {
     try {
       addMessage(JSON.parse(ev.data));
     } catch (e) {
       console.error("Failed to parse chat SSE data", e);
     }
   });
-  s.addEventListener("error", (e) => {
-    // EventSource retries automatically.
-    console.warn("Chat SSE error", e);
+
+  source.addEventListener("error", () => {
+    // OBS's browser sometimes does not auto-reconnect when a connection is
+    // silently dropped. Close the dead source and reconnect explicitly.
+    console.warn("Chat SSE error — reconnecting in 3s");
+    source.close();
+    setTimeout(startSSE, 3000);
   });
 }
 

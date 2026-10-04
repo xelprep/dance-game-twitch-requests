@@ -105,7 +105,10 @@ function resolveSongArtworkCandidates(songFilePath, roots, simfileText = null) {
   const candidates = [];
   if (explicitBanner)
     candidates.push({ kind: "banner", path: path.resolve(songDirectory, explicitBanner) });
-  candidates.push({ kind: "banner", path: firstNamedImage(songDirectory, ["banner"], roots) });
+  candidates.push({
+    kind: "banner",
+    path: firstNamedImage(songDirectory, ["banner", "bn"], roots),
+  });
   if (explicitJacket)
     candidates.push({ kind: "jacket", path: path.resolve(songDirectory, explicitJacket) });
   candidates.push({ kind: "jacket", path: firstNamedImage(songDirectory, ["jacket"], roots) });

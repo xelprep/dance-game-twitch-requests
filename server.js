@@ -3484,6 +3484,25 @@ publicApp.get("/overlay/chat/stream", (req, res) => {
   req.on("close", () => sseChatClients.delete(res));
 });
 
+// Periodic SSE heartbeat: sends a comment line (ignored by clients) to every
+// open SSE connection every 25 seconds. Without this, OBS's browser, OS TCP
+// timeouts, or proxy idle-connection limits will silently drop connections
+// that carry no traffic during quiet periods — which is exactly what happens
+// on the chat overlay when nobody is chatting.
+const sseHeartbeatTimer = setInterval(() => {
+  const ping = ": keepalive\n\n";
+  for (const clientSet of [sseQueueClients, sseOverlayStyleClients, sseChatClients]) {
+    for (const res of Array.from(clientSet)) {
+      try {
+        res.write(ping);
+      } catch (_e) {
+        clientSet.delete(res);
+      }
+    }
+  }
+}, 25000);
+if (sseHeartbeatTimer.unref) sseHeartbeatTimer.unref();
+
 // Expose a small helper name used by patched functions above.
 const broadcastQueueUpdateRef = broadcastQueueUpdate; // no-op to keep reference semantics
 
