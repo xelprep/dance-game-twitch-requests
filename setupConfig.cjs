@@ -21,14 +21,22 @@ const ENV_OPTIONS = [
     key: "COURSES_DIR",
     label: "Generated course output directory",
     description:
-      "Generated courses go in a Generated Courses subfolder; blank uses the default (./data/courses).",
+      "Generated courses go in a Generated Courses subfolder; blank uses the data root's courses/ folder.",
     type: "directory",
     optional: true,
   },
   {
     key: "DB_DIR",
     label: "Database directory",
-    description: "Directory for songs.db; leave blank for default (./data).",
+    description: "Directory for songs.db; leave blank for the data root.",
+    type: "directory",
+    optional: true,
+  },
+  {
+    key: "APP_DATA_DIR",
+    label: "Data root directory",
+    description:
+      "Root folder for all generated content (database, artwork cache, courses, control-panel TLS, twitch.json). Leave blank for the default (~/.dance-game-requests).",
     type: "directory",
     optional: true,
   },

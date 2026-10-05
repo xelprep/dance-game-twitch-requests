@@ -371,15 +371,17 @@ The viewer text search on the public web page searches song titles only (use the
 
 In chat, viewers can discover songs and then request by a unique numeric ID. The chat bot behavior is:
 
-## Database
+## Data location
 
-The SQLite database is:
+All generated content (the database, artwork cache, generated courses, control-panel TLS, and `twitch.json`) lives in a single **data root**:
 
 ```text
-data/songs.db
+~/.dance-game-requests/
 ```
 
-It remains local to the streaming PC. No song audio is uploaded or served.
+By default this is `~/.dance-game-requests` in your home directory, so your data survives app updates and the app can be installed in a read-only location. Set `APP_DATA_DIR` in `.env` to relocate the whole data root (for example, point it at the app folder for a portable/USB setup). Individual pieces can still be redirected with `DATABASE_PATH`/`DB_DIR`, `ARTWORK_CACHE_DIR`, and `COURSES_DIR`.
+
+The SQLite database is `~/.dance-game-requests/songs.db` by default. It remains local to the streaming PC. No song audio is uploaded or served.
 
 ## Rescanning & Multithreaded Scanner
 
@@ -399,7 +401,7 @@ Artwork processing is disabled by default. In the streamer control panel's **Set
 
 Artwork selection prefers a song's declared or conventional banner, then its declared or conventional jacket, then the pack banner. A pack's `Banner=` value in `pack.ini` takes precedence over conventional pack image names. CD title, disc, and background images are not used.
 
-Generated thumbnails are stored locally in `data/artwork-cache/` beside the default database, or in `ARTWORK_CACHE_DIR` when set. The app serves only these resized WebP files to the web cards and now-playing overlay; it does not serve original song-folder artwork files. The cache is incremental, so unchanged images are not decoded and resized again.
+Generated thumbnails are stored in the data root's `artwork-cache/` folder (default `~/.dance-game-requests/artwork-cache/`), or in `ARTWORK_CACHE_DIR` when set. The app serves only these resized WebP files to the web cards and now-playing overlay; it does not serve original song-folder artwork files. The cache is incremental, so unchanged images are not decoded and resized again.
 
 ## Making the web page public
 
@@ -411,7 +413,7 @@ If you want viewers to browse the library, expose port 3000 through a secure tun
 
 The app intentionally stores all files locally and does not upload or serve the song audio files. This is a metadata/request queue, not a music distribution server.
 
-Additionally, the app makes absolutely no writes to your `SONGS_DIR`, only reads. All writing occurs within the app's project folder.
+Additionally, the app makes absolutely no writes to your `SONGS_DIR`, only reads. All generated files are written to the data root (default `~/.dance-game-requests/`, or `APP_DATA_DIR` when set).
 
 ## Control Panel limitation
 

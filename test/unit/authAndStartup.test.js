@@ -8,6 +8,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const path = require("node:path");
+const os = require("node:os");
 
 const {
   db,
@@ -139,7 +140,7 @@ test("Twitch token refresh retry delay uses capped exponential backoff", () => {
 });
 
 test("resolveDatabasePath properly prioritizes test mode and custom environment variables", () => {
-  const defaultDevPath = path.resolve("./data/songs.db");
+  const defaultDevPath = path.join(os.homedir(), ".dance-game-requests", "songs.db");
 
   // In production/normal mode:
   assert.equal(resolveDatabasePath({ NODE_ENV: "production" }), defaultDevPath);

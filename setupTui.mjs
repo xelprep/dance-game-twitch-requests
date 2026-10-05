@@ -235,7 +235,7 @@ function hasSongFiles(directory) {
   }
 }
 
-async function runSetup({ envPath = path.resolve(process.cwd(), ".env") } = {}) {
+async function runSetup({ envPath = path.join(projectDirectory, ".env") } = {}) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     console.error(
       "Interactive setup needs a terminal. Run `npm run setup` from a terminal, or configure .env manually.",

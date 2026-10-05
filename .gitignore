@@ -1,15 +1,8 @@
+.DS_Store
+*/.DS_Store
 node_modules/
 .env
 .env.*.bak
-data/*.db
-data/*.db-*
-data/artwork-cache/
-data/twitch.json
-data/control-panel/*.pem
-data/control-panel/hosts.json
-.DS_Store
-*/.DS_Store
 Songs/
 references/
 planning/
-/data/courses/*.crs

@@ -1,12 +1,14 @@
 const { installConsoleLogger } = require("./logger");
 
 installConsoleLogger();
-require("dotenv").config({ quiet: true });
+const path = require("path");
+// .env lives beside the app (not in the working directory) so a portable/installed
+// copy reads its config regardless of where it is launched from.
+require("dotenv").config({ path: path.join(__dirname, ".env"), quiet: true });
 const SHOULD_START_APP = !(process.env.NODE_ENV === "test" || process.env.SKIP_APP_STARTUP === "1");
 
 const express = require("express");
 const { rateLimit } = require("express-rate-limit");
-const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const net = require("net");
@@ -20,6 +22,14 @@ const WebSocket = require("ws");
 const { parseSecureMode, applySecureModeDefaults } = require("./secureMode");
 const { scanSongs } = require("./scanner");
 const { artworkFilePath, ensureArtworkSchema, processSongArtwork } = require("./artwork");
+
+// Single data root for all generated content (songs.db, artwork-cache/, courses/,
+// control-panel/ TLS, twitch.json). Defaults to ~/.dance-game-requests so data
+// survives app updates and works from read-only install locations; set APP_DATA_DIR
+// to relocate it (e.g., point it at the app folder for a portable/USB setup).
+const DATA_ROOT = process.env.APP_DATA_DIR
+  ? path.resolve(process.env.APP_DATA_DIR)
+  : path.join(os.homedir(), ".dance-game-requests");
 
 // Network settings (bind address + public/control ports) are runtime settings managed from the
 // streamer control panel and persisted in the settings DB. These are only the fallback defaults.
@@ -61,7 +71,7 @@ function isStreamerUsername(username) {
   return !!name && name === STREAMER_VANITY_NAME.toLowerCase();
 }
 const DEFAULT_INSTRUCTIONS_MINUTES = 10;
-const DEFAULT_COURSES_DIR = path.resolve("./data/courses");
+const DEFAULT_COURSES_DIR = path.join(DATA_ROOT, "courses");
 const GENERATED_COURSES_DIR_NAME = "Generated Courses";
 
 // Runtime instructions timer (minutes); managed from the control panel and stored in the settings DB.
@@ -198,13 +208,11 @@ if (!CONTROL_PASSWORD || CONTROL_PASSWORD === "a-long-random-password") {
   process.exit(1);
 }
 
-const CONTROL_TLS_DIR = path.resolve("./data/control-panel");
+const CONTROL_TLS_DIR = path.join(DATA_ROOT, "control-panel");
 const CONTROL_TLS_KEY_PATH = path.join(CONTROL_TLS_DIR, "key.pem");
 const CONTROL_TLS_CERT_PATH = path.join(CONTROL_TLS_DIR, "cert.pem");
 const CONTROL_TLS_HOSTS_PATH = path.join(CONTROL_TLS_DIR, "hosts.json");
 const BASE_TLS_HOST_VALUES = ["localhost", "127.0.0.1", "::1", "0.0.0.0"];
-
-fs.mkdirSync(path.resolve("./data"), { recursive: true });
 
 function readControlTlsHosts() {
   try {
@@ -308,17 +316,18 @@ function resolveDatabasePath(env = process.env) {
   if (env.DB_DIR) {
     return path.resolve(env.DB_DIR, "songs.db");
   }
-  return path.resolve("./data/songs.db");
+  return path.join(DATA_ROOT, "songs.db");
 }
 
 const DB_PATH = resolveDatabasePath();
 const ARTWORK_CACHE_DIR = path.resolve(
-  process.env.ARTWORK_CACHE_DIR || path.join(path.dirname(DB_PATH), "artwork-cache"),
+  process.env.ARTWORK_CACHE_DIR || path.join(DATA_ROOT, "artwork-cache"),
 );
 let artworkJobState = { running: false, completed: 0, total: 0, result: null, error: null };
 let db;
 try {
   if (DB_PATH !== ":memory:") {
+    fs.mkdirSync(DATA_ROOT, { recursive: true });
     fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   }
   db = new Database(DB_PATH);
@@ -3801,7 +3810,7 @@ module.exports = {
 };
 
 // Twitch connection and OAuth helper support.
-const TWITCH_DATA_FILE = path.resolve("./data/twitch.json");
+const TWITCH_DATA_FILE = path.join(DATA_ROOT, "twitch.json");
 let twitchClient = null;
 let twitchConfig = null; // loaded config (clientId, clientSecret, username, channel, accessToken...)
 const TWITCH_AUTH_STATE_TTL_MS = 10 * 60 * 1000;

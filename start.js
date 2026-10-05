@@ -15,7 +15,9 @@ function readConfiguredValues(envPath) {
 }
 
 function main() {
-  const envPath = path.resolve(process.cwd(), ".env");
+  // .env lives beside the app, not in the working directory, so a portable/installed
+  // copy finds its config regardless of where it is launched from.
+  const envPath = path.join(__dirname, ".env");
   if (!isSetupComplete(readConfiguredValues(envPath))) {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       console.error(
@@ -25,7 +27,7 @@ function main() {
       return;
     }
     const setup = spawnSync(process.execPath, [path.join(__dirname, "setupTui.mjs")], {
-      cwd: process.cwd(),
+      cwd: __dirname,
       env: process.env,
       stdio: "inherit",
     });
