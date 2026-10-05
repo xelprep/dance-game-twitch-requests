@@ -3,6 +3,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const dotenv = require("dotenv");
 const { isSetupComplete } = require("./setupConfig.cjs");
+const { prepareDataDir } = require("./dataDir.cjs");
 
 function readConfiguredValues(envPath) {
   let fileValues = {};
@@ -14,14 +15,20 @@ function readConfiguredValues(envPath) {
   return { ...fileValues, ...process.env };
 }
 
-function main() {
-  // .env lives beside the app, not in the working directory, so a portable/installed
-  // copy finds its config regardless of where it is launched from.
-  const envPath = path.join(__dirname, ".env");
+async function main() {
+  // Resolve and prepare the app data root first. This handles the data_dir.ini
+  // lookup, validation, the "about to create this folder" announcement with an
+  // offer to quit, and one-time migration of a legacy app-folder .env.
+  const dataDir = await prepareDataDir({ projectDir: __dirname, interactive: true });
+  if (!dataDir) return; // prepareDataDir already exited on failure
+
+  // .env lives inside the data root (not beside the app), so a portable/installed
+  // copy keeps its config in one place regardless of where it is launched from.
+  const envPath = path.join(dataDir, ".env");
   if (!isSetupComplete(readConfiguredValues(envPath))) {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       console.error(
-        "App setup is incomplete. Run `npm run setup` in a terminal, or configure SONGS_DIR and CONTROL_PASSWORD in .env.",
+        `App setup is incomplete. Run \`npm run setup\` in a terminal, or configure SONGS_DIR and CONTROL_PASSWORD in ${envPath}.`,
       );
       process.exitCode = 1;
       return;
@@ -48,11 +55,9 @@ function main() {
   require("./server.js");
 }
 
-try {
-  main();
-} catch (error) {
+main().catch((error) => {
   console.error(`Unable to start the app: ${error.message}`);
   process.exitCode = 1;
-}
+});
 
 module.exports = { readConfiguredValues };

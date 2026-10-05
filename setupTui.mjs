@@ -9,46 +9,58 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const {
+  ADVANCED_OPTIONS,
   ENV_OPTIONS,
+  REQUIRED_OPTIONS,
   isDirectory,
   isValidControlPassword,
   writeEnvFile,
 } = require("./setupConfig.cjs");
+const { prepareDataDir } = require("./dataDir.cjs");
 const projectDirectory = path.dirname(fileURLToPath(import.meta.url));
 const BACK_STEP = Symbol("back to previous setup step");
 const BACK_INPUT = ":back";
 
-function readValues(filePath) {
-  let templateValues = {};
-  let currentValues = {};
+// Read the currently effective value for every option: process.env -> .env -> "".
+// Built-in defaults are not applied here; they are shown separately via each
+// option's `default` and applied by the app when a value is left blank.
+function readValues(envPath) {
+  let fileValues = {};
   try {
-    templateValues = dotenv.parse(
-      fs.readFileSync(path.join(projectDirectory, ".env.example"), "utf8"),
-    );
-  } catch {
-    // Built-in defaults keep setup usable without the example file.
-  }
-  try {
-    currentValues = dotenv.parse(fs.readFileSync(filePath, "utf8"));
+    fileValues = dotenv.parse(fs.readFileSync(envPath, "utf8"));
   } catch {
     // Missing .env is expected on first launch.
   }
   return Object.fromEntries(
-    ENV_OPTIONS.map(({ key }) => [
-      key,
-      process.env[key] ?? currentValues[key] ?? templateValues[key] ?? "",
-    ]),
+    ENV_OPTIONS.map(({ key }) => [key, process.env[key] ?? fileValues[key] ?? ""]),
   );
 }
 
-function displayDefault(option, value) {
+function formatValue(option, value) {
+  if (option.type === "boolean") return String(value).toLowerCase() === "true" ? "Yes" : "No";
+  return String(value);
+}
+
+// Build the "Current:" / "Default:" display lines for an option. When both a
+// current value and a built-in default exist they are shown together (fixes
+// current values being mislabeled as "default" on re-runs).
+function valueDisplayLines(option, currentValue) {
+  const current = String(currentValue ?? "").trim();
+  const def = String(option.default ?? "").trim();
   if (option.type === "password") {
-    return isValidControlPassword(value)
-      ? "configured password (hidden; choose Keep to retain)"
-      : "enter a secure password";
+    return isValidControlPassword(current)
+      ? ["Current: [hidden — a password is configured]"]
+      : ["Current: (none)"];
   }
-  if (option.type === "directory" || option.type === "path") return value || "(blank / disabled)";
-  return value;
+  if (current && def && current !== def) {
+    return [`Current: ${formatValue(option, current)}`, `Default: ${formatValue(option, def)}`];
+  }
+  if (current && def && current === def) {
+    return [`Current: ${formatValue(option, current)} (default)`];
+  }
+  if (current) return [`Current: ${formatValue(option, current)}`];
+  if (def) return [`Default: ${formatValue(option, def)}`];
+  return ["(not set)"];
 }
 
 function backChoice(allowed) {
@@ -235,103 +247,167 @@ function hasSongFiles(directory) {
   }
 }
 
-async function runSetup({ envPath = path.join(projectDirectory, ".env") } = {}) {
+async function runSetup() {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    console.error(
-      "Interactive setup needs a terminal. Run `npm run setup` from a terminal, or configure .env manually.",
-    );
+    console.error("Interactive setup needs a terminal. Run `npm run setup` from a terminal.");
     return false;
   }
 
-  const values = readValues(envPath);
+  // Resolve and prepare the data root before asking anything. This is where the
+  // "about to create this folder / relocate via data_dir.ini / offer to quit"
+  // flow happens, and it determines where .env will be written.
+  const dataDir = await prepareDataDir({ projectDir: projectDirectory, interactive: true });
+  if (!dataDir) return false; // prepareDataDir already exited on failure
+  const envFile = path.join(dataDir, ".env");
+
+  const values = readValues(envFile);
   const updates = {};
   console.log(
     "\nDance Game Twitch Requests setup\nConfigure the local settings below. Twitch authorization remains in the control panel.\n",
   );
+  console.log(`Settings are saved to ${envFile}.\n`);
 
+  const requiredSteps = REQUIRED_OPTIONS;
+  const advancedSteps = ADVANCED_OPTIONS;
+  let state = "required";
   let index = 0;
-  while (true) {
-    for (; index < ENV_OPTIONS.length; index += 1) {
-      const option = ENV_OPTIONS[index];
-      const currentValue = updates[option.key] ?? values[option.key] ?? "";
-      const canGoBack = index > 0;
-      const defaultLine =
-        option.type === "boolean"
-          ? ""
-          : `\nCurrent/default: ${displayDefault(option, currentValue)}`;
-      console.log(`\n${option.label}\n${option.description}${defaultLine}`);
-      let answer;
-      if (option.type === "directory") {
-        answer = await askDirectory(option, currentValue, canGoBack);
-      } else if (option.type === "path") {
-        answer = await askPath(option, currentValue, canGoBack);
-      } else if (option.type === "integer") {
-        answer = await askInteger(option, currentValue, canGoBack);
-      } else if (option.type === "boolean") {
-        answer = await askBoolean(option, currentValue, canGoBack);
-      } else if (option.type === "password") {
-        answer = await askPassword(currentValue, canGoBack);
-      } else if (option.type === "url") {
-        answer = await askUrl(option, currentValue, canGoBack);
-      } else {
-        answer = await askString(option, currentValue, canGoBack);
-      }
-      if (answer === BACK_STEP) {
-        index = Math.max(0, index - 1);
-        break;
-      }
-      if (answer === null) return false;
-      if (option.type === "password") {
-        updates[option.key] = answer.value;
-      } else {
-        updates[option.key] = option.type === "boolean" ? String(answer) : answer;
-      }
-    }
-    if (index < ENV_OPTIONS.length) continue;
+  let advancedChosen = false;
+  let songsCheckedFor = null;
 
-    if (!updates.SONGS_DIR)
-      throw new Error("SONGS_DIR is required. Choose a main Songs directory to continue.");
-    if (!hasSongFiles(updates.SONGS_DIR)) {
+  const askOption = async (option, canGoBack) => {
+    const currentValue = updates[option.key] ?? values[option.key] ?? "";
+    const lines = valueDisplayLines(option, currentValue);
+    const display = lines.length ? "\n" + lines.join("\n") : "";
+    console.log(`\n${option.label}\n${option.description}${display}`);
+    if (option.type === "directory") return askDirectory(option, currentValue, canGoBack);
+    if (option.type === "path") return askPath(option, currentValue, canGoBack);
+    if (option.type === "integer") return askInteger(option, currentValue, canGoBack);
+    if (option.type === "boolean") return askBoolean(option, currentValue, canGoBack);
+    if (option.type === "password") return askPassword(currentValue, canGoBack);
+    if (option.type === "url") return askUrl(option, currentValue, canGoBack);
+    return askString(option, currentValue, canGoBack);
+  };
+
+  const storeAnswer = (option, answer) => {
+    if (option.type === "password") updates[option.key] = answer.value;
+    else updates[option.key] = option.type === "boolean" ? String(answer) : answer;
+  };
+
+  while (true) {
+    if (state === "required") {
+      if (index < requiredSteps.length) {
+        const option = requiredSteps[index];
+        const answer = await askOption(option, index > 0);
+        if (answer === BACK_STEP) {
+          index = Math.max(0, index - 1);
+          continue;
+        }
+        if (answer === null) return false;
+        storeAnswer(option, answer);
+        index += 1;
+        continue;
+      }
+      state = "advanced-question";
+      continue;
+    }
+
+    if (state === "advanced-question") {
       const choice = await select({
-        message: "No .sm/.ssc files were found in pack/song folders.",
+        message: "Would you like to configure advanced options?",
         choices: [
-          { name: "Go back to choose the Songs directory", value: "back" },
-          { name: "Save this directory anyway", value: "continue" },
-          { name: "Cancel setup", value: "cancel" },
+          { name: "No, continue to the summary", value: "no" },
+          { name: "Yes, configure advanced options", value: "yes" },
         ],
-        default: "back",
+        default: "no",
       });
-      if (choice === "back") {
+      if (choice === "yes") {
+        advancedChosen = true;
+        state = "advanced";
         index = 0;
         continue;
       }
-      if (choice === "cancel") return false;
-    }
-
-    console.log("\nConfiguration summary:");
-    for (const option of ENV_OPTIONS) {
-      const value = option.type === "password" ? "[hidden]" : updates[option.key] || "(blank)";
-      console.log(`  ${option.key}=${value}`);
-    }
-    const choice = await select({
-      message: "Save setup configuration?",
-      choices: [
-        { name: "Write settings to .env", value: "save" },
-        { name: "Back to the previous setting", value: "back" },
-        { name: "Cancel setup", value: "cancel" },
-      ],
-      default: "save",
-    });
-    if (choice === "back") {
-      index = ENV_OPTIONS.length - 1;
+      advancedChosen = false;
+      state = "summary";
       continue;
     }
-    if (choice === "cancel") return false;
-    break;
+
+    if (state === "advanced") {
+      if (index < advancedSteps.length) {
+        const option = advancedSteps[index];
+        const answer = await askOption(option, true);
+        if (answer === BACK_STEP) {
+          if (index > 0) {
+            index -= 1;
+            continue;
+          }
+          state = "advanced-question";
+          continue;
+        }
+        if (answer === null) return false;
+        storeAnswer(option, answer);
+        index += 1;
+        continue;
+      }
+      state = "summary";
+      continue;
+    }
+
+    if (state === "summary") {
+      // Validate the songs directory (warn when no simfiles are found). Re-check
+      // only when SONGS_DIR has changed since the last check.
+      if (songsCheckedFor !== (updates.SONGS_DIR || "")) {
+        if (!updates.SONGS_DIR)
+          throw new Error("SONGS_DIR is required. Choose a main Songs directory to continue.");
+        if (!hasSongFiles(updates.SONGS_DIR)) {
+          const choice = await select({
+            message: "No .sm/.ssc files were found in pack/song folders.",
+            choices: [
+              { name: "Go back to choose the Songs directory", value: "back" },
+              { name: "Save this directory anyway", value: "continue" },
+              { name: "Cancel setup", value: "cancel" },
+            ],
+            default: "back",
+          });
+          if (choice === "back") {
+            state = "required";
+            index = 0;
+            continue;
+          }
+          if (choice === "cancel") return false;
+        }
+        songsCheckedFor = updates.SONGS_DIR || "";
+      }
+
+      console.log("\nConfiguration summary:");
+      for (const option of ENV_OPTIONS) {
+        const value = option.type === "password" ? "[hidden]" : updates[option.key] || "(blank)";
+        console.log(`  ${option.key}=${value}`);
+      }
+      const choice = await select({
+        message: "Save setup configuration?",
+        choices: [
+          { name: `Write settings to ${path.basename(envFile)}`, value: "save" },
+          { name: "Back to the previous setting", value: "back" },
+          { name: "Cancel setup", value: "cancel" },
+        ],
+        default: "save",
+      });
+      if (choice === "back") {
+        if (advancedChosen) {
+          state = "advanced";
+          index = advancedSteps.length - 1;
+        } else {
+          state = "advanced-question";
+        }
+        continue;
+      }
+      if (choice === "cancel") return false;
+      break;
+    }
   }
 
-  const result = await writeEnvFile(envPath, updates);
-  console.log(`\nConfiguration saved to ${envPath}.`);
+  const result = await writeEnvFile(envFile, updates);
+  console.log(`\nConfiguration saved to ${envFile}.`);
   if (result.backupPath) console.log(`Previous configuration backed up to ${result.backupPath}.`);
   console.log(
     "Start the app with `npm start`, then open https://localhost:3001 and sign in with your streamer display name.",

@@ -3,19 +3,32 @@ const fs = require("node:fs");
 const path = require("node:path");
 const dotenv = require("dotenv");
 
+// Each option carries:
+//   tier: "required" options are always asked; "advanced" options are only asked
+//         when the user opts in after the required questions.
+//   default: the built-in default value (previously sourced from .env.example,
+//         which no longer exists). Shown to the user alongside any current value.
+//
+// APP_DATA_DIR is intentionally NOT an option here: the data root is relocated
+// via data_dir.ini in the project root (see dataDir.cjs), and .env itself now
+// lives inside the data root.
 const ENV_OPTIONS = [
   {
     key: "SONGS_DIR",
     label: "Main Songs directory",
     description: "Root folder containing pack folders, song folders, and .sm/.ssc files.",
     type: "directory",
+    tier: "required",
+    default: "",
   },
   {
     key: "ADDITIONAL_SONGS_DIR",
     label: "Additional Songs directory",
     description: "Optional second library folder; matching packs are merged with the main library.",
     type: "directory",
+    tier: "required",
     optional: true,
+    default: "",
   },
   {
     key: "COURSES_DIR",
@@ -23,22 +36,35 @@ const ENV_OPTIONS = [
     description:
       "Generated courses go in a Generated Courses subfolder; blank uses the data root's courses/ folder.",
     type: "directory",
+    tier: "required",
     optional: true,
+    default: "",
+  },
+  {
+    key: "STREAMER_VANITY_NAME",
+    label: "Streamer display name",
+    description:
+      "Name shown for streamer-added requests and used as the control panel username; defaults to Streamer.",
+    type: "string",
+    tier: "required",
+    default: "Streamer",
+  },
+  {
+    key: "CONTROL_PASSWORD",
+    label: "Control-panel password",
+    description: "Password for streamer access to the authenticated control panel.",
+    type: "password",
+    tier: "required",
+    default: "",
   },
   {
     key: "DB_DIR",
     label: "Database directory",
     description: "Directory for songs.db; leave blank for the data root.",
     type: "directory",
+    tier: "advanced",
     optional: true,
-  },
-  {
-    key: "APP_DATA_DIR",
-    label: "Data root directory",
-    description:
-      "Root folder for all generated content (database, artwork cache, courses, control-panel TLS, twitch.json). Leave blank for the default (~/.dance-game-requests).",
-    type: "directory",
-    optional: true,
+    default: "",
   },
   {
     key: "SCANNER_THREADS",
@@ -46,6 +72,8 @@ const ENV_OPTIONS = [
     description:
       "-1 uses all available CPU cores; a positive number caps parallel scanner and artwork workers.",
     type: "integer",
+    tier: "advanced",
+    default: "-1",
     validate: (value) => value === -1 || value > 0,
     validationMessage: "Enter -1 or a positive whole number.",
   },
@@ -54,30 +82,40 @@ const ENV_OPTIONS = [
     label: "Secure startup mode",
     description: "When enabled, clears all saved moderator credentials at startup.",
     type: "boolean",
+    tier: "advanced",
+    default: "false",
   },
   {
     key: "BOT_PREFIX",
     label: "Chat command prefix",
     description: "Prefix viewers type before bot commands.",
     type: "string",
+    tier: "advanced",
+    default: "!",
   },
   {
     key: "SEARCH_COMMAND",
     label: "Search command name",
     description: "Command name used to search the song library in Twitch chat.",
     type: "string",
+    tier: "advanced",
+    default: "search",
   },
   {
     key: "REQUEST_ID_COMMAND",
     label: "Request-by-ID command name",
     description: "Command name used to request a song by its displayed ID.",
     type: "string",
+    tier: "advanced",
+    default: "requestid",
   },
   {
     key: "MAX_REQUESTS_PER_USER",
     label: "Maximum requests per viewer",
     description: "Maximum active requests one viewer may have in the queue.",
     type: "integer",
+    tier: "advanced",
+    default: "2",
     validate: (value) => value > 0,
     validationMessage: "Enter a positive whole number.",
   },
@@ -86,21 +124,19 @@ const ENV_OPTIONS = [
     label: "Queue size limit",
     description: "Maximum number of songs allowed in the request queue.",
     type: "integer",
+    tier: "advanced",
+    default: "25",
     validate: (value) => value > 0,
     validationMessage: "Enter a positive whole number.",
-  },
-  {
-    key: "CONTROL_PASSWORD",
-    label: "Control-panel password",
-    description: "Password for streamer access to the authenticated control panel.",
-    type: "password",
   },
   {
     key: "PUBLIC_URL",
     label: "Public website URL",
     description: "Optional publicly reachable URL shared with viewers for browsing and requests.",
     type: "url",
+    tier: "advanced",
     optional: true,
+    default: "",
   },
   {
     key: "PUBLIC_HTTPS",
@@ -108,15 +144,13 @@ const ENV_OPTIONS = [
     description:
       "HTTPS is recommended. Choose No for OBS browser sources on a trusted local network, where HTTP avoids self-signed-certificate warnings. Do not expose the HTTP port directly to the Internet.",
     type: "boolean",
-  },
-  {
-    key: "STREAMER_VANITY_NAME",
-    label: "Streamer display name",
-    description:
-      "Name shown for streamer-added requests and used as the control panel username; defaults to Streamer.",
-    type: "string",
+    tier: "advanced",
+    default: "true",
   },
 ];
+
+const REQUIRED_OPTIONS = ENV_OPTIONS.filter((option) => option.tier === "required");
+const ADVANCED_OPTIONS = ENV_OPTIONS.filter((option) => option.tier === "advanced");
 
 function parseEnvFile(contents) {
   return dotenv.parse(contents || "");
@@ -210,7 +244,9 @@ function generateControlPassword() {
 }
 
 module.exports = {
+  ADVANCED_OPTIONS,
   ENV_OPTIONS,
+  REQUIRED_OPTIONS,
   generateControlPassword,
   isDirectory,
   isSetupComplete,

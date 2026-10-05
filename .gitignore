@@ -2,5 +2,5 @@
 */.DS_Store
 node_modules/
 localdev/
-.env
-.env.*.bak
+.env*
+data_dir.ini

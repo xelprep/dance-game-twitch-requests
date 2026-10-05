@@ -218,7 +218,7 @@ npm install
 npm start
 ```
 
-On first launch, an interactive setup wizard asks for the Songs folder and walks through every `.env.example` option with its explanation and current/default value. In the directory browser, press **Enter** to open a folder and **Space** to select it. Later steps offer a Back choice; text fields accept `:back` to return to the previous step. Choose a strong control-panel password in the masked prompt and enter it twice to confirm; the password is saved to `.env` and is never printed. Twitch authorization remains in the control panel.
+No configuration files are required: on first launch, an interactive setup wizard takes over. It first explains the **data folder** it is about to create (where the app stores its database, artwork cache, and `.env`), shows how to relocate that folder via `data_dir.ini`, and offers to quit so you can set the location manually. It then always asks for the Songs directory, optional additional songs directory, courses directory, streamer display name, and control-panel password, and offers the remaining (advanced) options with a default of **No**. In the directory browser, press **Enter** to open a folder and **Space** to select it. Later steps offer a Back choice; text fields accept `:back` to return to the previous step. On re-runs, each setting shows its current value and, when different, its built-in default. Choose a strong control-panel password in the masked prompt and enter it twice to confirm; the password is saved to `.env` and is never printed. Twitch authorization remains in the control panel.
 
 Run the wizard again at any time with:
 
@@ -226,7 +226,7 @@ Run the wizard again at any time with:
 npm run setup
 ```
 
-Setup preserves unrelated `.env` values and comments and backs up the previous file before changing it. You can also configure `.env` manually by copying `.env.example`; `SONGS_DIR` and a non-default `CONTROL_PASSWORD` are required. If startup has no interactive terminal, it prints setup instructions instead of prompting.
+Setup preserves unrelated `.env` values and comments and backs up the previous file before changing it. You can also edit the `.env` file in the data folder manually (see [Data location](#data-location)); `SONGS_DIR` and a non-default `CONTROL_PASSWORD` are required. If startup has no interactive terminal, it prints setup instructions instead of prompting.
 
 `SONGS_DIR` should point to the main Songs directory containing pack folders, then song folders with `.sm` or `.ssc` simfiles. The wizard warns if it cannot find simfiles at that expected depth.
 
@@ -373,13 +373,39 @@ In chat, viewers can discover songs and then request by a unique numeric ID. The
 
 ## Data location
 
-All generated content (the database, artwork cache, generated courses, control-panel TLS, and `twitch.json`) lives in a single **data root**:
+All generated content (the database, artwork cache, generated courses, control-panel TLS, `twitch.json`, and the `.env` configuration file) lives in a single **data root**:
 
 ```text
 ~/.dance-game-requests/
 ```
 
-By default this is `~/.dance-game-requests` in your home directory, so your data survives app updates and the app can be installed in a read-only location. Set `APP_DATA_DIR` in `.env` to relocate the whole data root (for example, point it at the app folder for a portable/USB setup). Individual pieces can still be redirected with `DATABASE_PATH`/`DB_DIR`, `ARTWORK_CACHE_DIR`, and `COURSES_DIR`.
+By default this is `~/.dance-game-requests` in your home directory, so your data survives app updates and the app can be installed in a read-only location. Nothing the app generates is written inside the app folder, so a fresh download runs with no manual config-file work.
+
+### Relocating the data root
+
+To store the data root somewhere else, create a file called `data_dir.ini` in the project root (the app folder) containing the path you want:
+
+```text
+~/Documents/Requests
+```
+
+or, on Windows:
+
+```text
+C:\Requests
+```
+
+The file is optional and gitignored; a bare path or a `KEY=value` line (e.g. `APP_DATA_DIR=~/Documents/Requests`) both work, and `~` expands to your home directory. When the app starts it validates the path: the directory must exist or be creatable, and it must be writable. If validation fails, the app exits with an explanation of the problem and how to fix it (edit `data_dir.ini`, or delete it to fall back to the default).
+
+The `APP_DATA_DIR` environment variable is still honored as a fallback when `data_dir.ini` is absent (the ini file takes precedence when both are present).
+
+### First creation
+
+The first time the app runs and the data root does not exist yet, it prints an explanation of what the folder will contain and how to relocate it via `data_dir.ini`, then asks **Create this folder and continue? [Y/n]**. Answering **n** exits without creating anything, so you can point `data_dir.ini` at your preferred location first.
+
+If an older install has a `.env` in the app folder, it is moved into the data root automatically on first run (if both exist, the data-root copy is used and the app-folder copy is left in place, with a note printed).
+
+Individual pieces can still be redirected with `DATABASE_PATH`/`DB_DIR`, `ARTWORK_CACHE_DIR`, and `COURSES_DIR`.
 
 The SQLite database is `~/.dance-game-requests/songs.db` by default. It remains local to the streaming PC. No song audio is uploaded or served.
 
@@ -413,7 +439,7 @@ If you want viewers to browse the library, expose port 3000 through a secure tun
 
 The app intentionally stores all files locally and does not upload or serve the song audio files. This is a metadata/request queue, not a music distribution server.
 
-Additionally, the app makes absolutely no writes to your `SONGS_DIR`, only reads. All generated files are written to the data root (default `~/.dance-game-requests/`, or `APP_DATA_DIR` when set).
+Additionally, the app makes absolutely no writes to your `SONGS_DIR`, only reads. All generated files are written to the data root (default `~/.dance-game-requests/`, or the location set in `data_dir.ini` / `APP_DATA_DIR`).
 
 ## Control Panel limitation
 
