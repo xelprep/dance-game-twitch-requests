@@ -1,8 +1,9 @@
+#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
 const dotenv = require("dotenv");
 const { isSetupComplete } = require("./setupConfig.cjs");
+const { prepareDataDir } = require("./dataDir.cjs");
 
 function readConfiguredValues(envPath) {
   let fileValues = {};
@@ -14,24 +15,51 @@ function readConfiguredValues(envPath) {
   return { ...fileValues, ...process.env };
 }
 
-function main() {
-  const envPath = path.resolve(process.cwd(), ".env");
+// Run the interactive setup wizard in-process. A pkg-packaged binary cannot
+// spawn a second copy of itself to run a different script (it always re-runs
+// the entry point), so we import the ESM wizard and drive it directly. This
+// behaves identically under `node` and inside the packaged executable.
+async function runSetupTui() {
+  const { runSetup } = await import("./setupTui.mjs");
+  return runSetup();
+}
+
+async function main() {
+  // `--setup` re-runs the interactive configuration wizard and exits. This is
+  // how a packaged binary (where `npm run setup` is unavailable) re-opens setup.
+  if (process.argv.includes("--setup")) {
+    const dataDir = await prepareDataDir({ projectDir: __dirname, interactive: true });
+    if (!dataDir) return; // prepareDataDir already exited on failure
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      console.error("Interactive setup needs a terminal (TTY).");
+      process.exitCode = 1;
+      return;
+    }
+    const success = await runSetupTui();
+    process.exitCode = success ? 0 : 1;
+    return;
+  }
+
+  // Resolve and prepare the app data root first. This handles the data_dir.ini
+  // lookup, validation, the "about to create this folder" announcement with an
+  // offer to quit, and one-time migration of a legacy app-folder .env.
+  const dataDir = await prepareDataDir({ projectDir: __dirname, interactive: true });
+  if (!dataDir) return; // prepareDataDir already exited on failure
+
+  // .env lives inside the data root (not beside the app), so a portable/installed
+  // copy keeps its config in one place regardless of where it is launched from.
+  const envPath = path.join(dataDir, ".env");
   if (!isSetupComplete(readConfiguredValues(envPath))) {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       console.error(
-        "App setup is incomplete. Run `npm run setup` in a terminal, or configure SONGS_DIR and CONTROL_PASSWORD in .env.",
+        `App setup is incomplete. Run the app with \`--setup\` in a terminal, or configure SONGS_DIR and CONTROL_PASSWORD in ${envPath}.`,
       );
       process.exitCode = 1;
       return;
     }
-    const setup = spawnSync(process.execPath, [path.join(__dirname, "setupTui.mjs")], {
-      cwd: process.cwd(),
-      env: process.env,
-      stdio: "inherit",
-    });
-    if (setup.error) throw setup.error;
-    if (setup.status !== 0) {
-      process.exitCode = setup.status || 1;
+    const success = await runSetupTui();
+    if (!success) {
+      process.exitCode = 1;
       return;
     }
     if (!isSetupComplete(readConfiguredValues(envPath))) {
@@ -46,11 +74,9 @@ function main() {
   require("./server.js");
 }
 
-try {
-  main();
-} catch (error) {
+main().catch((error) => {
   console.error(`Unable to start the app: ${error.message}`);
   process.exitCode = 1;
-}
+});
 
 module.exports = { readConfiguredValues };

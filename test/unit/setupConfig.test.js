@@ -5,7 +5,9 @@ const os = require("node:os");
 const path = require("node:path");
 const dotenv = require("dotenv");
 const {
+  ADVANCED_OPTIONS,
   ENV_OPTIONS,
+  REQUIRED_OPTIONS,
   generateControlPassword,
   isDirectory,
   isSetupComplete,
@@ -14,16 +16,44 @@ const {
   writeEnvFile,
 } = require("../../setupConfig.cjs");
 
-test("setup options cover every .env.example setting and include explanations", () => {
-  const example = dotenv.parse(
-    fs.readFileSync(path.resolve(__dirname, "../../.env.example"), "utf8"),
-  );
-  assert.deepEqual(ENV_OPTIONS.map((option) => option.key).sort(), Object.keys(example).sort());
+test("setup options are complete, tiered, and carry built-in defaults", () => {
   for (const option of ENV_OPTIONS) {
-    assert.ok(option.label);
-    assert.ok(option.description);
-    assert.ok(Object.hasOwn(example, option.key));
+    assert.ok(option.label, `${option.key} needs a label`);
+    assert.ok(option.description, `${option.key} needs a description`);
+    assert.ok(typeof option.default === "string", `${option.key} needs a string default`);
+    assert.ok(["required", "advanced"].includes(option.tier), `${option.key} needs a tier`);
   }
+  // The five always-asked settings.
+  assert.deepEqual(
+    REQUIRED_OPTIONS.map((option) => option.key).sort(),
+    [
+      "ADDITIONAL_SONGS_DIR",
+      "CONTROL_PASSWORD",
+      "COURSES_DIR",
+      "SONGS_DIR",
+      "STREAMER_VANITY_NAME",
+    ].sort(),
+  );
+  // Everything else is advanced.
+  assert.deepEqual(
+    ADVANCED_OPTIONS.map((option) => option.key).sort(),
+    [
+      "BOT_PREFIX",
+      "DB_DIR",
+      "MAX_REQUESTS_PER_USER",
+      "PUBLIC_HTTPS",
+      "PUBLIC_URL",
+      "QUEUE_LIMIT",
+      "REQUEST_ID_COMMAND",
+      "SCANNER_THREADS",
+      "SEARCH_COMMAND",
+      "SECURE_MODE",
+    ].sort(),
+  );
+  // The tiers partition the full option list, and APP_DATA_DIR is not an option
+  // (the data root is relocated via data_dir.ini instead).
+  assert.equal(REQUIRED_OPTIONS.length + ADVANCED_OPTIONS.length, ENV_OPTIONS.length);
+  assert.ok(!ENV_OPTIONS.some((option) => option.key === "APP_DATA_DIR"));
 });
 
 test("setup completeness validates the Songs directory and rejects the placeholder password", (t) => {

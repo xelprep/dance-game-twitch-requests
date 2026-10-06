@@ -1,5 +1,6 @@
 process.env.NODE_ENV = "test";
 process.env.SKIP_APP_STARTUP = "1";
+process.env.CONTROL_PASSWORD = "test-control-password";
 
 const test = require("node:test");
 const assert = require("node:assert/strict");

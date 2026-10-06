@@ -1,12 +1,22 @@
 const { installConsoleLogger } = require("./logger");
 
 installConsoleLogger();
-require("dotenv").config({ quiet: true });
+const path = require("path");
+// Resolve the app data root BEFORE loading .env: the .env file now lives INSIDE
+// the data root, so the root must be known first. Precedence: data_dir.ini in
+// the project root -> APP_DATA_DIR env var -> ~/.dance-game-requests. This
+// validates the path (exiting gracefully with an explanation when unusable),
+// creates the folder if missing (log line only; the interactive offer-to-quit
+// lives in start.js / the setup TUI), and migrates a legacy app-folder .env.
+const { ensureDataDirSync } = require("./dataDir.cjs");
+const DATA_ROOT = ensureDataDirSync({ projectDir: __dirname });
+// .env lives inside the data root (not beside the app) so a portable/installed
+// copy keeps its config in one place regardless of where it is launched from.
+require("dotenv").config({ path: path.join(DATA_ROOT, ".env"), quiet: true });
 const SHOULD_START_APP = !(process.env.NODE_ENV === "test" || process.env.SKIP_APP_STARTUP === "1");
 
 const express = require("express");
 const { rateLimit } = require("express-rate-limit");
-const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const net = require("net");
@@ -20,6 +30,13 @@ const WebSocket = require("ws");
 const { parseSecureMode, applySecureModeDefaults } = require("./secureMode");
 const { scanSongs } = require("./scanner");
 const { artworkFilePath, ensureArtworkSchema, processSongArtwork } = require("./artwork");
+
+// DATA_ROOT (resolved at the top of this file via dataDir.cjs) is the single
+// data root for all generated content (songs.db, artwork-cache/, courses/,
+// control-panel/ TLS, twitch.json, and .env). It defaults to
+// ~/.dance-game-requests so data survives app updates and works from read-only
+// install locations; relocate it with data_dir.ini in the project root (or the
+// APP_DATA_DIR env var as a fallback).
 
 // Network settings (bind address + public/control ports) are runtime settings managed from the
 // streamer control panel and persisted in the settings DB. These are only the fallback defaults.
@@ -61,7 +78,7 @@ function isStreamerUsername(username) {
   return !!name && name === STREAMER_VANITY_NAME.toLowerCase();
 }
 const DEFAULT_INSTRUCTIONS_MINUTES = 10;
-const DEFAULT_COURSES_DIR = path.resolve("./data/courses");
+const DEFAULT_COURSES_DIR = path.join(DATA_ROOT, "courses");
 const GENERATED_COURSES_DIR_NAME = "Generated Courses";
 
 // Runtime instructions timer (minutes); managed from the control panel and stored in the settings DB.
@@ -189,22 +206,21 @@ const CONTROL_PASSWORD = String(process.env.CONTROL_PASSWORD || "").trim();
 
 if (!CONTROL_PASSWORD || CONTROL_PASSWORD === "a-long-random-password") {
   console.error("\n==================================================================");
-  console.error("ERROR: CONTROL_PASSWORD is not properly configured in your .env file.");
+  console.error("ERROR: CONTROL_PASSWORD is not properly configured.");
   console.error("The streamer control panel requires a secure, non-default password.");
-  console.error("Please set CONTROL_PASSWORD to a secure random password in .env and restart.");
-  console.error("Example in .env:");
+  console.error(`Run \`npm run setup\`, or set CONTROL_PASSWORD in your .env file at:`);
+  console.error(`  ${path.join(DATA_ROOT, ".env")}`);
+  console.error("Example:");
   console.error("  CONTROL_PASSWORD=your-secure-custom-password-here");
   console.error("==================================================================\n");
   process.exit(1);
 }
 
-const CONTROL_TLS_DIR = path.resolve("./data/control-panel");
+const CONTROL_TLS_DIR = path.join(DATA_ROOT, "control-panel");
 const CONTROL_TLS_KEY_PATH = path.join(CONTROL_TLS_DIR, "key.pem");
 const CONTROL_TLS_CERT_PATH = path.join(CONTROL_TLS_DIR, "cert.pem");
 const CONTROL_TLS_HOSTS_PATH = path.join(CONTROL_TLS_DIR, "hosts.json");
 const BASE_TLS_HOST_VALUES = ["localhost", "127.0.0.1", "::1", "0.0.0.0"];
-
-fs.mkdirSync(path.resolve("./data"), { recursive: true });
 
 function readControlTlsHosts() {
   try {
@@ -308,17 +324,18 @@ function resolveDatabasePath(env = process.env) {
   if (env.DB_DIR) {
     return path.resolve(env.DB_DIR, "songs.db");
   }
-  return path.resolve("./data/songs.db");
+  return path.join(DATA_ROOT, "songs.db");
 }
 
 const DB_PATH = resolveDatabasePath();
 const ARTWORK_CACHE_DIR = path.resolve(
-  process.env.ARTWORK_CACHE_DIR || path.join(path.dirname(DB_PATH), "artwork-cache"),
+  process.env.ARTWORK_CACHE_DIR || path.join(DATA_ROOT, "artwork-cache"),
 );
 let artworkJobState = { running: false, completed: 0, total: 0, result: null, error: null };
 let db;
 try {
   if (DB_PATH !== ":memory:") {
+    fs.mkdirSync(DATA_ROOT, { recursive: true });
     fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   }
   db = new Database(DB_PATH);
@@ -330,7 +347,8 @@ ERROR: Unable to open the song database at ${DB_PATH}
 
 ${err && err.message ? err.message : err}
 
-Check that the path (DATABASE_PATH / DB_PATH / DB_DIR in your .env)
+Check that the path (DATABASE_PATH / DB_PATH / DB_DIR in your .env at
+${path.join(DATA_ROOT, ".env")})
 points to a location that exists or can be created, and that the
 process has read/write permission there.
 
@@ -3801,7 +3819,7 @@ module.exports = {
 };
 
 // Twitch connection and OAuth helper support.
-const TWITCH_DATA_FILE = path.resolve("./data/twitch.json");
+const TWITCH_DATA_FILE = path.join(DATA_ROOT, "twitch.json");
 let twitchClient = null;
 let twitchConfig = null; // loaded config (clientId, clientSecret, username, channel, accessToken...)
 const TWITCH_AUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -4862,8 +4880,9 @@ if (SHOULD_START_APP) {
 ERROR: SONGS_DIR is not set
 ====================================================================
 
-The application cannot start without a song library. Set SONGS_DIR in
-your .env file to the path of your main Songs folder, e.g.:
+The application cannot start without a song library. Run \`npm run setup\`,
+or set SONGS_DIR in your .env file (at ${path.join(DATA_ROOT, ".env")})
+to the path of your main Songs folder, e.g.:
 
   SONGS_DIR=C:\\Games\\DanceGame\\Songs
 
@@ -4889,7 +4908,8 @@ ERROR: No songs found in ${scannedDirs.join(" or ")}
 
 The application cannot start without a song library. Please check:
 
-  1. SONGS_DIR is set correctly in your .env file.
+  1. SONGS_DIR is set correctly in your .env file
+     (${path.join(DATA_ROOT, ".env")}; or run \`npm run setup\`).
      Current value: ${SONGS_DIR ?? "(not set)"}
      Does this directory exist on your system?
 ${ADDITIONAL_SONGS_DIR ? `\n     ADDITIONAL_SONGS_DIR is also set to: ${path.resolve(ADDITIONAL_SONGS_DIR)}\n     Does that directory exist on your system?\n` : ""}

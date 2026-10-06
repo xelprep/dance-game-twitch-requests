@@ -218,7 +218,7 @@ npm install
 npm start
 ```
 
-On first launch, an interactive setup wizard asks for the Songs folder and walks through every `.env.example` option with its explanation and current/default value. In the directory browser, press **Enter** to open a folder and **Space** to select it. Later steps offer a Back choice; text fields accept `:back` to return to the previous step. Choose a strong control-panel password in the masked prompt and enter it twice to confirm; the password is saved to `.env` and is never printed. Twitch authorization remains in the control panel.
+No configuration files are required: on first launch, an interactive setup wizard takes over. It first explains the **data folder** it is about to create (where the app stores its database, artwork cache, and `.env`), shows how to relocate that folder via `data_dir.ini`, and offers to quit so you can set the location manually. It then always asks for the Songs directory, optional additional songs directory, courses directory, streamer display name, and control-panel password, and offers the remaining (advanced) options with a default of **No**. In the directory browser, press **Enter** to open a folder and **Space** to select it. Later steps offer a Back choice; text fields accept `:back` to return to the previous step. On re-runs, each setting shows its current value and, when different, its built-in default. Choose a strong control-panel password in the masked prompt and enter it twice to confirm; the password is saved to `.env` and is never printed. Twitch authorization remains in the control panel.
 
 Run the wizard again at any time with:
 
@@ -226,7 +226,9 @@ Run the wizard again at any time with:
 npm run setup
 ```
 
-Setup preserves unrelated `.env` values and comments and backs up the previous file before changing it. You can also configure `.env` manually by copying `.env.example`; `SONGS_DIR` and a non-default `CONTROL_PASSWORD` are required. If startup has no interactive terminal, it prints setup instructions instead of prompting.
+(With a standalone binary, use `./dance-game-twitch-requests-<version>-<os>-<arch> --setup` instead — see [Standalone binary (releases)](#standalone-binary-releases).)
+
+Setup preserves unrelated `.env` values and comments and backs up the previous file before changing it. You can also edit the `.env` file in the data folder manually (see [Data location](#data-location)); `SONGS_DIR` and a non-default `CONTROL_PASSWORD` are required. If startup has no interactive terminal, it prints setup instructions instead of prompting.
 
 `SONGS_DIR` should point to the main Songs directory containing pack folders, then song folders with `.sm` or `.ssc` simfiles. The wizard warns if it cannot find simfiles at that expected depth.
 
@@ -331,6 +333,76 @@ The `--` is required so npm forwards the flag to the script instead of treating 
 
 If no viable database is found, the app logs a warning and runs the initial scan as usual.
 
+With a standalone binary (below) the equivalent is simply:
+
+```bash
+./dance-game-twitch-requests-<version>-<os>-<arch> --no-scan
+```
+
+## Standalone binary (releases)
+
+Prebuilt standalone binaries are published on the [Releases page](../../releases) for six targets: macOS (Apple Silicon and Intel x64), Windows (x64 and ARM64), and Linux (x64 and ARM64). Each zip contains a single self-contained executable — no Node.js installation is required on the target machine.
+
+### Installing
+
+1. Download the zip for your platform from the latest release.
+2. Unzip it.
+3. On macOS and Linux, make it executable:
+
+   ```bash
+   chmod +x dance-game-twitch-requests-<version>-<os>-<arch>
+   ```
+
+4. Run it:
+
+   ```bash
+   # macOS (Apple Silicon)
+   ./dance-game-twitch-requests-1.0.0-macos-arm64
+
+   # macOS (Intel)
+   ./dance-game-twitch-requests-1.0.0-macos-x64
+
+   # Windows (x64) — double-click or run from a terminal
+   dance-game-twitch-requests-1.0.0-windows-x64.exe
+
+   # Windows (ARM64)
+   dance-game-twitch-requests-1.0.0-windows-arm64.exe
+
+   # Linux (x64)
+   ./dance-game-twitch-requests-1.0.0-linux-x64
+
+   # Linux (ARM64)
+   ./dance-game-twitch-requests-1.0.0-linux-arm64
+   ```
+
+On first launch the same interactive setup wizard runs as with `npm start` (see [Install](#install)). The binary is fully portable: put it anywhere, even a read-only location — all app data lives in the [data root](#data-location) (`~/.dance-game-requests` by default), so a binary install and an `npm` install of the same version share the same data.
+
+### Running with flags
+
+Flags are passed directly to the executable:
+
+```bash
+# Skip the initial song scan (when a viable database already exists)
+./dance-game-twitch-requests-1.0.0-macos-arm64 --no-scan
+
+# Re-run the interactive setup wizard (the binary equivalent of `npm run setup`),
+# then exit
+./dance-game-twitch-requests-1.0.0-macos-arm64 --setup
+```
+
+### macOS notes
+
+The binaries are ad-hoc signed (not notarized). The first launch of a downloaded binary may be blocked by Gatekeeper; right-click the executable and choose **Open** (or run `xattr -d com.apple.quarantine <binary>`) to allow it.
+
+### Cutting a new release
+
+Releases are built by GitHub Actions (`.github/workflows/release.yml`):
+
+- **Automatic bump:** open Actions → **Release** → **Run workflow**, choose a branch and a version bump (`patch` / `minor` / `major`). The workflow bumps `package.json`, commits, pushes a `v<version>` tag, and the tag push triggers the build.
+- **Manual:** bump the version yourself, commit, and push a `v*` tag.
+
+Each of the six targets is built on a GitHub-hosted runner matching its OS and architecture (no cross-compilation), zipped, and attached to the GitHub Release created for the tag.
+
 ## Testing
 
 This project includes a small but useful regression suite for core app logic. The suite is intentionally focused on fast, deterministic checks that do not rely on a live Twitch connection or a real game library.
@@ -371,15 +443,43 @@ The viewer text search on the public web page searches song titles only (use the
 
 In chat, viewers can discover songs and then request by a unique numeric ID. The chat bot behavior is:
 
-## Database
+## Data location
 
-The SQLite database is:
+All generated content (the database, artwork cache, generated courses, control-panel TLS, `twitch.json`, and the `.env` configuration file) lives in a single **data root**:
 
 ```text
-data/songs.db
+~/.dance-game-requests/
 ```
 
-It remains local to the streaming PC. No song audio is uploaded or served.
+By default this is `~/.dance-game-requests` in your home directory, so your data survives app updates and the app can be installed in a read-only location. Nothing the app generates is written inside the app folder, so a fresh download runs with no manual config-file work.
+
+### Relocating the data root
+
+To store the data root somewhere else, create a file called `data_dir.ini` in the project root (the app folder) containing the path you want:
+
+```text
+~/Documents/Requests
+```
+
+or, on Windows:
+
+```text
+C:\Requests
+```
+
+The file is optional and gitignored; a bare path or a `KEY=value` line (e.g. `APP_DATA_DIR=~/Documents/Requests`) both work, and `~` expands to your home directory. When the app starts it validates the path: the directory must exist or be creatable, and it must be writable. If validation fails, the app exits with an explanation of the problem and how to fix it (edit `data_dir.ini`, or delete it to fall back to the default).
+
+The `APP_DATA_DIR` environment variable is still honored as a fallback when `data_dir.ini` is absent (the ini file takes precedence when both are present).
+
+### First creation
+
+The first time the app runs and the data root does not exist yet, it prints an explanation of what the folder will contain and how to relocate it via `data_dir.ini`, then asks **Create this folder and continue? [Y/n]**. Answering **n** exits without creating anything, so you can point `data_dir.ini` at your preferred location first.
+
+If an older install has a `.env` in the app folder, it is moved into the data root automatically on first run (if both exist, the data-root copy is used and the app-folder copy is left in place, with a note printed).
+
+Individual pieces can still be redirected with `DATABASE_PATH`/`DB_DIR`, `ARTWORK_CACHE_DIR`, and `COURSES_DIR`.
+
+The SQLite database is `~/.dance-game-requests/songs.db` by default. It remains local to the streaming PC. No song audio is uploaded or served.
 
 ## Rescanning & Multithreaded Scanner
 
@@ -399,7 +499,7 @@ Artwork processing is disabled by default. In the streamer control panel's **Set
 
 Artwork selection prefers a song's declared or conventional banner, then its declared or conventional jacket, then the pack banner. A pack's `Banner=` value in `pack.ini` takes precedence over conventional pack image names. CD title, disc, and background images are not used.
 
-Generated thumbnails are stored locally in `data/artwork-cache/` beside the default database, or in `ARTWORK_CACHE_DIR` when set. The app serves only these resized WebP files to the web cards and now-playing overlay; it does not serve original song-folder artwork files. The cache is incremental, so unchanged images are not decoded and resized again.
+Generated thumbnails are stored in the data root's `artwork-cache/` folder (default `~/.dance-game-requests/artwork-cache/`), or in `ARTWORK_CACHE_DIR` when set. The app serves only these resized WebP files to the web cards and now-playing overlay; it does not serve original song-folder artwork files. The cache is incremental, so unchanged images are not decoded and resized again.
 
 ## Making the web page public
 
@@ -411,7 +511,7 @@ If you want viewers to browse the library, expose port 3000 through a secure tun
 
 The app intentionally stores all files locally and does not upload or serve the song audio files. This is a metadata/request queue, not a music distribution server.
 
-Additionally, the app makes absolutely no writes to your `SONGS_DIR`, only reads. All writing occurs within the app's project folder.
+Additionally, the app makes absolutely no writes to your `SONGS_DIR`, only reads. All generated files are written to the data root (default `~/.dance-game-requests/`, or the location set in `data_dir.ini` / `APP_DATA_DIR`).
 
 ## Control Panel limitation
 
