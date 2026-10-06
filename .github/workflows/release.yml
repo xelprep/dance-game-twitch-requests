@@ -1,0 +1,144 @@
+# Builds standalone binaries for all six platform targets and publishes them as
+# a GitHub Release.
+#
+# How to cut a release:
+#   1. Open Actions -> "Release" -> "Run workflow", pick a branch and a version
+#      bump (patch / minor / major), and run it.
+#   2. The "bump" job bumps package.json, commits, tags v<version>, and pushes.
+#   3. That tag push triggers this same workflow again, which runs the six
+#      build jobs and the release job.
+#
+# Alternatively, bump the version by hand, commit, and push a v* tag yourself —
+# the build + release jobs run on any v* tag push.
+#
+# Every target is built on a *matched* runner (same OS + arch as the target),
+# so no cross-compilation or emulation is involved. See pkg.config.js for the
+# packaging configuration (Enhanced SEA mode, native module assets, etc.).
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump for the new release"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # Bumps the version in package.json (+ lockfile), commits, tags, and pushes.
+  # The tag push re-triggers this workflow, which then runs build + release.
+  bump:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Bump version, commit, and tag
+        run: |
+          npm version "${{ github.event.inputs.bump }}" --no-git-tag-version
+          VERSION="$(node -p "require('./package.json').version")"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(release): v${VERSION}"
+          git tag "v${VERSION}"
+          git push origin "HEAD:refs/heads/${GITHUB_REF_NAME}" "v${VERSION}"
+
+  # One job per target, each on a runner matching the target's OS and arch.
+  build:
+    if: github.event_name == 'push'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: node24-macos-arm64
+            runner: macos-26
+            os: macos
+            arch: arm64
+            ext: ""
+          - target: node24-macos-x64
+            runner: macos-26-intel
+            os: macos
+            arch: x64
+            ext: ""
+          - target: node24-win-x64
+            runner: windows-latest
+            os: windows
+            arch: x64
+            ext: ".exe"
+          - target: node24-win-arm64
+            runner: windows-11-arm
+            os: windows
+            arch: arm64
+            ext: ".exe"
+          - target: node24-linux-x64
+            runner: ubuntu-26.04
+            os: linux
+            arch: x64
+            ext: ""
+          - target: node24-linux-arm64
+            runner: ubuntu-26.04-arm
+            os: linux
+            arch: arm64
+            ext: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # Matched runner: the host platform equals the target platform, so the
+      # default optional-dependency selection (sharp's @img/* packages) is
+      # exactly what pkg.config.js asks for.
+      - name: Install dependencies
+        run: npm ci
+      # pkg.config.js sets sea: true (stock Node.js, full ESM support).
+      - name: Package with pkg
+        run: npx pkg . --targets "${{ matrix.target }}"
+      - name: Rename and zip
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $base = "dance-game-twitch-requests-${version}-${{ matrix.os }}-${{ matrix.arch }}"
+          $ext = "${{ matrix.ext }}"
+          Move-Item "dist/dance-game-twitch-requests$ext" "dist/$base$ext"
+          Compress-Archive -Path "dist/$base$ext" -DestinationPath "dist/$base$ext.zip" -Force
+          Get-ChildItem dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*.zip
+
+  # Creates the GitHub Release for the pushed tag and attaches all six zips.
+  release:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*/*.zip
+          generate_release_notes: true

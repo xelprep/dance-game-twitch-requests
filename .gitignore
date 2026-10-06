@@ -4,3 +4,5 @@ node_modules/
 localdev/
 .env*
 data_dir.ini
+dist/
+sea-config.json

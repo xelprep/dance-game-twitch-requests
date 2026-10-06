@@ -4,9 +4,13 @@
   "private": true,
   "description": "Dance game song database with a Twitch chat request bot and web queue.",
   "main": "server.js",
+  "bin": {
+    "dance-game-twitch-requests": "start.js"
+  },
   "scripts": {
     "start": "node start.js",
     "setup": "node setupTui.mjs",
+    "build": "pkg .",
     "scan": "node scanner.js",
     "test": "NODE_ENV=test node --test --test-concurrency=1",
     "test:watch": "NODE_ENV=test node --test --watch --test-concurrency=1",
@@ -30,9 +34,11 @@
     "ws": "^8.21.3"
   },
   "allowScripts": {
-    "better-sqlite3@13.0.3": true
+    "better-sqlite3@13.0.3": true,
+    "esbuild@0.28.2": true
   },
   "devDependencies": {
+    "@yao-pkg/pkg": "^6.23.0",
     "prettier": "^3.9.8"
   }
 }

@@ -226,6 +226,8 @@ Run the wizard again at any time with:
 npm run setup
 ```
 
+(With a standalone binary, use `./dance-game-twitch-requests-<version>-<os>-<arch> --setup` instead — see [Standalone binary (releases)](#standalone-binary-releases).)
+
 Setup preserves unrelated `.env` values and comments and backs up the previous file before changing it. You can also edit the `.env` file in the data folder manually (see [Data location](#data-location)); `SONGS_DIR` and a non-default `CONTROL_PASSWORD` are required. If startup has no interactive terminal, it prints setup instructions instead of prompting.
 
 `SONGS_DIR` should point to the main Songs directory containing pack folders, then song folders with `.sm` or `.ssc` simfiles. The wizard warns if it cannot find simfiles at that expected depth.
@@ -330,6 +332,76 @@ npm start -- --no-scan
 The `--` is required so npm forwards the flag to the script instead of treating it as an npm option (equivalently, `node server.js --no-scan`).
 
 If no viable database is found, the app logs a warning and runs the initial scan as usual.
+
+With a standalone binary (below) the equivalent is simply:
+
+```bash
+./dance-game-twitch-requests-<version>-<os>-<arch> --no-scan
+```
+
+## Standalone binary (releases)
+
+Prebuilt standalone binaries are published on the [Releases page](../../releases) for six targets: macOS (Apple Silicon and Intel x64), Windows (x64 and ARM64), and Linux (x64 and ARM64). Each zip contains a single self-contained executable — no Node.js installation is required on the target machine.
+
+### Installing
+
+1. Download the zip for your platform from the latest release.
+2. Unzip it.
+3. On macOS and Linux, make it executable:
+
+   ```bash
+   chmod +x dance-game-twitch-requests-<version>-<os>-<arch>
+   ```
+
+4. Run it:
+
+   ```bash
+   # macOS (Apple Silicon)
+   ./dance-game-twitch-requests-1.0.0-macos-arm64
+
+   # macOS (Intel)
+   ./dance-game-twitch-requests-1.0.0-macos-x64
+
+   # Windows (x64) — double-click or run from a terminal
+   dance-game-twitch-requests-1.0.0-windows-x64.exe
+
+   # Windows (ARM64)
+   dance-game-twitch-requests-1.0.0-windows-arm64.exe
+
+   # Linux (x64)
+   ./dance-game-twitch-requests-1.0.0-linux-x64
+
+   # Linux (ARM64)
+   ./dance-game-twitch-requests-1.0.0-linux-arm64
+   ```
+
+On first launch the same interactive setup wizard runs as with `npm start` (see [Install](#install)). The binary is fully portable: put it anywhere, even a read-only location — all app data lives in the [data root](#data-location) (`~/.dance-game-requests` by default), so a binary install and an `npm` install of the same version share the same data.
+
+### Running with flags
+
+Flags are passed directly to the executable:
+
+```bash
+# Skip the initial song scan (when a viable database already exists)
+./dance-game-twitch-requests-1.0.0-macos-arm64 --no-scan
+
+# Re-run the interactive setup wizard (the binary equivalent of `npm run setup`),
+# then exit
+./dance-game-twitch-requests-1.0.0-macos-arm64 --setup
+```
+
+### macOS notes
+
+The binaries are ad-hoc signed (not notarized). The first launch of a downloaded binary may be blocked by Gatekeeper; right-click the executable and choose **Open** (or run `xattr -d com.apple.quarantine <binary>`) to allow it.
+
+### Cutting a new release
+
+Releases are built by GitHub Actions (`.github/workflows/release.yml`):
+
+- **Automatic bump:** open Actions → **Release** → **Run workflow**, choose a branch and a version bump (`patch` / `minor` / `major`). The workflow bumps `package.json`, commits, pushes a `v<version>` tag, and the tag push triggers the build.
+- **Manual:** bump the version yourself, commit, and push a `v*` tag.
+
+Each of the six targets is built on a GitHub-hosted runner matching its OS and architecture (no cross-compilation), zipped, and attached to the GitHub Release created for the tag.
 
 ## Testing
 
