@@ -121,8 +121,7 @@ jobs:
           $version = node -p "require('./package.json').version"
           $base = "dance-game-twitch-requests-${version}-${{ matrix.os }}-${{ matrix.arch }}"
           $ext = "${{ matrix.ext }}"
-          Move-Item "dist/dance-game-twitch-requests$ext" "dist/$base$ext"
-          Compress-Archive -Path "dist/$base$ext" -DestinationPath "dist/$base$ext.zip" -Force
+          Compress-Archive -Path "dist/dance-game-twitch-requests$ext" -DestinationPath "dist/$base.zip" -Force
           Get-ChildItem dist
       - uses: actions/upload-artifact@v4
         with:
