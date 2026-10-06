@@ -41,6 +41,13 @@ function formatValue(option, value) {
   return String(value);
 }
 
+// The value to prefill a prompt with: the saved/current value when present,
+// otherwise the option's built-in default. This lets the user accept defaults
+// by pressing Enter on a first run, before anything has been saved to .env.
+function effectiveDefault(option, currentValue) {
+  return String(currentValue ?? "").trim() || String(option.default ?? "").trim();
+}
+
 // Build the "Current:" / "Default:" display lines for an option. When both a
 // current value and a built-in default exist they are shown together (fixes
 // current values being mislabeled as "default" on re-runs).
@@ -127,9 +134,10 @@ async function askDirectory(option, currentValue, canGoBack) {
 }
 
 async function askString(option, currentValue, canGoBack) {
+  const promptDefault = effectiveDefault(option, currentValue);
   const answer = await input({
-    message: `${option.label} (default: ${currentValue}${canGoBack ? `; type ${BACK_INPUT} to go back` : ""})`,
-    default: currentValue,
+    message: `${option.label} (default: ${promptDefault}${canGoBack ? `; type ${BACK_INPUT} to go back` : ""})`,
+    default: promptDefault,
     validate: (value) =>
       (canGoBack && value.trim() === BACK_INPUT) ||
       value.trim().length > 0 ||
@@ -139,9 +147,10 @@ async function askString(option, currentValue, canGoBack) {
 }
 
 async function askInteger(option, currentValue, canGoBack) {
+  const promptDefault = effectiveDefault(option, currentValue);
   const answer = await input({
-    message: `${option.label} (default: ${currentValue}${canGoBack ? `; type ${BACK_INPUT} to go back` : ""})`,
-    default: currentValue,
+    message: `${option.label} (default: ${promptDefault}${canGoBack ? `; type ${BACK_INPUT} to go back` : ""})`,
+    default: promptDefault,
     validate: (value) => {
       if (canGoBack && value.trim() === BACK_INPUT) return true;
       if (!/^-?\d+$/.test(value.trim())) return "Enter a whole number.";
@@ -152,17 +161,19 @@ async function askInteger(option, currentValue, canGoBack) {
 }
 
 async function askPath(option, currentValue, canGoBack) {
+  const promptDefault = effectiveDefault(option, currentValue);
   const value = await input({
-    message: `${option.label} (default: ${currentValue || "blank"}${canGoBack ? `; type ${BACK_INPUT} to go back` : ""})`,
-    default: currentValue,
+    message: `${option.label} (default: ${promptDefault || "blank"}${canGoBack ? `; type ${BACK_INPUT} to go back` : ""})`,
+    default: promptDefault,
   });
   return canGoBack && value.trim() === BACK_INPUT ? BACK_STEP : value;
 }
 
 async function askUrl(option, currentValue, canGoBack) {
+  const promptDefault = effectiveDefault(option, currentValue);
   const answer = await input({
-    message: `${option.label} (default: ${currentValue || "blank"}${canGoBack ? `; type ${BACK_INPUT} to go back` : ""})`,
-    default: currentValue,
+    message: `${option.label} (default: ${promptDefault || "blank"}${canGoBack ? `; type ${BACK_INPUT} to go back` : ""})`,
+    default: promptDefault,
     validate: (value) => {
       if (canGoBack && value.trim() === BACK_INPUT) return true;
       if (!value.trim()) return true;
@@ -216,7 +227,7 @@ async function askPassword(currentValue, canGoBack) {
 }
 
 async function askBoolean(option, currentValue, canGoBack) {
-  const defaultValue = currentValue.toLowerCase() === "true";
+  const defaultValue = effectiveDefault(option, currentValue).toLowerCase() === "true";
   const choices = [
     { name: "Yes", value: true },
     { name: "No", value: false },
