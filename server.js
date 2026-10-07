@@ -2182,16 +2182,12 @@ function createApi(app, options = {}) {
     // a dotfile component unless dotfiles are explicitly allowed. The path is
     // fully validated above (fixed directory + strict key regex), so allowing
     // dotfiles here is safe.
-    res.type("image/webp").sendFile(
-      filePath,
-      { dotfiles: "allow" },
-      (error) => {
-        // The file can disappear between the existsSync check and the actual
-        // transfer (e.g. pruned by a concurrent artwork job); degrade to a
-        // plain 404 instead of surfacing as an unhandled Express error.
-        if (error && !res.headersSent) res.status(404).end();
-      },
-    );
+    res.type("image/webp").sendFile(filePath, { dotfiles: "allow" }, (error) => {
+      // The file can disappear between the existsSync check and the actual
+      // transfer (e.g. pruned by a concurrent artwork job); degrade to a
+      // plain 404 instead of surfacing as an unhandled Express error.
+      if (error && !res.headersSent) res.status(404).end();
+    });
   });
   if (options.moderator) {
     app.use("/api/moderator", failedAuthenticationLimiter, authenticateModerator);
