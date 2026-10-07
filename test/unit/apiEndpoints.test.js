@@ -12,7 +12,12 @@ const path = require("node:path");
 const express = require("express");
 const { rateLimit } = require("express-rate-limit");
 const sharp = require("sharp");
-process.env.ARTWORK_CACHE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "dance-artwork-api-cache-"));
+// Use a dotfile directory name on purpose: the production data root is a
+// dotfile directory (~/.dance-game-requests), and `send` refuses to stream
+// files under dotfile paths unless the route opts in with `dotfiles: "allow"`.
+// Keeping the cache dir a dotfile here makes the artwork route tests a
+// regression test for that behavior.
+process.env.ARTWORK_CACHE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), ".dance-artwork-api-cache-"));
 
 const {
   announceTempModNomination,
@@ -125,6 +130,7 @@ test("public API search returns song rows and supports basic filtering", async (
 
 test("song search exposes only generated artwork URL metadata", async () => {
   resetSettings();
+  setSetting("artworkEnabled", true);
   const artworkKey = `v1-${"a".repeat(64)}`;
   const insert = db.prepare(
     "INSERT INTO songs (file_path, title, last_modified, artwork_key, artwork_kind) VALUES (?, ?, 0, ?, ?)",
@@ -142,11 +148,14 @@ test("song search exposes only generated artwork URL metadata", async () => {
     assert.equal(songs[0].artworkKind, "banner");
   } finally {
     server.close();
+    resetSettings();
     db.prepare("DELETE FROM songs WHERE id = ?").run(info.lastInsertRowid);
   }
 });
 
 test("queue rows expose artwork URLs for the request overlay", () => {
+  resetSettings();
+  setSetting("artworkEnabled", true);
   const artworkKey = `v1-${"c".repeat(64)}`;
   const song = db
     .prepare(
@@ -165,6 +174,7 @@ test("queue rows expose artwork URLs for the request overlay", () => {
     assert.equal(queueRow.artworkKind, "pack");
     assert.equal(Object.hasOwn(queueRow, "artwork_key"), false);
   } finally {
+    resetSettings();
     db.prepare("DELETE FROM requests WHERE id = ?").run(request.lastInsertRowid);
     db.prepare("DELETE FROM songs WHERE id = ?").run(song.lastInsertRowid);
   }
@@ -250,6 +260,7 @@ test("enabled artwork control starts a job and exposes its status", async () => 
     assert.equal(typeof (await statusResponse.json()).running, "boolean");
   } finally {
     server.close();
+    resetSettings();
   }
 });
 
@@ -266,6 +277,8 @@ test("artwork route rejects invalid cache keys", async () => {
 });
 
 test("artwork route serves only generated WebP assets with immutable caching", async () => {
+  resetSettings();
+  setSetting("artworkEnabled", true);
   const artworkKey = `v1-${"b".repeat(64)}`;
   const imagePath = path.join(process.env.ARTWORK_CACHE_DIR, `${artworkKey}.webp`);
   fs.mkdirSync(path.dirname(imagePath), { recursive: true });
@@ -284,6 +297,45 @@ test("artwork route serves only generated WebP assets with immutable caching", a
     assert.ok((await response.arrayBuffer()).byteLength > 0);
   } finally {
     server.close();
+    resetSettings();
+  }
+});
+
+test("artwork is hidden from APIs and the route when the setting is disabled", async () => {
+  resetSettings();
+  const artworkKey = `v1-${"d".repeat(64)}`;
+  const song = db
+    .prepare(
+      "INSERT INTO songs (file_path, title, last_modified, artwork_key, artwork_kind) VALUES (?, ?, 0, ?, ?)",
+    )
+    .run("artwork-disabled-test.sm", "Artwork Disabled Test", artworkKey, "banner");
+  const request = db
+    .prepare(
+      "INSERT INTO requests (song_id, requested_by, requested_display, status, created_at) VALUES (?, ?, ?, 'queued', ?)",
+    )
+    .run(song.lastInsertRowid, "viewer", "Viewer", Date.now());
+  const server = await startPublicModeratorApp();
+
+  try {
+    const searchResponse = await fetch(
+      `http://127.0.0.1:${server.address().port}/api/search?q=Artwork%20Disabled%20Test`,
+    );
+    const songs = await searchResponse.json();
+    assert.equal(songs[0].artworkUrl, null);
+    assert.equal(songs[0].artworkKind, "banner");
+
+    const queueRow = getQueue(10000).find((row) => row.id === request.lastInsertRowid);
+    assert.equal(queueRow.artworkUrl, null);
+
+    const routeResponse = await fetch(
+      `http://127.0.0.1:${server.address().port}/artwork/${artworkKey}.webp`,
+    );
+    assert.equal(routeResponse.status, 404);
+  } finally {
+    server.close();
+    resetSettings();
+    db.prepare("DELETE FROM requests WHERE id = ?").run(request.lastInsertRowid);
+    db.prepare("DELETE FROM songs WHERE id = ?").run(song.lastInsertRowid);
   }
 });
 

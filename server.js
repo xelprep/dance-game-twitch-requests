@@ -496,6 +496,9 @@ function startArtworkJob(force = false) {
         result,
         error: null,
       };
+      // Artwork URLs on queue/now-playing rows may have changed (or been
+      // cleared by a prune); push a refresh so overlays and pages update.
+      if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
     })
     .catch((error) => {
       artworkJobState = {
@@ -503,6 +506,7 @@ function startArtworkJob(force = false) {
         running: false,
         error: error.message || String(error),
       };
+      if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
     });
   return true;
 }
@@ -637,7 +641,7 @@ function getQueue(limit = QUEUE_LIMIT) {
     const { artwork_key: artworkKey, artwork_kind: artworkKind, ...queueRow } = row;
     return {
       ...queueRow,
-      artworkUrl: artworkKey ? `/artwork/${artworkKey}.webp` : null,
+      artworkUrl: artworkUrlFor(artworkKey),
       artworkKind: artworkKind || null,
       viaControlPanel: isStreamerUsername(row.requested_by),
       chart: chartFromRow(row),
@@ -666,7 +670,7 @@ function getNowPlaying() {
   const { artwork_key: artworkKey, artwork_kind: artworkKind, ...nowPlaying } = row;
   return {
     ...nowPlaying,
-    artworkUrl: artworkKey ? `/artwork/${artworkKey}.webp` : null,
+    artworkUrl: artworkUrlFor(artworkKey),
     artworkKind: artworkKind || null,
     viaControlPanel: isStreamerUsername(row.requested_by),
     chart: chartFromRow(row),
@@ -721,6 +725,15 @@ function getSetting(key, defaultValue) {
   } catch (e) {
     return defaultValue;
   }
+}
+
+// Artwork URLs are only exposed while the artwork feature is enabled, so
+// disabling the setting removes images from every page (overlay, public,
+// control panel) instead of leaving broken placeholders behind.
+function artworkUrlFor(artworkKey) {
+  if (!artworkKey) return null;
+  if (!getSetting("artworkEnabled", false)) return null;
+  return `/artwork/${artworkKey}.webp`;
 }
 
 function getConfiguredCoursesDir() {
@@ -1604,7 +1617,7 @@ function songRow(row) {
     bpmMax: row.bpm_max ?? null,
     coreBpm: row.core_bpm ?? row.bpm_min ?? null,
     durationSeconds: row.duration_seconds ?? null,
-    artworkUrl: row.artwork_key ? `/artwork/${row.artwork_key}.webp` : null,
+    artworkUrl: artworkUrlFor(row.artwork_key),
     artworkKind: row.artwork_kind || null,
 
     charts: getSongCharts(row.id),
@@ -2160,10 +2173,25 @@ function createApi(app, options = {}) {
   app.get("/artwork/:file", artworkRequestLimiter, (req, res) => {
     const match = String(req.params.file || "").match(/^(v[0-9]+-[a-f0-9]{64})\.webp$/);
     if (!match) return res.status(404).end();
+    if (!getSetting("artworkEnabled", false)) return res.status(404).end();
     const filePath = artworkFilePath(ARTWORK_CACHE_DIR, match[1]);
     if (!filePath || !fs.existsSync(filePath)) return res.status(404).end();
     res.set("Cache-Control", "public, max-age=31536000, immutable");
-    res.type("image/webp").sendFile(filePath);
+    // The cache lives under the data root (e.g. ~/.dance-game-requests), and
+    // `send` (which backs res.sendFile) refuses to serve any path containing
+    // a dotfile component unless dotfiles are explicitly allowed. The path is
+    // fully validated above (fixed directory + strict key regex), so allowing
+    // dotfiles here is safe.
+    res.type("image/webp").sendFile(
+      filePath,
+      { dotfiles: "allow" },
+      (error) => {
+        // The file can disappear between the existsSync check and the actual
+        // transfer (e.g. pruned by a concurrent artwork job); degrade to a
+        // plain 404 instead of surfacing as an unhandled Express error.
+        if (error && !res.headersSent) res.status(404).end();
+      },
+    );
   });
   if (options.moderator) {
     app.use("/api/moderator", failedAuthenticationLimiter, authenticateModerator);
