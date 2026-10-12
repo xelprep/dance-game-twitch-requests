@@ -143,6 +143,30 @@ test("readSongFile unescapes StepMania escape sequences in tag values", () => {
   assert.equal(song.music, "music.ogg");
 });
 
+test("readSongFile keeps escaped semicolons inside a tag value", () => {
+  const tmp = tempDir();
+  const filePath = path.join(tmp, "song.ssc");
+  // A `\;` is a literal `;` inside the value, not the value terminator. The
+  // value only ends at the first *unescaped* `;`.
+  fs.writeFileSync(
+    filePath,
+    `#TITLE:Song\\; with semicolon;
+#ARTIST:Artist;
+#MUSIC:music.ogg;
+#NOTEDATA:;
+#STEPSTYPE:dance-single;
+#DIFFICULTY:Hard;
+#METER:12;
+#RADARVALUES:1.0;
+`,
+    "utf8",
+  );
+
+  const song = readSongFile(filePath, "Test Pack");
+
+  assert.equal(song.title, "Song; with semicolon");
+});
+
 test("readSongFile parses metadata and chart data from multiline .sm header", () => {
   const tmp = tempDir();
   const filePath = path.join(tmp, "song_multiline.sm");

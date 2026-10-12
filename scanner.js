@@ -39,7 +39,11 @@ function normalizeDifficulty(raw) {
 
 function parseTags(text) {
   const tags = {};
-  const re = /#([A-Z0-9_]+):([\s\S]*?);/gi;
+  // A value runs until the first *unescaped* `;`. An escaped character
+  // (`\X`, e.g. `\;`) is part of the value, so the value is a run of either
+  // an escaped character or a plain character that is neither a backslash
+  // nor a semicolon.
+  const re = /#([A-Z0-9_]+):((?:\\[\s\S]|[^\\;])*);/gi;
   let m;
   while ((m = re.exec(text))) {
     tags[m[1].toUpperCase()] = decodeSMValue(m[2]);
