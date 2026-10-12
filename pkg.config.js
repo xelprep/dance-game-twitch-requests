@@ -55,10 +55,16 @@ module.exports = {
     `node_modules/@img/sharp-libvips-${nativePlatform}/**/*`,
   ],
   outputPath: "dist",
+  // Rewrite the Windows .exe version info (product name + version) after pkg
+  // writes it, so it stops showing the stock Node.js values. No-op on the
+  // macOS/Linux jobs (the script skips non-.exe outputs). See the script for
+  // the round-trip check and the boot smoke test (resedit x SEA gate).
+  postBuild: "node scripts/setWindowsVersionInfo.mjs",
   ignore: [
     "test/**",
     "localdev/**",
     "docs/**",
+    "scripts/**",
     "**/*.md",
     "**/node_modules/*/test/**",
     "**/node_modules/*/tests/**",

@@ -39,6 +39,7 @@
   },
   "devDependencies": {
     "@yao-pkg/pkg": "^6.23.0",
-    "prettier": "^3.9.8"
+    "prettier": "^3.9.8",
+    "resedit": "^3.1.0"
   }
 }
