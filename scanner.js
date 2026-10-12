@@ -7,8 +7,14 @@ const path = require("path");
 const os = require("os");
 const { Worker } = require("worker_threads");
 
+// Decode a raw StepMania tag value. StepMania uses `\` as an escape
+// character: `\X` in a file means a literal `X` (e.g. `\#` is a literal `#`,
+// `\\` is a literal `\`). We unescape here so the stored value matches what
+// the game displays, and so downstream escaping (e.g. course generation)
+// doesn't double-escape the backslash.
 function decodeSMValue(raw) {
   return String(raw || "")
+    .replace(/\\([\s\S])/g, "$1")
     .replace(/\r?\n/g, " ")
     .replace(/\s+/g, " ")
     .trim();
