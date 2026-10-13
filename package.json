@@ -11,6 +11,7 @@
     "start": "node start.js",
     "setup": "node setupTui.mjs",
     "build": "pkg .",
+    "icons": "node scripts/generateIcons.mjs",
     "scan": "node scanner.js",
     "test": "NODE_ENV=test node --test --test-concurrency=1",
     "test:watch": "NODE_ENV=test node --test --watch --test-concurrency=1",

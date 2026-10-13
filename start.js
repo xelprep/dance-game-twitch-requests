@@ -4,6 +4,8 @@ const path = require("node:path");
 const dotenv = require("dotenv");
 const { isSetupComplete } = require("./setupConfig.cjs");
 const { prepareDataDir } = require("./dataDir.cjs");
+const { acquireLock, releaseLock } = require("./instanceLock.cjs");
+const { performMacTerminalHandoff } = require("./macHandoff.cjs");
 
 function readConfiguredValues(envPath) {
   let fileValues = {};
@@ -24,12 +26,53 @@ async function runSetupTui() {
   return runSetup();
 }
 
+function readVersion() {
+  try {
+    return require("./package.json").version;
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
+  // macOS .app double-click: hand off to Terminal before doing anything else.
+  // This never touches the data dir or the lock; the Terminal-side instance
+  // (with a real TTY) does the real work.
+  if (performMacTerminalHandoff()) {
+    process.exit(0);
+  }
+
+  // Resolve and prepare the app data root first. This handles the data_dir.ini
+  // lookup, validation, the "about to create this folder" announcement with an
+  // offer to quit, and one-time migration of a legacy app-folder .env.
+  const dataDir = await prepareDataDir({ projectDir: __dirname, interactive: true });
+  if (!dataDir) return; // prepareDataDir already exited on failure
+
+  // Single-instance lock: only one app instance at a time. Acquired on both the
+  // --setup and server paths (setup rewrites the config a live server reads).
+  // Released on any exit via the handler below (covers normal exit, errors, and
+  // the graceful-shutdown path in server.js).
+  const lock = acquireLock(dataDir, { version: readVersion() });
+  if (!lock.acquired) {
+    console.error(
+      `Dance Game Twitch Requests is already running (PID ${lock.holder.pid}, started ${lock.holder.startedAt}).`,
+    );
+    console.error("Stop the running instance before starting another.");
+    process.exit(1);
+  }
+  if (lock.tookOverStale) {
+    console.log("Removed a stale instance lock from a previous run.");
+  }
+  let lockReleased = false;
+  process.on("exit", () => {
+    if (lockReleased) return;
+    lockReleased = true;
+    releaseLock(dataDir);
+  });
+
   // `--setup` re-runs the interactive configuration wizard and exits. This is
   // how a packaged binary (where `npm run setup` is unavailable) re-opens setup.
   if (process.argv.includes("--setup")) {
-    const dataDir = await prepareDataDir({ projectDir: __dirname, interactive: true });
-    if (!dataDir) return; // prepareDataDir already exited on failure
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       console.error("Interactive setup needs a terminal (TTY).");
       process.exitCode = 1;
@@ -39,12 +82,6 @@ async function main() {
     process.exitCode = success ? 0 : 1;
     return;
   }
-
-  // Resolve and prepare the app data root first. This handles the data_dir.ini
-  // lookup, validation, the "about to create this folder" announcement with an
-  // offer to quit, and one-time migration of a legacy app-folder .env.
-  const dataDir = await prepareDataDir({ projectDir: __dirname, interactive: true });
-  if (!dataDir) return; // prepareDataDir already exited on failure
 
   // .env lives inside the data root (not beside the app), so a portable/installed
   // copy keeps its config in one place regardless of where it is launched from.

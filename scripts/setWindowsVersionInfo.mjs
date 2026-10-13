@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 // Post-build hook for the Windows executable: rewrite the PE "Version Info"
 // resource so the file-properties dialog shows the app's name and version
-// instead of the stock Node.js values ("Node.js JavaScript Runtime" and Node's
-// own version number).
+// instead of the stock Node.js values, and embed the app icon (assets/icon.ico)
+// so it stops looking like a generic Node executable.
 //
 // Why a hook and not pkg config: we build in Enhanced SEA mode (sea: true), so
 // pkg wraps the *stock* node.exe and postject-injects the app into it. pkg has
-// no option to set the Windows version info, so we post-process the produced
-// .exe with resedit (a pure-JS PE editor; the rcedit alternative is deprecated
-// and Electron now recommends resedit).
+// no option to set the Windows version info or icon, so we post-process the
+// produced .exe with resedit (a pure-JS PE editor; the rcedit alternative is
+// deprecated and Electron now recommends resedit).
 //
-// This runs once per produced binary via pkg's `postBuild` (shell form, so the
-// just-written path arrives in the PKG_OUTPUT env var). It is a no-op for
-// non-Windows outputs, so the same hook is safe on the macOS/Linux build jobs.
+// This is invoked by scripts/packageApp.mjs (the pkg `postBuild` dispatcher) on
+// Windows, and can also be run directly with the output path in PKG_OUTPUT. It
+// is a no-op for non-Windows outputs, so the same hook is safe on the
+// macOS/Linux build jobs.
 //
 // Two verifications run after the rewrite:
 //   1. Round-trip: re-parse the modified exe and confirm the version strings
@@ -28,11 +29,14 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import * as PELibrary from "pe-library";
 import * as ResEdit from "resedit";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LANG = 1033; // en-US
 const CODEPAGE = 1200; // Unicode
+const ICON_PATH = path.join(__dirname, "..", "assets", "icon.ico");
 
 function log(message) {
   console.log(`[windows-version-info] ${message}`);
@@ -84,30 +88,57 @@ vi.setStringValues(
   { FileDescription: fileDescription, ProductName: productName, LegalCopyright: legalCopyright },
 );
 vi.outputToResourceEntries(res.entries);
-res.outputResource(exe);
 
-// resedit recommends writing to a different file than the source, so emit to a
-// temp file and copy it over the original.
-const tmp = `${output}.tmp`;
+// Embed the app icon (assets/icon.ico) into the PE resource section, replacing
+// the stock Node icon group in place (matching its id + lang) so the exe shows
+// our icon in Explorer. resedit writes both the RT_ICON_GROUP directory and the
+// individual RT_ICON entries.
+let iconCount = 0;
+if (fs.existsSync(ICON_PATH)) {
+  const icoFile = ResEdit.Data.IconFile.from(fs.readFileSync(ICON_PATH));
+  const icons = icoFile.icons.map((item) => item.data);
+  const existingGroups = ResEdit.Resource.IconGroupEntry.fromEntries(res.entries);
+  const existing = existingGroups[0];
+  const iconGroupID = existing ? existing.id : 1;
+  const iconLang = existing ? existing.lang : LANG;
+  ResEdit.Resource.IconGroupEntry.replaceIconsForResource(
+    res.entries,
+    iconGroupID,
+    iconLang,
+    icons,
+  );
+  iconCount = icons.length;
+} else {
+  log(`No ${ICON_PATH} found; skipping the icon embed.`);
+}
+
 fs.writeFileSync(tmp, Buffer.from(exe.generate()));
 
 // --- 2. Round-trip: confirm the version strings were written ---
 const checkExe = PELibrary.NtExecutable.from(fs.readFileSync(tmp), { ignoreCert: true });
-const checkVi = ResEdit.Resource.VersionInfo.fromEntries(
-  PELibrary.NtExecutableResource.from(checkExe).entries,
-)[0];
+const checkRes = PELibrary.NtExecutableResource.from(checkExe);
+const checkVi = ResEdit.Resource.VersionInfo.fromEntries(checkRes.entries)[0];
 const written = checkVi.getStringValues({ lang: LANG, codepage: CODEPAGE });
 if (written.ProductName !== productName || written.FileDescription !== fileDescription) {
   fs.rmSync(tmp, { force: true });
   fail(`round-trip verification failed (got ProductName=${JSON.stringify(written.ProductName)})`);
+}
+if (iconCount > 0) {
+  const checkGroups = ResEdit.Resource.IconGroupEntry.fromEntries(checkRes.entries);
+  const checkGroup = checkGroups.find((group) => group.icons.length > 0);
+  if (!checkGroup || checkGroup.icons.length !== iconCount) {
+    fs.rmSync(tmp, { force: true });
+    fail(`icon round-trip verification failed (expected ${iconCount} icons)`);
+  }
 }
 
 fs.copyFileSync(tmp, output);
 fs.rmSync(tmp, { force: true });
 const after = fs.statSync(output).size;
 log(
-  `Set version ${pkg.version} + product "${productName}" on ${path.basename(output)} ` +
-    `(${before} -> ${after} bytes).`,
+  `Set version ${pkg.version} + product "${productName}"` +
+    (iconCount ? ` + ${iconCount}-size icon` : "") +
+    ` on ${path.basename(output)} (${before} -> ${after} bytes).`,
 );
 
 // --- 3. Smoke test: run the modified exe to confirm the SEA blob survived ---

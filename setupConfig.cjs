@@ -147,6 +147,15 @@ const ENV_OPTIONS = [
     tier: "advanced",
     default: "true",
   },
+  {
+    key: "AUTO_OPEN_BROWSER",
+    label: "Open the control panel in a browser on startup",
+    description:
+      "When enabled, the app opens the streamer control panel in your default browser once the servers start.",
+    type: "boolean",
+    tier: "advanced",
+    default: "true",
+  },
 ];
 
 const REQUIRED_OPTIONS = ENV_OPTIONS.filter((option) => option.tier === "required");

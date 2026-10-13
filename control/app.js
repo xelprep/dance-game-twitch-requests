@@ -1063,6 +1063,27 @@ function startServerRestart() {
   })();
 }
 
+const stopServerEl = $("stopServer");
+if (stopServerEl) {
+  stopServerEl.addEventListener("click", startServerShutdown);
+}
+
+function startServerShutdown() {
+  if (!stopServerEl || stopServerEl.disabled) return;
+  if (!window.confirm("Stop the server? The app will quit.")) return;
+  stopServerEl.disabled = true;
+  setNetworkStatus("Stopping the server…");
+  (async () => {
+    try {
+      await fetch("/api/control/shutdown", { method: "POST" });
+    } catch (e) {
+      // The server is shutting down; the connection may drop. That's expected.
+    }
+    // The page goes away as the server stops; show a note in case it lingers.
+    setNetworkStatus("Server stopped. You can close this window.");
+  })();
+}
+
 const instructionsMinutesEl = $("twitchInstructionsMinutes");
 if (instructionsMinutesEl) {
   instructionsMinutesEl.addEventListener("change", () => {

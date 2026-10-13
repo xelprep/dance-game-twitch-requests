@@ -41,6 +41,20 @@ function expandTilde(value) {
   return text;
 }
 
+// Directory that holds the app's on-disk config (data_dir.ini / legacy .env)
+// when running as a compiled binary. In the compiled form __dirname is the
+// read-only /snapshot VFS, so the config must live next to the real executable
+// on disk (process.execPath). For a macOS .app bundle the executable sits in
+// Contents/MacOS/, which is a poor place for user files, so the lookup dir is
+// the directory containing the .app instead. Returns null in dev (node), where
+// the caller's projectDir stands.
+function compiledAppDir() {
+  if (!process.pkg) return null;
+  const execPath = process.execPath;
+  const appMatch = execPath.match(/^(.*)\.app\/Contents\/MacOS\/[^/]+$/);
+  return appMatch ? path.dirname(appMatch[1]) : path.dirname(execPath);
+}
+
 // Read data_dir.ini from the project root if present.
 // Accepts a bare path or a KEY=value line; skips blanks and # comments; uses the
 // first usable line. Returns { iniPath, found, value, error }.
@@ -257,7 +271,10 @@ function migrateLegacyEnvFile(projectDir, dataDir, { testMode = false } = {}) {
 // the test suite never touches the real home directory or blocks.
 function ensureDataDirSync({ projectDir = __dirname, create = true } = {}) {
   const testMode = isTestMode();
-  const { dataDir, source, ini } = resolveDataDir(projectDir);
+  // A compiled binary resolves its config next to the real executable (or
+  // beside the .app bundle); in dev the projectDir stands.
+  const lookupDir = compiledAppDir() ?? projectDir;
+  const { dataDir, source, ini } = resolveDataDir(lookupDir);
   if (testMode) {
     return dataDir || path.join(os.homedir(), DEFAULT_DATA_DIR_NAME);
   }
@@ -283,7 +300,7 @@ function ensureDataDirSync({ projectDir = __dirname, create = true } = {}) {
       process.exit(1);
     }
   }
-  migrateLegacyEnvFile(projectDir, dataDir, { testMode });
+  migrateLegacyEnvFile(lookupDir, dataDir, { testMode });
   return dataDir;
 }
 
@@ -291,7 +308,10 @@ function ensureDataDirSync({ projectDir = __dirname, create = true } = {}) {
 // Exits the process on hard failures. Returns the resolved data root path.
 async function prepareDataDir({ projectDir = __dirname, interactive = false, create = true } = {}) {
   const testMode = isTestMode();
-  const { dataDir, source, ini } = resolveDataDir(projectDir);
+  // A compiled binary resolves its config next to the real executable (or
+  // beside the .app bundle); in dev the projectDir stands.
+  const lookupDir = compiledAppDir() ?? projectDir;
+  const { dataDir, source, ini } = resolveDataDir(lookupDir);
 
   if (testMode) {
     // Resolve only: no validation, creation, prompt, or migration, so the test
@@ -333,13 +353,14 @@ async function prepareDataDir({ projectDir = __dirname, interactive = false, cre
     }
   }
 
-  migrateLegacyEnvFile(projectDir, dataDir, { testMode });
+  migrateLegacyEnvFile(lookupDir, dataDir, { testMode });
   return dataDir;
 }
 
 module.exports = {
   DATA_DIR_INI_NAME,
   DEFAULT_DATA_DIR_NAME,
+  compiledAppDir,
   confirmDataDirCreation,
   ensureDataDirSync,
   expandTilde,

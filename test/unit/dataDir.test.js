@@ -8,6 +8,7 @@ const {
   DATA_DIR_INI_NAME,
   DEFAULT_DATA_DIR_NAME,
   checkDataDir,
+  compiledAppDir,
   ensureDataDirSync,
   expandTilde,
   isTestMode,
@@ -245,4 +246,60 @@ test("ensureDataDirSync creates a missing data root and migrates a legacy .env",
   assert.equal(fs.statSync(dataDir).isDirectory(), true);
   assert.equal(fs.existsSync(path.join(projectDir, ".env")), false);
   assert.equal(fs.readFileSync(path.join(dataDir, ".env"), "utf8"), "SONGS_DIR=/x\n");
+});
+
+test("compiledAppDir returns null in dev and the exec dir (or .app dir) when compiled", (t) => {
+  const savedPkg = process.pkg;
+  const savedExecPath = process.execPath;
+  t.after(() => {
+    if (savedPkg === undefined) delete process.pkg;
+    else process.pkg = savedPkg;
+    process.execPath = savedExecPath;
+  });
+
+  // Dev: no process.pkg -> null (the caller's projectDir stands).
+  delete process.pkg;
+  assert.equal(compiledAppDir(), null);
+
+  // Compiled, non-.app: the directory containing the executable.
+  process.pkg = { entrypoint: "start.js" };
+  process.execPath = "/opt/app/dance-game-twitch-requests";
+  assert.equal(compiledAppDir(), "/opt/app");
+
+  // Compiled macOS .app: the directory containing the .app bundle.
+  process.execPath =
+    "/Applications/Dance Game Twitch Requests.app/Contents/MacOS/dance-game-twitch-requests";
+  assert.equal(compiledAppDir(), "/Applications");
+
+  // Compiled .app in a nested folder.
+  process.execPath = "/Users/me/Downloads/MyApp.app/Contents/MacOS/bin";
+  assert.equal(compiledAppDir(), "/Users/me/Downloads");
+});
+
+test("ensureDataDirSync reads data_dir.ini beside the .app when compiled", (t) => {
+  // Simulate a compiled .app: the config dir is a temp folder holding data_dir.ini,
+  // and the (stubbed) executable lives inside a .app under that folder.
+  const appDir = makeTemp("dance-compiled-app-");
+  const base = makeTemp("dance-compiled-data-");
+  const dataDir = path.join(base, "data");
+  fs.mkdirSync(dataDir, { recursive: true }); // pre-create so no "Created" log line
+  t.after(() => {
+    fs.rmSync(appDir, { recursive: true, force: true });
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+  fs.writeFileSync(path.join(appDir, DATA_DIR_INI_NAME), dataDir + "\n", "utf8");
+
+  const script = `
+    process.pkg = { entrypoint: "start.js" };
+    process.execPath = ${JSON.stringify(path.join(appDir, "MyApp.app", "Contents", "MacOS", "bin"))};
+    const { ensureDataDirSync } = require(${JSON.stringify(path.join(__dirname, "..", "..", "dataDir.cjs"))});
+    const resolved = ensureDataDirSync({ projectDir: ${JSON.stringify("/should/be/ignored")} });
+    console.log("RESOLVED=" + resolved);
+  `;
+  const output = execFileSync(process.execPath, ["-e", script], {
+    env: { ...process.env, NODE_ENV: "", SKIP_APP_STARTUP: "", NODE_TEST_CONTEXT: "" },
+    encoding: "utf8",
+  });
+  // The compiled dir (appDir) wins over the ignored projectDir for the ini lookup.
+  assert.equal(output.trim(), `RESOLVED=${path.resolve(dataDir)}`);
 });
