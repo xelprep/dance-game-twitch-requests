@@ -1,0 +1,82 @@
+[
+  {
+    "file": "codex.ssc",
+    "chartType": "dance-single",
+    "difficulty": "Challenge",
+    "meter": "8",
+    "standard": "2d81ea9d17a4cb31",
+    "neutral": "c7323fa82727b81c"
+  },
+  {
+    "file": "echo.ssc",
+    "chartType": "dance-single",
+    "difficulty": "Challenge",
+    "meter": "7",
+    "standard": "c8f653ca09a1f751",
+    "neutral": "1a0bbc6f8ab0d68b"
+  },
+  {
+    "file": "stupid-for-you.ssc",
+    "chartType": "dance-single",
+    "difficulty": "Beginner",
+    "meter": "2",
+    "standard": "ef712574a2f32f63",
+    "neutral": "116c632d5e9f70f6"
+  },
+  {
+    "file": "stupid-for-you.ssc",
+    "chartType": "dance-single",
+    "difficulty": "Easy",
+    "meter": "5",
+    "standard": "4ec94eeb30647567",
+    "neutral": "ca0821d3328a7334"
+  },
+  {
+    "file": "stupid-for-you.ssc",
+    "chartType": "dance-single",
+    "difficulty": "Medium",
+    "meter": "8",
+    "standard": "307556065da22c0b",
+    "neutral": "152189c6c552d354"
+  },
+  {
+    "file": "stupid-for-you.ssc",
+    "chartType": "dance-single",
+    "difficulty": "Hard",
+    "meter": "9",
+    "standard": "ce8ad7422185d410",
+    "neutral": "99c471a2d08986e8"
+  },
+  {
+    "file": "stupid-for-you.ssc",
+    "chartType": "dance-single",
+    "difficulty": "Challenge",
+    "meter": "10",
+    "standard": "9762f724416e11ee",
+    "neutral": "049c6d667c29f248"
+  },
+  {
+    "file": "stupid-for-you.ssc",
+    "chartType": "dance-double",
+    "difficulty": "Medium",
+    "meter": "4",
+    "standard": "46c9b9978c5419b4",
+    "neutral": "837909e3d062d5eb"
+  },
+  {
+    "file": "stupid-for-you.ssc",
+    "chartType": "dance-double",
+    "difficulty": "Hard",
+    "meter": "7",
+    "standard": "a726cf906ca18748",
+    "neutral": "89cdcb8319309edc"
+  },
+  {
+    "file": "stupid-for-you.ssc",
+    "chartType": "dance-double",
+    "difficulty": "Challenge",
+    "meter": "9",
+    "standard": "16a559809cd1eb0c",
+    "neutral": "c24eea28c044dab1"
+  }
+]

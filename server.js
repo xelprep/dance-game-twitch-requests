@@ -386,6 +386,7 @@ CREATE TABLE IF NOT EXISTS charts (
   difficulty_raw TEXT DEFAULT '',
   meter TEXT DEFAULT '',
   radar TEXT DEFAULT '',
+  standard_hash TEXT DEFAULT '',
   UNIQUE(song_id, chart_type, difficulty, meter)
 );
 
@@ -442,7 +443,7 @@ CREATE TABLE IF NOT EXISTS settings (
     .prepare("PRAGMA table_info(charts)")
     .all()
     .map((r) => r.name);
-  for (const column of ["difficulty_raw"]) {
+  for (const column of ["difficulty_raw", "standard_hash"]) {
     if (!chartColumns.includes(column)) {
       db.exec(`ALTER TABLE charts ADD COLUMN ${column} TEXT DEFAULT ''`);
     }
@@ -459,6 +460,7 @@ CREATE INDEX IF NOT EXISTS idx_songs_bpm_min ON songs(bpm_min);
 CREATE INDEX IF NOT EXISTS idx_songs_bpm_max ON songs(bpm_max);
 CREATE INDEX IF NOT EXISTS idx_songs_core_bpm ON songs(core_bpm);
 CREATE INDEX IF NOT EXISTS idx_songs_duration ON songs(duration_seconds);
+CREATE INDEX IF NOT EXISTS idx_charts_standard_hash ON charts(standard_hash);
 `);
   ensureArtworkSchema(db);
 }
