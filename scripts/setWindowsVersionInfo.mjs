@@ -112,6 +112,11 @@ if (fs.existsSync(ICON_PATH)) {
   log(`No ${ICON_PATH} found; skipping the icon embed.`);
 }
 
+// Commit the modified resource entries back into the exe object so that
+// exe.generate() serializes them (without this, generate() emits the original
+// resources and the round-trip below reads back the stock "Node.js" values).
+res.outputResource(exe);
+
 // Write the modified exe to a temp file in the same directory, verify it
 // round-trips, then copy it over the original output path.
 const tmp = path.join(path.dirname(output), `${path.basename(output)}.tmp`);
