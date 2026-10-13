@@ -93,11 +93,7 @@ test("rgbaToBmpDib emits a 32-bit BITMAPINFOHEADER with bottom-up BGRA pixels", 
 
   // Pixel data starts at offset 40, bottom-up, BGRA.
   // File row 0 = image bottom row (blue) -> BGRA (255,0,0,255).
-  assert.deepEqual(
-    [...dib.subarray(40, 44)],
-    [255, 0, 0, 255],
-    "bottom-left blue as BGRA",
-  );
+  assert.deepEqual([...dib.subarray(40, 44)], [255, 0, 0, 255], "bottom-left blue as BGRA");
   assert.deepEqual([...dib.subarray(44, 48)], [255, 0, 0, 255], "bottom-right blue as BGRA");
   // File row 1 = image top row (red) -> BGRA (0,0,255,255).
   assert.deepEqual([...dib.subarray(48, 52)], [0, 0, 255, 255], "top-left red as BGRA");
@@ -105,7 +101,10 @@ test("rgbaToBmpDib emits a 32-bit BITMAPINFOHEADER with bottom-up BGRA pixels", 
 
   // AND mask: 1 bit/px, rows padded to 4 bytes -> ceil(2/8)=1 -> 4 bytes/row * 2 = 8.
   assert.equal(dib.length, 40 + 16 + 8, "header + pixels + AND mask");
-  assert.ok(dib.subarray(56).every((b) => b === 0), "AND mask is all zero");
+  assert.ok(
+    dib.subarray(56).every((b) => b === 0),
+    "AND mask is all zero",
+  );
 });
 
 test("validateMasterPng accepts the 1024x1024 master and rejects bad input", async (t) => {
@@ -135,8 +134,5 @@ test("validateMasterPng accepts the 1024x1024 master and rejects bad input", asy
   await assert.rejects(() => validateMasterPng(sharp, notPng), /must be a (readable )?PNG/);
 
   // Missing file.
-  await assert.rejects(
-    () => validateMasterPng(sharp, path.join(tmp, "nope.png")),
-    /not found/,
-  );
+  await assert.rejects(() => validateMasterPng(sharp, path.join(tmp, "nope.png")), /not found/);
 });

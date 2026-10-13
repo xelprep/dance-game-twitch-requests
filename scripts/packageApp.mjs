@@ -120,7 +120,7 @@ export function buildInstallSh({ binaryName = BINARY_NAME, name = APP_NAME }) {
     'cp "$SCRIPT_DIR/$APP_NAME.desktop" "$HOME/.local/share/applications/$APP_NAME.desktop"',
     "",
     "# 4. update-desktop-database (best-effort)",
-    'if command -v update-desktop-database >/dev/null 2>&1; then',
+    "if command -v update-desktop-database >/dev/null 2>&1; then",
     '  update-desktop-database "$HOME/.local/share/applications" || true',
     "fi",
     "",
@@ -167,7 +167,9 @@ function wrapMacApp(binaryPath) {
   // earlier ad-hoc signature).
   const result = spawnSync("codesign", ["--force", "--sign", "-", appPath], { stdio: "pipe" });
   if (result.error || result.status !== 0) {
-    fail(`codesign failed: ${result.stderr ? result.stderr.toString().trim() : result.error.message}`);
+    fail(
+      `codesign failed: ${result.stderr ? result.stderr.toString().trim() : result.error.message}`,
+    );
   }
   log(`Created ${APP_NAME}.app and ad-hoc signed it.`);
 }

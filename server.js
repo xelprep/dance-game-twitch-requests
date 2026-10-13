@@ -5028,7 +5028,9 @@ Fix the path or add songs, then restart the application.
     // AUTO_OPEN_BROWSER (default on); this block only runs when SHOULD_START_APP
     // is true, so it is skipped in test mode.
     const autoOpenBrowser =
-      String(process.env.AUTO_OPEN_BROWSER ?? "true").trim().toLowerCase() !== "false";
+      String(process.env.AUTO_OPEN_BROWSER ?? "true")
+        .trim()
+        .toLowerCase() !== "false";
     if (autoOpenBrowser) {
       const netSettings = getNetworkSettings();
       openInBrowser(serverLabelUrl(netSettings.host, netSettings.controlPort));

@@ -89,23 +89,28 @@ vi.setStringValues(
 );
 vi.outputToResourceEntries(res.entries);
 
-  // Embed the app icon (assets/icon.ico) into the PE resource section, replacing
-  // the stock Node icon group in place (matching its id + lang) so the exe shows
-  // our icon in Explorer. resedit writes both the RT_ICON_GROUP directory and the
-  // individual RT_ICON entries.
-  let iconCount = 0;
-  if (fs.existsSync(ICON_PATH)) {
-    const icoFile = ResEdit.Data.IconFile.from(fs.readFileSync(ICON_PATH));
-    const icons = icoFile.icons.map((item) => item.data);
-    const existingGroups = ResEdit.Resource.IconGroupEntry.fromEntries(res.entries);
-    const existing = existingGroups[0];
-    const iconGroupID = existing ? existing.id : 1;
-    const iconLang = existing ? existing.lang : LANG;
-    ResEdit.Resource.IconGroupEntry.replaceIconsForResource(res.entries, iconGroupID, iconLang, icons);
-    iconCount = icons.length;
-  } else {
-    log(`No ${ICON_PATH} found; skipping the icon embed.`);
-  }
+// Embed the app icon (assets/icon.ico) into the PE resource section, replacing
+// the stock Node icon group in place (matching its id + lang) so the exe shows
+// our icon in Explorer. resedit writes both the RT_ICON_GROUP directory and the
+// individual RT_ICON entries.
+let iconCount = 0;
+if (fs.existsSync(ICON_PATH)) {
+  const icoFile = ResEdit.Data.IconFile.from(fs.readFileSync(ICON_PATH));
+  const icons = icoFile.icons.map((item) => item.data);
+  const existingGroups = ResEdit.Resource.IconGroupEntry.fromEntries(res.entries);
+  const existing = existingGroups[0];
+  const iconGroupID = existing ? existing.id : 1;
+  const iconLang = existing ? existing.lang : LANG;
+  ResEdit.Resource.IconGroupEntry.replaceIconsForResource(
+    res.entries,
+    iconGroupID,
+    iconLang,
+    icons,
+  );
+  iconCount = icons.length;
+} else {
+  log(`No ${ICON_PATH} found; skipping the icon embed.`);
+}
 
 fs.writeFileSync(tmp, Buffer.from(exe.generate()));
 

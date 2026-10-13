@@ -57,7 +57,11 @@ test("acquireLock refuses when a live process holds the lock", (t) => {
   // A live holder: the current process (alive) on this host.
   fs.writeFileSync(
     lockPathFor(dataDir),
-    JSON.stringify({ pid: process.pid, hostname: os.hostname(), startedAt: new Date().toISOString() }),
+    JSON.stringify({
+      pid: process.pid,
+      hostname: os.hostname(),
+      startedAt: new Date().toISOString(),
+    }),
     "utf8",
   );
 
@@ -75,7 +79,11 @@ test("acquireLock takes over a stale lock (dead pid / other host / corrupt)", (t
   // Dead pid on this host.
   fs.writeFileSync(
     lockPathFor(dataDir),
-    JSON.stringify({ pid: getDeadPid(), hostname: os.hostname(), startedAt: new Date().toISOString() }),
+    JSON.stringify({
+      pid: getDeadPid(),
+      hostname: os.hostname(),
+      startedAt: new Date().toISOString(),
+    }),
     "utf8",
   );
   let result = acquireLock(dataDir);
@@ -87,7 +95,11 @@ test("acquireLock takes over a stale lock (dead pid / other host / corrupt)", (t
   // Different hostname (even with a live pid) is treated as stale.
   fs.writeFileSync(
     lockPathFor(dataDir),
-    JSON.stringify({ pid: process.pid, hostname: "some-other-host", startedAt: new Date().toISOString() }),
+    JSON.stringify({
+      pid: process.pid,
+      hostname: "some-other-host",
+      startedAt: new Date().toISOString(),
+    }),
     "utf8",
   );
   result = acquireLock(dataDir);

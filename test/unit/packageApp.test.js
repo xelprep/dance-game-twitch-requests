@@ -12,8 +12,14 @@ test("buildInfoPlist emits a valid macOS bundle plist", async () => {
   const plist = buildInfoPlist({ executable: "dance-game-twitch-requests", version: "1.2.3" });
 
   assert.match(plist, /<\?xml version="1\.0" encoding="UTF-8"\?>/);
-  assert.match(plist, /<key>CFBundleExecutable<\/key>\s*<string>dance-game-twitch-requests<\/string>/);
-  assert.match(plist, /<key>CFBundleIdentifier<\/key>\s*<string>com\.dancegame\.twitchrequests<\/string>/);
+  assert.match(
+    plist,
+    /<key>CFBundleExecutable<\/key>\s*<string>dance-game-twitch-requests<\/string>/,
+  );
+  assert.match(
+    plist,
+    /<key>CFBundleIdentifier<\/key>\s*<string>com\.dancegame\.twitchrequests<\/string>/,
+  );
   assert.match(plist, /<key>CFBundlePackageType<\/key>\s*<string>APPL<\/string>/);
   assert.match(plist, /<key>CFBundleShortVersionString<\/key>\s*<string>1\.2\.3<\/string>/);
   assert.match(plist, /<key>CFBundleIconFile<\/key>\s*<string>icon<\/string>/);
@@ -44,8 +50,14 @@ test("buildInstallSh installs to per-user locations without root", async () => {
   assert.match(script, /APP_NAME="dance-game-twitch-requests"/);
   // Copies the binary, icon, and .desktop to the standard per-user locations.
   assert.match(script, /cp "\$SCRIPT_DIR\/\$APP_NAME" "\$HOME\/\.local\/bin\/\$APP_NAME"/);
-  assert.match(script, /cp "\$SCRIPT_DIR\/icon\.png" "\$HOME\/\.local\/share\/icons\/hicolor\/512x512\/apps\/\$APP_NAME\.png"/);
-  assert.match(script, /cp "\$SCRIPT_DIR\/\$APP_NAME\.desktop" "\$HOME\/\.local\/share\/applications\/\$APP_NAME\.desktop"/);
+  assert.match(
+    script,
+    /cp "\$SCRIPT_DIR\/icon\.png" "\$HOME\/\.local\/share\/icons\/hicolor\/512x512\/apps\/\$APP_NAME\.png"/,
+  );
+  assert.match(
+    script,
+    /cp "\$SCRIPT_DIR\/\$APP_NAME\.desktop" "\$HOME\/\.local\/share\/applications\/\$APP_NAME\.desktop"/,
+  );
   // Best-effort desktop database refresh.
   assert.match(script, /update-desktop-database/);
   // No sudo anywhere.
