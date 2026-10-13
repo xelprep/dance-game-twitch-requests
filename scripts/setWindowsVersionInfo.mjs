@@ -112,6 +112,9 @@ if (fs.existsSync(ICON_PATH)) {
   log(`No ${ICON_PATH} found; skipping the icon embed.`);
 }
 
+// Write the modified exe to a temp file in the same directory, verify it
+// round-trips, then copy it over the original output path.
+const tmp = path.join(path.dirname(output), `${path.basename(output)}.tmp`);
 fs.writeFileSync(tmp, Buffer.from(exe.generate()));
 
 // --- 2. Round-trip: confirm the version strings were written ---
