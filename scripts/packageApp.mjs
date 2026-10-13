@@ -17,6 +17,7 @@
 // exported so they can be unit-tested without running the pipeline.
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -135,6 +136,36 @@ export function buildInstallSh({ binaryName = BINARY_NAME, name = APP_NAME }) {
 
 // --- Platform post-processors ---
 
+// Launch smoke test: run the just-built binary non-interactively against a
+// throwaway data dir. With no TTY and no .env, start.js prints "App setup is
+// incomplete" to stderr and exits non-zero *before* loading any native module.
+// If the binary boots and prints that message, the SEA blob (and, on macOS,
+// the executable bit + ad-hoc signature) survived packaging. If packaging
+// corrupted it, the binary fails to start. Set SKIP_SMOKE_TEST=1 to skip.
+function runLaunchSmokeTest(binaryPath) {
+  if (process.env.SKIP_SMOKE_TEST === "1") {
+    log("SKIP_SMOKE_TEST=1; skipping the launch smoke test.");
+    return;
+  }
+  const smokeDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "dgr-smoke-"));
+  const smoke = spawnSync(binaryPath, [], {
+    env: { ...process.env, APP_DATA_DIR: smokeDataDir },
+    encoding: "utf8",
+    timeout: 60000,
+  });
+  fs.rmSync(smokeDataDir, { recursive: true, force: true });
+  const smokeOutput = `${smoke.stdout ?? ""}\n${smoke.stderr ?? ""}`;
+  if (smoke.error || !smokeOutput.includes("App setup is incomplete")) {
+    console.error(
+      "[packageApp] ERROR: launch smoke test failed — the built binary did not boot as expected.",
+    );
+    console.error(`--- binary output ---\n${smokeOutput}\n------------------`);
+    if (smoke.error) console.error(`spawn error: ${smoke.error.message}`);
+    process.exit(1);
+  }
+  log("Launch smoke test passed — the built binary boots (SEA blob intact).");
+}
+
 function wrapMacApp(binaryPath) {
   const distDir = path.dirname(binaryPath);
   const executableName = path.basename(binaryPath);
@@ -148,7 +179,13 @@ function wrapMacApp(binaryPath) {
   fs.mkdirSync(resourcesDir, { recursive: true });
 
   // Move the bare binary into the bundle (CFBundleExecutable must match this).
-  fs.renameSync(binaryPath, path.join(macosDir, executableName));
+  const bundledBinary = path.join(macosDir, executableName);
+  fs.renameSync(binaryPath, bundledBinary);
+
+  // Ensure the executable bit is set. pkg does not reliably preserve it on the
+  // produced binary, and without it macOS refuses to launch the app (the user
+  // has to `chmod +x` the nested binary by hand).
+  fs.chmodSync(bundledBinary, 0o755);
 
   // Copy the icon.
   const iconSrc = path.join(__dirname, "..", "assets", "icon.icns");
@@ -172,6 +209,9 @@ function wrapMacApp(binaryPath) {
     );
   }
   log(`Created ${APP_NAME}.app and ad-hoc signed it.`);
+
+  // Boot the final signed, executable bundle binary to confirm it launches.
+  runLaunchSmokeTest(bundledBinary);
 }
 
 function writeLinuxDesktop(binaryPath) {
@@ -192,6 +232,9 @@ function writeLinuxDesktop(binaryPath) {
   });
 
   log(`Wrote ${binaryName}.desktop, icon.png, and install.sh.`);
+
+  // Boot the built binary to confirm it launches.
+  runLaunchSmokeTest(binaryPath);
 }
 
 function runWindowsPostBuild(binaryPath) {
