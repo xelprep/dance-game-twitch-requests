@@ -38,6 +38,7 @@ test("setup options are complete, tiered, and carry built-in defaults", () => {
   assert.deepEqual(
     ADVANCED_OPTIONS.map((option) => option.key).sort(),
     [
+      "AUTO_OPEN_BROWSER",
       "BOT_PREFIX",
       "DB_DIR",
       "MAX_REQUESTS_PER_USER",

@@ -121,8 +121,16 @@ jobs:
         run: |
           $version = node -p "require('./package.json').version"
           $base = "dance-game-twitch-requests-${version}-${{ matrix.os }}-${{ matrix.arch }}"
-          $ext = "${{ matrix.ext }}"
-          Compress-Archive -Path "dist/dance-game-twitch-requests$ext" -DestinationPath "dist/$base.zip" -Force
+          $os = "${{ matrix.os }}"
+          if ($os -eq "macos") {
+            # Ship the .app bundle (postBuild wrapped the binary and removed the bare one).
+            Compress-Archive -Path "dist/Dance Game Twitch Requests.app" -DestinationPath "dist/$base.zip" -Force
+          } elseif ($os -eq "windows") {
+            Compress-Archive -Path "dist/dance-game-twitch-requests.exe" -DestinationPath "dist/$base.zip" -Force
+          } else {
+            # Linux: the binary plus the freedesktop launcher files postBuild wrote.
+            Compress-Archive -Path "dist/dance-game-twitch-requests","dist/dance-game-twitch-requests.desktop","dist/icon.png","dist/install.sh" -DestinationPath "dist/$base.zip" -Force
+          }
           Get-ChildItem dist
       - uses: actions/upload-artifact@v4
         with:
@@ -141,4 +149,21 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*/*.zip
-          generate_release_notes: true
+          body: |
+            ## First launch
+
+            **macOS** — Unzip, then right-click the app → **Open** once (or run
+            `xattr -d com.apple.quarantine "Dance Game Twitch Requests.app"`). After that,
+            double-click it: a Terminal window opens with live logs, and the setup wizard
+            appears on first run. Closing the Terminal window stops the app.
+
+            **Windows** — Double-click the `.exe`. A console window shows live logs; the
+            setup wizard appears on first run.
+
+            **Linux** — Unzip, then run `./install.sh` once. The app appears in your
+            application menu; on GNOME, right-click it → **Allow Launching** the first time.
+            Double-clicking opens a terminal window running the app; closing it stops the app.
+
+            On every platform the control panel opens in your browser once the servers start
+            (disable with `AUTO_OPEN_BROWSER=false`). Only one instance runs at a time; a
+            second launch exits with a message instead of failing on a port conflict.

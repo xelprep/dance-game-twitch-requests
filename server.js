@@ -20,6 +20,7 @@ const { rateLimit } = require("express-rate-limit");
 const fs = require("fs");
 const os = require("os");
 const net = require("net");
+const { spawn } = require("node:child_process");
 const crypto = require("crypto");
 const http = require("http");
 const https = require("https");
@@ -2995,6 +2996,13 @@ function createApi(app, options = {}) {
       }
     });
 
+    // Gracefully stop the app (control-password auth, like the other admin
+    // endpoints). Respond first, then shut down so the client sees the ack.
+    app.post("/api/control/shutdown", (_req, res) => {
+      res.json({ ok: true, message: "Shutting down." });
+      setTimeout(() => shutdownApp("control panel"), 100);
+    });
+
     // --- Temp mod nomination endpoints ---
 
     app.get("/api/control/temp-mod/status", (_req, res) => {
@@ -3795,6 +3803,68 @@ async function startNetworkServers() {
     console.error(restartFailureMessage(e, target));
     process.exit(1);
   }
+}
+
+// --- Graceful shutdown + browser auto-open ---
+
+// Open a URL in the platform's default browser (best-effort, non-blocking).
+function openInBrowser(url) {
+  let cmd;
+  let args;
+  if (process.platform === "darwin") {
+    cmd = "open";
+    args = [url];
+  } else if (process.platform === "win32") {
+    cmd = "rundll32";
+    args = ["url.dll,FileProtocolHandler", url];
+  } else {
+    cmd = "xdg-open";
+    args = [url];
+  }
+  try {
+    const child = spawn(cmd, args, { stdio: "ignore", detached: true });
+    child.on("error", () => {});
+    child.unref();
+  } catch (err) {
+    console.warn(`Could not open the browser: ${err.message}`);
+  }
+}
+
+let shuttingDown = false;
+// Gracefully stop the app: close the HTTP servers, close the DB, and exit 0.
+// The instance lock is released by start.js's process.on("exit") handler.
+function shutdownApp(reason) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\nShutting down (${reason})…`);
+  // Safety net: force-exit if a server refuses to close.
+  const forceTimer = setTimeout(() => process.exit(0), 5000);
+  forceTimer.unref?.();
+  (async () => {
+    try {
+      for (const entry of runningServers.slice()) {
+        await stopHttpsServer(entry).catch(() => {});
+      }
+      runningServers.length = 0;
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (db && typeof db.close === "function") db.close();
+    } catch {
+      /* ignore */
+    }
+    process.exit(0);
+  })();
+}
+
+// Closing the terminal window (macOS/Linux) delivers SIGHUP; SIGTERM/SIGINT
+// cover the usual stop paths. Only wired when actually starting the app so the
+// test suite keeps the default signal behavior.
+if (SHOULD_START_APP) {
+  process.on("SIGTERM", () => shutdownApp("SIGTERM"));
+  process.on("SIGINT", () => shutdownApp("SIGINT"));
+  process.on("SIGHUP", () => shutdownApp("SIGHUP"));
 }
 
 module.exports = {
@@ -4954,6 +5024,15 @@ Fix the path or add songs, then restart the application.
     }
 
     await startNetworkServers();
+    // "It's running" signal: open the control panel in the browser. Gated by
+    // AUTO_OPEN_BROWSER (default on); this block only runs when SHOULD_START_APP
+    // is true, so it is skipped in test mode.
+    const autoOpenBrowser =
+      String(process.env.AUTO_OPEN_BROWSER ?? "true").trim().toLowerCase() !== "false";
+    if (autoOpenBrowser) {
+      const netSettings = getNetworkSettings();
+      openInBrowser(serverLabelUrl(netSettings.host, netSettings.controlPort));
+    }
     initializeTwitch();
   })();
 }

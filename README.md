@@ -392,7 +392,13 @@ Flags are passed directly to the executable:
 
 ### macOS notes
 
-The binaries are ad-hoc signed (not notarized). The first launch of a downloaded binary may be blocked by Gatekeeper; right-click the executable and choose **Open** (or run `xattr -d com.apple.quarantine <binary>`) to allow it.
+The macOS release is a `.app` bundle. Double-clicking it opens a Terminal window with live logs — the app detects the GUI launch and hands off to Terminal automatically. To run it with flags such as `--no-scan` or `--setup`, run the inner executable from a terminal instead:
+
+```bash
+Dance\ Game\ Twitch\ Requests.app/Contents/MacOS/dance-game-twitch-requests --setup
+```
+
+The bundle is ad-hoc signed (not notarized). The first launch may be blocked by Gatekeeper; right-click the app and choose **Open** (or run `xattr -d com.apple.quarantine "Dance Game Twitch Requests.app"`) to allow it.
 
 ### Cutting a new release
 

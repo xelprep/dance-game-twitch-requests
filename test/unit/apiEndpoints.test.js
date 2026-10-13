@@ -372,6 +372,30 @@ test("moderator settings API rejects invalid auth and accepts valid moderator au
   }
 });
 
+test("control shutdown endpoint requires streamer auth", async () => {
+  const server = await startControlApp();
+  const port = server.address().port;
+
+  try {
+    // No auth -> 401 (and the route is registered, not 404).
+    const unauthorized = await fetch(`http://127.0.0.1:${port}/api/control/shutdown`, {
+      method: "POST",
+    });
+    assert.equal(unauthorized.status, 401);
+
+    // Wrong credentials -> 401.
+    const badAuth = await fetch(`http://127.0.0.1:${port}/api/control/shutdown`, {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + Buffer.from("streamer:wrong-password").toString("base64"),
+      },
+    });
+    assert.equal(badAuth.status, 401);
+  } finally {
+    server.close();
+  }
+});
+
 test("control settings API stores valid streamer credentials and updates settings", async () => {
   resetSettings();
   const server = await startControlApp();

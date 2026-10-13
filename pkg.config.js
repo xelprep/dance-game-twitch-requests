@@ -55,16 +55,23 @@ module.exports = {
     `node_modules/@img/sharp-libvips-${nativePlatform}/**/*`,
   ],
   outputPath: "dist",
-  // Rewrite the Windows .exe version info (product name + version) after pkg
-  // writes it, so it stops showing the stock Node.js values. No-op on the
-  // macOS/Linux jobs (the script skips non-.exe outputs). See the script for
-  // the round-trip check and the boot smoke test (resedit x SEA gate).
-  postBuild: "node scripts/setWindowsVersionInfo.mjs",
+  // Post-process the produced binary per platform after pkg writes it:
+  //   - macOS:   wrap in a .app bundle + ad-hoc codesign
+  //   - Windows: version info + icon embed + resedit x SEA boot smoke test
+  //   - Linux:   freedesktop .desktop entry + icon + install.sh
+  // No-op where a branch doesn't apply. See scripts/packageApp.mjs.
+  postBuild: "node scripts/packageApp.mjs",
   ignore: [
     "test/**",
     "localdev/**",
     "docs/**",
     "scripts/**",
+    // Icon sources + build tooling must not be baked into the VFS.
+    "assets/**",
+    // A developer's local config must never be baked in and shadow the
+    // on-disk lookup (data_dir.ini / .env live next to the executable).
+    "data_dir.ini",
+    ".env",
     "**/*.md",
     "**/node_modules/*/test/**",
     "**/node_modules/*/tests/**",
