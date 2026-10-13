@@ -226,7 +226,7 @@ Run the wizard again at any time with:
 npm run setup
 ```
 
-(With a standalone binary, use `./dance-game-twitch-requests-<version>-<os>-<arch> --setup` instead — see [Standalone binary (releases)](#standalone-binary-releases).)
+(With a standalone binary, pass `--setup` to the executable instead — see [Standalone binary (releases)](#standalone-binary-releases).)
 
 Setup preserves unrelated `.env` values and comments and backs up the previous file before changing it. You can also edit the `.env` file in the data folder manually (see [Data location](#data-location)); `SONGS_DIR` and a non-default `CONTROL_PASSWORD` are required. If startup has no interactive terminal, it prints setup instructions instead of prompting.
 
@@ -333,47 +333,23 @@ The `--` is required so npm forwards the flag to the script instead of treating 
 
 If no viable database is found, the app logs a warning and runs the initial scan as usual.
 
-With a standalone binary (below) the equivalent is simply:
-
-```bash
-./dance-game-twitch-requests-<version>-<os>-<arch> --no-scan
-```
+With a standalone binary (below) the equivalent is to pass `--no-scan` to the executable — see [Running with flags](#running-with-flags).
 
 ## Standalone binary (releases)
 
-Prebuilt standalone binaries are published on the [Releases page](../../releases) for six targets: macOS (Apple Silicon and Intel x64), Windows (x64 and ARM64), and Linux (x64 and ARM64). Each zip contains a single self-contained executable — no Node.js installation is required on the target machine.
+Prebuilt standalone binaries are published on the [Releases page](../../releases) for six targets: macOS (Apple Silicon and Intel x64), Windows (x64 and ARM64), and Linux (x64 and ARM64). No Node.js installation is required on the target machine. The zip is named `dance-game-twitch-requests-<version>-<os>-<arch>.zip`, but the executable inside is just `dance-game-twitch-requests` (`.exe` on Windows) — and on macOS the zip contains a `Dance Game Twitch Requests.app` bundle instead of a bare executable.
 
 ### Installing
 
 1. Download the zip for your platform from the latest release.
 2. Unzip it.
-3. On macOS and Linux, make it executable:
+3. Run it:
 
-   ```bash
-   chmod +x dance-game-twitch-requests-<version>-<os>-<arch>
-   ```
+   - **macOS** — double-click `Dance Game Twitch Requests.app`; a Terminal window opens with live logs (see [macOS notes](#macos-notes) below).
+   - **Windows** — double-click `dance-game-twitch-requests.exe`, or run it from a terminal.
+   - **Linux** — run `./install.sh` (no root required), then start the app from your application menu. You can also run the unzipped binary directly: `chmod +x dance-game-twitch-requests && ./dance-game-twitch-requests`.
 
-4. Run it:
-
-   ```bash
-   # macOS (Apple Silicon)
-   ./dance-game-twitch-requests-1.0.0-macos-arm64
-
-   # macOS (Intel)
-   ./dance-game-twitch-requests-1.0.0-macos-x64
-
-   # Windows (x64) — double-click or run from a terminal
-   dance-game-twitch-requests-1.0.0-windows-x64.exe
-
-   # Windows (ARM64)
-   dance-game-twitch-requests-1.0.0-windows-arm64.exe
-
-   # Linux (x64)
-   ./dance-game-twitch-requests-1.0.0-linux-x64
-
-   # Linux (ARM64)
-   ./dance-game-twitch-requests-1.0.0-linux-arm64
-   ```
+   On Linux, `install.sh` copies the binary to `~/.local/bin`, the icon to `~/.local/share/icons`, and the `.desktop` entry to `~/.local/share/applications`.
 
 On first launch the same interactive setup wizard runs as with `npm start` (see [Install](#install)). The binary is fully portable: put it anywhere, even a read-only location — all app data lives in the [data root](#data-location) (`~/.dance-game-requests` by default), so a binary install and an `npm` install of the same version share the same data.
 
@@ -382,13 +358,17 @@ On first launch the same interactive setup wizard runs as with `npm start` (see 
 Flags are passed directly to the executable:
 
 ```bash
-# Skip the initial song scan (when a viable database already exists)
-./dance-game-twitch-requests-1.0.0-macos-arm64 --no-scan
+# Windows
+dance-game-twitch-requests.exe --no-scan
 
-# Re-run the interactive setup wizard (the binary equivalent of `npm run setup`),
-# then exit
-./dance-game-twitch-requests-1.0.0-macos-arm64 --setup
+# Linux
+./dance-game-twitch-requests --no-scan
+
+# macOS — the inner executable of the bundle
+Dance\ Game\ Twitch\ Requests.app/Contents/MacOS/dance-game-twitch-requests --no-scan
 ```
+
+`--no-scan` skips the initial song scan (when a viable database already exists); `--setup` re-runs the interactive setup wizard (the binary equivalent of `npm run setup`), then exits. Double-clicking cannot pass flags, so on macOS use the inner-executable form above.
 
 ### macOS notes
 
@@ -399,6 +379,15 @@ Dance\ Game\ Twitch\ Requests.app/Contents/MacOS/dance-game-twitch-requests --se
 ```
 
 The bundle is ad-hoc signed (not notarized). The first launch may be blocked by Gatekeeper; right-click the app and choose **Open** (or run `xattr -d com.apple.quarantine "Dance Game Twitch Requests.app"`) to allow it.
+
+### App icons
+
+The platform icon files are generated from a single master artwork, `assets/icon.png` (a 1024×1024 PNG), by `scripts/generateIcons.mjs` (`npm run icons`):
+
+- `assets/icon.ico` — a multi-size Windows icon container (16/24/32/48/64/128/256 px). Built in pure Node: `sharp` resizes the master to each size and a small ICO writer assembles the container (the 256 px entry is PNG-compressed per the ICO spec; the smaller entries are 32-bit BMP DIBs). Runs on any OS.
+- `assets/icon.icns` — the macOS bundle icon. Built by rendering an `.iconset` (16→1024 px) with `sharp` and packing it with `iconutil`, which is macOS-only; on other hosts that step is skipped with a note.
+
+The generated files are committed and used by the release build: the macOS postBuild step copies `icon.icns` into the `.app` bundle, and the Windows postBuild step embeds `icon.ico` into the `.exe` alongside the version info. To change the app icon, replace `assets/icon.png` with a new 1024×1024 PNG, run `npm run icons` on a Mac (so both files regenerate), and commit the results.
 
 ### Cutting a new release
 
