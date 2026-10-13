@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { Worker } = require("worker_threads");
+const { computeChartHashPair, normalizeFloatDigits } = require("./hash");
 
 // Decode a raw StepMania tag value. StepMania uses `\` as an escape
 // character: `\X` in a file means a literal `X` (e.g. `\#` is a literal `#`,
@@ -531,7 +532,8 @@ function computeCoreBpm(charts, songTags, isSSC) {
   return null;
 }
 
-function readSongFile(filePath, packOverride, packFolderOverride) {
+function readSongFile(filePath, packOverride, packFolderOverride, options = {}) {
+  const { includeNeutral = false } = options;
   const text = fs.readFileSync(filePath, "utf8");
   const tags = parseTags(text);
   const headerTags = parseTags(songHeader(text));
@@ -559,10 +561,22 @@ function readSongFile(filePath, packOverride, packFolderOverride) {
     bpmMax,
     coreBpm,
     durationSeconds: computeDuration(charts, headerTags, isSSC),
-    charts: charts.map((chart) => ({
-      ...chart,
-      difficultyRaw: chart.difficultyRaw || chart.difficulty || "",
-    })),
+    charts: charts.map((chart) => {
+      const actualBpm =
+        (isSSC && chart.chartTags && chart.chartTags.BPMS) || headerTags.BPMS || tags.BPMS || "";
+      const { shortHash, neutralHash } = computeChartHashPair(
+        chart.noteData,
+        actualBpm,
+        chart.chartType,
+        { includeNeutral },
+      );
+      return {
+        ...chart,
+        difficultyRaw: chart.difficultyRaw || chart.difficulty || "",
+        standardHash: shortHash,
+        bpmNeutralHash: neutralHash,
+      };
+    }),
   };
 }
 
@@ -778,6 +792,8 @@ function mergeDuplicateSongs(songs) {
           charts.push({
             ...chart,
             difficultyRaw: chart.difficultyRaw || chart.difficulty || "",
+            standardHash: chart.standardHash || "",
+            bpmNeutralHash: chart.bpmNeutralHash || "",
           });
         }
       }
@@ -871,14 +887,22 @@ async function scanSongs(songsDir, db, options = {}) {
   const getCharts = db.prepare(
     "SELECT id, chart_type, difficulty, meter FROM charts WHERE song_id = ?",
   );
-  const updateChart = db.prepare(`
-    UPDATE charts SET difficulty_raw = ?, radar = ? WHERE id = ?
-  `);
-  const addChart = db.prepare(`
-    INSERT INTO charts
-      (song_id, chart_type, difficulty, difficulty_raw, meter, radar)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
+  const chartCols = db
+    .prepare("PRAGMA table_info(charts)")
+    .all()
+    .map((r) => r.name);
+  const hasStandardHash = chartCols.includes("standard_hash");
+
+  const updateChart = db.prepare(
+    hasStandardHash
+      ? `UPDATE charts SET difficulty_raw = ?, radar = ?, standard_hash = ? WHERE id = ?`
+      : `UPDATE charts SET difficulty_raw = ?, radar = ? WHERE id = ?`,
+  );
+  const addChart = db.prepare(
+    hasStandardHash
+      ? `INSERT INTO charts (song_id, chart_type, difficulty, difficulty_raw, meter, radar, standard_hash) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      : `INSERT INTO charts (song_id, chart_type, difficulty, difficulty_raw, meter, radar) VALUES (?, ?, ?, ?, ?, ?)`,
+  );
   const removeChart = db.prepare("DELETE FROM charts WHERE id = ?");
 
   // Collapse duplicate packs/songs found across the songs directories.
@@ -908,20 +932,41 @@ async function scanSongs(songsDir, db, options = {}) {
         currentChartKeys.add(key);
         const existingChart = existingChartsByKey.get(key);
         if (existingChart) {
-          updateChart.run(
-            chart.difficultyRaw || chart.difficulty || "",
-            chart.radar,
-            existingChart.id,
-          );
+          if (hasStandardHash) {
+            updateChart.run(
+              chart.difficultyRaw || chart.difficulty || "",
+              chart.radar,
+              chart.standardHash || "",
+              existingChart.id,
+            );
+          } else {
+            updateChart.run(
+              chart.difficultyRaw || chart.difficulty || "",
+              chart.radar,
+              existingChart.id,
+            );
+          }
         } else {
-          addChart.run(
-            row.id,
-            chart.chartType,
-            chart.difficulty,
-            chart.difficultyRaw || chart.difficulty || "",
-            chart.meter,
-            chart.radar,
-          );
+          if (hasStandardHash) {
+            addChart.run(
+              row.id,
+              chart.chartType,
+              chart.difficulty,
+              chart.difficultyRaw || chart.difficulty || "",
+              chart.meter,
+              chart.radar,
+              chart.standardHash || "",
+            );
+          } else {
+            addChart.run(
+              row.id,
+              chart.chartType,
+              chart.difficulty,
+              chart.difficultyRaw || chart.difficulty || "",
+              chart.meter,
+              chart.radar,
+            );
+          }
         }
       }
 
