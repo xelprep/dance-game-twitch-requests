@@ -124,12 +124,19 @@ jobs:
           $os = "${{ matrix.os }}"
           if ($os -eq "macos") {
             # Ship the .app bundle (postBuild wrapped the binary and removed the bare one).
-            Compress-Archive -Path "dist/Dance Game Twitch Requests.app" -DestinationPath "dist/$base.zip" -Force
+            # Use ditto, not Compress-Archive: ditto preserves the Unix executable bit
+            # on the nested binary, which Compress-Archive silently drops (leaving the
+            # shipped binary -rw-r--r-- and unlaunchable).
+            ditto -c -k --keepParent "dist/Dance Game Twitch Requests.app" "dist/$base.zip"
           } elseif ($os -eq "windows") {
             Compress-Archive -Path "dist/dance-game-twitch-requests.exe" -DestinationPath "dist/$base.zip" -Force
           } else {
             # Linux: the binary plus the freedesktop launcher files postBuild wrote.
-            Compress-Archive -Path "dist/dance-game-twitch-requests","dist/dance-game-twitch-requests.desktop","dist/icon.png","dist/install.sh" -DestinationPath "dist/$base.zip" -Force
+            # Use zip, not Compress-Archive, so the executable bits on the binary and
+            # install.sh survive the archive.
+            Push-Location dist
+            zip -r "$base.zip" dance-game-twitch-requests dance-game-twitch-requests.desktop icon.png install.sh
+            Pop-Location
           }
           Get-ChildItem dist
       - uses: actions/upload-artifact@v7
