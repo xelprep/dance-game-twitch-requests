@@ -1,6 +1,6 @@
 {
   "name": "dance-game-twitch-requests",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "private": true,
   "description": "Dance game song database with a Twitch chat request bot and web queue.",
   "main": "server.js",
