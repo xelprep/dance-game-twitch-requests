@@ -145,7 +145,7 @@ export function buildInstallSh({ binaryName = BINARY_NAME, name = APP_NAME }) {
 function runLaunchSmokeTest(binaryPath) {
   if (process.env.SKIP_SMOKE_TEST === "1") {
     log("SKIP_SMOKE_TEST=1; skipping the launch smoke test.");
-    return;
+    return true;
   }
   const smokeDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "dgr-smoke-"));
   const smoke = spawnSync(binaryPath, [], {
@@ -161,9 +161,10 @@ function runLaunchSmokeTest(binaryPath) {
     );
     console.error(`--- binary output ---\n${smokeOutput}\n------------------`);
     if (smoke.error) console.error(`spawn error: ${smoke.error.message}`);
-    process.exit(1);
+    return false;
   }
   log("Launch smoke test passed — the built binary boots (SEA blob intact).");
+  return true;
 }
 
 function wrapMacApp(binaryPath) {
@@ -210,8 +211,17 @@ function wrapMacApp(binaryPath) {
   }
   log(`Created ${APP_NAME}.app and ad-hoc signed it.`);
 
-  // Boot the final signed, executable bundle binary to confirm it launches.
-  runLaunchSmokeTest(bundledBinary);
+  // Boot the binary to confirm the SEA blob survived packaging. Run a copy
+  // placed *outside* the .app bundle: the in-place binary's path matches
+  // `.app/Contents/MacOS/`, which triggers the Terminal handoff (macHandoff)
+  // and short-circuits before the setup check the smoke test asserts on. A
+  // copy preserves the executable bit, the ad-hoc signature, and the SEA blob,
+  // so it still validates all of those while letting the app run its startup.
+  const smokeCopy = path.join(os.tmpdir(), `dgr-smoke-${process.pid}-${executableName}`);
+  fs.copyFileSync(bundledBinary, smokeCopy);
+  const smokeOk = runLaunchSmokeTest(smokeCopy);
+  fs.rmSync(smokeCopy, { force: true });
+  if (!smokeOk) fail("macOS launch smoke test failed");
 }
 
 function writeLinuxDesktop(binaryPath) {
@@ -234,7 +244,7 @@ function writeLinuxDesktop(binaryPath) {
   log(`Wrote ${binaryName}.desktop, icon.png, and install.sh.`);
 
   // Boot the built binary to confirm it launches.
-  runLaunchSmokeTest(binaryPath);
+  if (!runLaunchSmokeTest(binaryPath)) fail("Linux launch smoke test failed");
 }
 
 function runWindowsPostBuild(binaryPath) {
