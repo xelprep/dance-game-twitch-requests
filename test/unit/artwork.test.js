@@ -154,7 +154,7 @@ test("processing falls through a corrupt declared banner to pack artwork", async
   const db = createDb();
   db.prepare("INSERT INTO songs (file_path, title) VALUES (?, ?)").run(songFile, "Fallback");
 
-  const result = await processSongArtwork(db, { songsRoots: [root], cacheDirectory });
+  const result = await processSongArtwork(db, { songsRoots: [root], cacheDirectory, silent: true });
   const row = db.prepare("SELECT artwork_key, artwork_kind FROM songs").get();
   assert.equal(result.failed, 0);
   assert.equal(result.processed, 1);
@@ -203,6 +203,7 @@ test("shared pack artwork is processed once and referenced by all fallback songs
     songsRoots: [root],
     cacheDirectory,
     threads: 4,
+    silent: true,
   });
 
   assert.equal(result.total, songCount);
@@ -246,6 +247,7 @@ test("processSongArtwork respects the threads option", async () => {
     songsRoots: [root],
     cacheDirectory,
     threads: 1,
+    silent: true,
   });
   assert.equal(result.threads, 1);
   assert.equal(result.total, 2);

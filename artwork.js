@@ -2,7 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const sharp = require("sharp");
-const { resolveThreadCount } = require("./scanner");
+const { formatDuration, resolveThreadCount } = require("./scanner");
 
 const ARTWORK_PROCESSOR_VERSION = "webp-320-v1";
 const MAX_IMAGE_DIMENSION = 320;
@@ -237,7 +237,7 @@ async function processArtworkSource(db, sourcePath, cacheDirectory, { force = fa
 
 async function processSongArtwork(
   db,
-  { songsRoots, cacheDirectory, force = false, threads, onProgress } = {},
+  { songsRoots, cacheDirectory, force = false, threads, silent = false, onProgress } = {},
 ) {
   ensureArtworkSchema(db);
   // Match the concurrency the user configured for the song scanner. An
@@ -252,6 +252,7 @@ async function processSongArtwork(
     throw new Error("All configured Songs directories must be available to process artwork.");
   }
   fs.mkdirSync(cacheDirectory, { recursive: true });
+  const startTime = performance.now();
   const songs = db.prepare("SELECT id, file_path FROM songs ORDER BY id").all();
   const result = {
     total: songs.length,
@@ -261,8 +262,31 @@ async function processSongArtwork(
     failed: 0,
     threads: numThreads,
     errors: [],
+    missingSongs: [],
   };
   let completed = 0;
+
+  // Console output mirrors what `scanSongs` prints for the song scan: a
+  // header line, an in-place progress line on TTYs, then a summary plus any
+  // songs that came back without artwork or whose artwork could not be built.
+  const MAX_REPORTED = 20;
+  if (!silent) {
+    console.log(
+      `Processing artwork: ${roots.join(", ")} (${numThreads} ${numThreads === 1 ? "thread" : "threads"})`,
+    );
+  }
+  const reportProgress = (completedCount, total) => {
+    if (!silent && total > 0) {
+      const pct = ((completedCount / total) * 100).toFixed(1);
+      const elapsedSec = ((performance.now() - startTime) / 1000).toFixed(2);
+      const progressLine =
+        `Processing artwork: ${completedCount}/${total} (${pct}%) - ${elapsedSec}s elapsed`;
+      if (process.stdout.isTTY) {
+        process.stdout.write(`\r${progressLine}`);
+      }
+    }
+    if (onProgress) onProgress(completedCount, total, result);
+  };
 
   // In-flight dedup: several songs can resolve to the same source image
   // (e.g. a shared pack banner). Only the first caller does the actual
@@ -293,6 +317,9 @@ async function processSongArtwork(
           song.id,
         );
         result.missing++;
+        if (result.missingSongs.length < MAX_REPORTED) {
+          result.missingSongs.push(path.basename(song.file_path));
+        }
       } else {
         let resolved = null;
         let candidateError = null;
@@ -318,7 +345,7 @@ async function processSongArtwork(
         song.id,
       );
       result.failed++;
-      if (result.errors.length < 20) {
+      if (result.errors.length < MAX_REPORTED) {
         result.errors.push({
           songFile: path.basename(song.file_path),
           error: error.message || String(error),
@@ -326,7 +353,7 @@ async function processSongArtwork(
       }
     }
     completed++;
-    if (onProgress) onProgress(completed, songs.length, result);
+    reportProgress(completed, songs.length);
   };
 
   // Bounded concurrency: at most `numThreads` songs are in flight at once.
@@ -346,6 +373,25 @@ async function processSongArtwork(
     })(),
   );
   await Promise.all(workers);
+
+  if (!silent) {
+    if (process.stdout.isTTY) process.stdout.write("\r\x1b[K"); // clear progress line
+    const timeStr = formatDuration(performance.now() - startTime);
+    console.log(
+      `Artwork complete: ${result.processed} processed, ${result.reused} reused, ${result.missing} missing, ${result.failed} failed in ${timeStr}.`,
+    );
+    for (const songFile of result.missingSongs) {
+      console.warn(`No artwork found for song: ${songFile}`);
+    }
+    if (result.missing > result.missingSongs.length) {
+      console.warn(
+        `... and ${result.missing - result.missingSongs.length} more songs without artwork.`,
+      );
+    }
+    for (const failure of result.errors) {
+      console.warn(`Skipping artwork for song: ${failure.songFile} (${failure.error})`);
+    }
+  }
 
   if (result.failed === 0) {
     const referencedKeys = new Set(

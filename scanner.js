@@ -1022,6 +1022,7 @@ async function scanSongs(songsDir, db, options = {}) {
 module.exports = {
   scanSongs,
   resolveThreadCount,
+  formatDuration,
   readSongFile,
   parseBpm,
   computeCoreBpm,
