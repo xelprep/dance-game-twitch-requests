@@ -34,12 +34,46 @@ function readVersion() {
   }
 }
 
+function printUsage() {
+  console.log(
+    "Dance Game Twitch Requests - song database, Twitch chat request bot and web queue.\n" +
+      "\nUsage: dance-game-twitch-requests [options]\n" +
+      "\nOptions:\n" +
+      "  -h, -?, --help     Show this help and exit.\n" +
+      "  -v, --version      Show the app version and exit.\n" +
+      "  --setup            Re-run the interactive setup wizard, then exit.\n" +
+      "  --no-scan          Skip the initial song scan when a viable database\n" +
+      "                     already exists.\n" +
+      "\nConfiguration lives in a .env file inside the app data root\n" +
+      "(~/.dance-game-requests by default): SONGS_DIR, CONTROL_PASSWORD,\n" +
+      "and optional overrides (PORT, ARTWORK_CACHE_DIR, SCANNER_THREADS, ...).",
+  );
+}
+
 async function main() {
   // macOS .app double-click: hand off to Terminal before doing anything else.
   // This never touches the data dir or the lock; the Terminal-side instance
   // (with a real TTY) does the real work.
   if (performMacTerminalHandoff()) {
     process.exit(0);
+  }
+
+  // Informational flags first: help/version need no data dir, instance lock,
+  // or setup, so they work even on an unconfigured app launched from a CLI.
+  const argv = process.argv.slice(2);
+  if (argv.includes("-h") || argv.includes("-?") || argv.includes("--help")) {
+    printUsage();
+    return;
+  }
+  if (argv.includes("-v") || argv.includes("--version")) {
+    const version = readVersion();
+    if (!version) {
+      console.error("App version could not be determined.");
+      process.exitCode = 1;
+    } else {
+      console.log(`Dance Game Twitch Requests ${version}`);
+    }
+    return;
   }
 
   // Resolve and prepare the app data root first. This handles the data_dir.ini

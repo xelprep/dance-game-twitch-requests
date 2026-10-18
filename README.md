@@ -368,7 +368,7 @@ dance-game-twitch-requests.exe --no-scan
 Dance\ Game\ Twitch\ Requests.app/Contents/MacOS/dance-game-twitch-requests --no-scan
 ```
 
-`--no-scan` skips the initial song scan (when a viable database already exists); `--setup` re-runs the interactive setup wizard (the binary equivalent of `npm run setup`), then exits. Double-clicking cannot pass flags, so on macOS use the inner-executable form above.
+`--no-scan` skips the initial song scan (when a viable database already exists); `--setup` re-runs the interactive setup wizard (the binary equivalent of `npm run setup`), then exits. `-h`/`-?`/`--help` prints the available options and `-v`/`--version` prints the app version — handy when launching from a CLI. Double-clicking cannot pass flags, so on macOS use the inner-executable form above.
 
 ### macOS notes
 
