@@ -6,6 +6,7 @@ const { isSetupComplete } = require("./setupConfig.cjs");
 const { prepareDataDir } = require("./dataDir.cjs");
 const { acquireLock, releaseLock } = require("./instanceLock.cjs");
 const { performMacTerminalHandoff } = require("./macHandoff.cjs");
+const { maybeUpdate } = require("./updater.cjs");
 
 function readConfiguredValues(envPath) {
   let fileValues = {};
@@ -44,6 +45,8 @@ function printUsage() {
       "  --setup            Re-run the interactive setup wizard, then exit.\n" +
       "  --no-scan          Skip the initial song scan when a viable database\n" +
       "                     already exists.\n" +
+      "  --update           Check GitHub for a newer standalone-binary release\n" +
+      "                     for this OS/arch and update in place (no prompt).\n" +
       "\nConfiguration lives in a .env file inside the app data root\n" +
       "(~/.dance-game-requests by default): SONGS_DIR, CONTROL_PASSWORD,\n" +
       "and optional overrides (PORT, ARTWORK_CACHE_DIR, SCANNER_THREADS, ...).",
@@ -73,6 +76,23 @@ async function main() {
     } else {
       console.log(`Dance Game Twitch Requests ${version}`);
     }
+    return;
+  }
+
+  // Built-in updater: for the standalone binary only, offer to pull a newer
+  // release for this OS/arch from GitHub and restart using it. Runs BEFORE the
+  // data dir is prepared and the instance lock is acquired, so the parent never
+  // holds a lock the re-exec'd child would collide with. On a successful
+  // takeover the child runs the app and the parent exits with its code.
+  const updateResult = await maybeUpdate(readVersion(), { force: argv.includes("--update") });
+  if (updateResult.updated) {
+    process.exitCode = updateResult.exitCode;
+    return;
+  }
+  // `--update` requested but this is the source/npm copy: maybeUpdate already
+  // explained the right update path; stop rather than start the app.
+  if (updateResult.exitCode) {
+    process.exitCode = updateResult.exitCode;
     return;
   }
 

@@ -370,6 +370,10 @@ Dance\ Game\ Twitch\ Requests.app/Contents/MacOS/dance-game-twitch-requests --no
 
 `--no-scan` skips the initial song scan (when a viable database already exists); `--setup` re-runs the interactive setup wizard (the binary equivalent of `npm run setup`), then exits. `-h`/`-?`/`--help` prints the available options and `-v`/`--version` prints the app version — handy when launching from a CLI. Double-clicking cannot pass flags, so on macOS use the inner-executable form above.
 
+### Built-in updater (standalone binaries)
+
+When launched as a standalone binary from a terminal, the app checks GitHub for a newer release matching the current OS + architecture and, if found, asks `Update to <version>? [Y/n]`. On yes it downloads that release's archive, replaces the running executable in place, and restarts itself using the new binary (the old process hands off to the new one). Pass `--update` to skip the prompt (useful for scripted/CI updates). This only applies to the packaged binary — when running from source (`npm start`), update by pulling the latest release from git instead.
+
 ### macOS notes
 
 The macOS release is a `.app` bundle. Double-clicking it opens a Terminal window with live logs — the app detects the GUI launch and hands off to Terminal automatically. To run it with flags such as `--no-scan` or `--setup`, run the inner executable from a terminal instead:
