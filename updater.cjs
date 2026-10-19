@@ -292,7 +292,16 @@ function patchInfoPlistVersions(plistText, version) {
 // After replacing the binary *inside* a .app bundle, restamp its metadata and
 // re-apply the build's ad-hoc bundle signature. Best-effort: a bundle without
 // an Info.plist (or without codesign) still has the updated binary.
-function restampMacAppBundle(execPath, newVersion = null, { platform = process.platform, read = fs.readFileSync, write = fs.writeFileSync, codesign = childProcess.spawnSync } = {}) {
+function restampMacAppBundle(
+  execPath,
+  newVersion = null,
+  {
+    platform = process.platform,
+    read = fs.readFileSync,
+    write = fs.writeFileSync,
+    codesign = childProcess.spawnSync,
+  } = {},
+) {
   const bundlePath = macAppBundlePath(execPath, platform);
   if (!bundlePath || !newVersion) return;
   const plistPath = path.join(bundlePath, "Contents", "Info.plist");
@@ -313,7 +322,11 @@ function restampMacAppBundle(execPath, newVersion = null, { platform = process.p
 // In-place binary swap: rename the temp file over the target (atomic on POSIX;
 // the still-running image keeps the old inode). Windows additionally needs the
 // old file unlinked first (rename cannot overwrite an existing file).
-function replaceBinaryInPlace(execPath, tempPath, { platform = process.platform, unlink = fs.unlinkSync, rename = fs.renameSync } = {}) {
+function replaceBinaryInPlace(
+  execPath,
+  tempPath,
+  { platform = process.platform, unlink = fs.unlinkSync, rename = fs.renameSync } = {},
+) {
   if (platform === "win32") {
     try {
       unlink(execPath);
@@ -333,7 +346,11 @@ function powershellQuote(value) {
 // inject a fake). `spawnSync` injectable.
 function sleepSync(ms, { spawnSync = childProcess.spawnSync } = {}) {
   if (ms <= 0) return;
-  spawnSync("powershell.exe", ["-NoProfile", "-Command", `Start-Sleep -Milliseconds ${Math.round(ms)}`], { stdio: "ignore" });
+  spawnSync(
+    "powershell.exe",
+    ["-NoProfile", "-Command", `Start-Sleep -Milliseconds ${Math.round(ms)}`],
+    { stdio: "ignore" },
+  );
 }
 
 // Windows deferred takeover: the in-place replace was refused while the image
@@ -347,7 +364,9 @@ function deferredWindowsTakeover(
   argv,
   { detachedSpawn = childProcess.spawn, log = console.log } = {},
 ) {
-  log("Could not replace the running .exe while it was executing; restarting with the new version in a new window…");
+  log(
+    "Could not replace the running .exe while it was executing; restarting with the new version in a new window…",
+  );
   const argList = (argv || []).map(powershellQuote).join(", ");
   const launch = argList
     ? `Start-Process -FilePath ${powershellQuote(execPath)} -ArgumentList ${argList}`
@@ -359,7 +378,10 @@ function deferredWindowsTakeover(
     `try { Move-Item -Force ${powershellQuote(tempPath)} ${powershellQuote(execPath)}; $ok = true; break } ` +
     "catch { Start-Sleep -Milliseconds 500 } } " +
     `if ($ok) { ${launch} } else { Remove-Item -Force ${powershellQuote(tempPath)} -ErrorAction Ignore }`;
-  detachedSpawn("powershell.exe", ["-NoProfile", "-Command", script], { detached: true, stdio: "ignore" });
+  detachedSpawn("powershell.exe", ["-NoProfile", "-Command", script], {
+    detached: true,
+    stdio: "ignore",
+  });
   return 0;
 }
 

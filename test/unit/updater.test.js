@@ -285,7 +285,8 @@ test("performUpdate renames a temp binary and spawns the new executable", async 
 });
 
 test("macAppBundlePath recognizes the bundle binary layout only on macOS", () => {
-  const bundle = "/Applications/Dance Game Twitch Requests.app/Contents/MacOS/dance-game-twitch-requests";
+  const bundle =
+    "/Applications/Dance Game Twitch Requests.app/Contents/MacOS/dance-game-twitch-requests";
   assert.equal(macAppBundlePath(bundle, "darwin"), "/Applications/Dance Game Twitch Requests.app");
   assert.equal(macAppBundlePath("/app/dance-game-twitch-requests", "darwin"), null);
   assert.equal(macAppBundlePath(bundle, "win32"), null);
@@ -303,35 +304,30 @@ test("performUpdate defers the takeover when Windows refuses to replace a runnin
   const calls = [];
   const sleeps = [];
   const logs = [];
-  const exitCode = await performUpdate(
-    Buffer.from("new-binary"),
-    execPath,
-    ["--no-scan"],
-    {
-      platform: "win32",
-      pid: 99,
-      writeFile(path, buffer) {
-        calls.push({ type: "write", path });
-      },
-      unlink() {
-        throw new Error("EPERM: operation not permitted, unlink");
-      },
-      rename(temp, target) {
-        throw new Error("EPERM: operation not permitted, rename");
-      },
-      spawnSync(cmd, args) {
-        sleeps.push(args);
-        return { status: 0 };
-      },
-      spawn(cmd, args, opts) {
-        calls.push({ type: "spawn", cmd, args, opts });
-        return { exitCode: 0 };
-      },
-      log(message) {
-        logs.push(message);
-      },
+  const exitCode = await performUpdate(Buffer.from("new-binary"), execPath, ["--no-scan"], {
+    platform: "win32",
+    pid: 99,
+    writeFile(path, buffer) {
+      calls.push({ type: "write", path });
     },
-  );
+    unlink() {
+      throw new Error("EPERM: operation not permitted, unlink");
+    },
+    rename(temp, target) {
+      throw new Error("EPERM: operation not permitted, rename");
+    },
+    spawnSync(cmd, args) {
+      sleeps.push(args);
+      return { status: 0 };
+    },
+    spawn(cmd, args, opts) {
+      calls.push({ type: "spawn", cmd, args, opts });
+      return { exitCode: 0 };
+    },
+    log(message) {
+      logs.push(message);
+    },
+  });
 
   assert.equal(exitCode, 0);
   assert.equal(calls[0].type, "write");
@@ -349,44 +345,45 @@ test("performUpdate defers the takeover when Windows refuses to replace a runnin
 });
 
 test("performUpdate restamps .app bundle metadata after replacing the binary", async () => {
-  const execPath = "/Applications/Dance Game Twitch Requests.app/Contents/MacOS/dance-game-twitch-requests";
+  const execPath =
+    "/Applications/Dance Game Twitch Requests.app/Contents/MacOS/dance-game-twitch-requests";
   const plist = buildSamplePlist("1.0.13");
   let plistPath = null;
   let plistContent = null;
   let signedWith = null;
-  const exitCode = await performUpdate(
-    Buffer.from("new-binary"),
-    execPath,
-    ["--no-scan"],
-    {
-      platform: "darwin",
-      pid: 123,
-      newVersion: "1.0.14",
-      writeFile() {},
-      chmod() {},
-      rename() {},
-      read(path, encoding) {
-        assert.equal(path, "/Applications/Dance Game Twitch Requests.app/Contents/Info.plist");
-        return plist;
-      },
-      write(path, content, encoding) {
-        plistPath = path;
-        plistContent = content;
-      },
-      codesign(cmd, args, opts) {
-        signedWith = args;
-        return { status: 0 };
-      },
-      spawn(exec, args) {
-        return { exitCode: 3 };
-      },
+  const exitCode = await performUpdate(Buffer.from("new-binary"), execPath, ["--no-scan"], {
+    platform: "darwin",
+    pid: 123,
+    newVersion: "1.0.14",
+    writeFile() {},
+    chmod() {},
+    rename() {},
+    read(path, encoding) {
+      assert.equal(path, "/Applications/Dance Game Twitch Requests.app/Contents/Info.plist");
+      return plist;
     },
-  );
+    write(path, content, encoding) {
+      plistPath = path;
+      plistContent = content;
+    },
+    codesign(cmd, args, opts) {
+      signedWith = args;
+      return { status: 0 };
+    },
+    spawn(exec, args) {
+      return { exitCode: 3 };
+    },
+  });
 
   assert.equal(exitCode, 3);
   assert.equal(plistPath, "/Applications/Dance Game Twitch Requests.app/Contents/Info.plist");
   assert.equal(plistContent.match(/<string>1\.0\.14<\/string>/g).length, 2);
-  assert.deepEqual(signedWith, ["--force", "--sign", "-", "/Applications/Dance Game Twitch Requests.app"]);
+  assert.deepEqual(signedWith, [
+    "--force",
+    "--sign",
+    "-",
+    "/Applications/Dance Game Twitch Requests.app",
+  ]);
 });
 
 test("maybeUpdate skips non-compiled source runs without forcing", async () => {
@@ -467,9 +464,9 @@ function makeBundleZip() {
 
 function buildSamplePlist(version) {
   return [
-    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
-    "<!DOCTYPE plist PUBLIC\"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">",
-    "<plist version=\"1.0\">",
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC"-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    '<plist version="1.0">',
     "<dict>",
     "\t<key>CFBundleExecutable</key>",
     "\t<string>dance-game-twitch-requests</string>",
@@ -553,7 +550,8 @@ test("maybeUpdate downloads, extracts, replaces, and restarts a binary", async (
 
 test("maybeUpdate restamps a macOS .app bundle when updating from inside it", async () => {
   const zip = makeBundleZip();
-  const execPath = "/Applications/Dance Game Twitch Requests.app/Contents/MacOS/dance-game-twitch-requests";
+  const execPath =
+    "/Applications/Dance Game Twitch Requests.app/Contents/MacOS/dance-game-twitch-requests";
   let plistContent = null;
   const result = await maybeUpdate("1.0.13", {
     compiled: true,
