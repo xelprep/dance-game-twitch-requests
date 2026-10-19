@@ -46,8 +46,7 @@ const UA = "dance-game-twitch-requests-updater";
 // Map Node's platform/arch onto the release asset naming used by release.yml
 // (os: macos|windows|linux; arch: arm64|x64).
 function targetFor(platform = process.platform, arch = process.arch) {
-  const osName =
-    platform === "darwin" ? "macos" : platform === "win32" ? "windows" : "linux";
+  const osName = platform === "darwin" ? "macos" : platform === "win32" ? "windows" : "linux";
   const archName = arch === "arm64" ? "arm64" : "x64";
   return { os: osName, arch: archName };
 }
@@ -84,7 +83,9 @@ function hasTty(stdin = process.stdin, stdout = process.stdout) {
 // Interactive [Y/n] confirmation. Resolves true on empty/yes, false otherwise.
 // `input`/`output` are injectable for tests.
 function parseConfirmAnswer(answer) {
-  const normalized = String(answer || "").trim().toLowerCase();
+  const normalized = String(answer || "")
+    .trim()
+    .toLowerCase();
   return normalized === "" || normalized === "y" || normalized === "yes";
 }
 
@@ -102,24 +103,28 @@ function confirmUpdate(question, { input = process.stdin, output = process.stdou
 // tests; the default uses node:https with the required User-Agent header.
 async function fetchJson(url, { get = https.get, timeoutMs = 15000 } = {}) {
   return new Promise((resolvePromise) => {
-    const request = get(url, { headers: { "User-Agent": UA, Accept: "application/json" } }, (response) => {
-      let body = "";
-      response.on("data", (chunk) => {
-        body += chunk;
-      });
-      response.on("end", () => {
-        if (response.statusCode >= 400) {
-          resolvePromise({ error: `HTTP ${response.statusCode} from ${url}` });
-          return;
-        }
-        try {
-          resolvePromise({ json: JSON.parse(body) });
-        } catch (err) {
-          resolvePromise({ error: `Could not parse response: ${err.message}` });
-        }
-      });
-      response.on("error", (err) => resolvePromise({ error: err.message }));
-    });
+    const request = get(
+      url,
+      { headers: { "User-Agent": UA, Accept: "application/json" } },
+      (response) => {
+        let body = "";
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+        response.on("end", () => {
+          if (response.statusCode >= 400) {
+            resolvePromise({ error: `HTTP ${response.statusCode} from ${url}` });
+            return;
+          }
+          try {
+            resolvePromise({ json: JSON.parse(body) });
+          } catch (err) {
+            resolvePromise({ error: `Could not parse response: ${err.message}` });
+          }
+        });
+        response.on("error", (err) => resolvePromise({ error: err.message }));
+      },
+    );
     if (request && typeof request.setTimeout === "function") {
       request.setTimeout(timeoutMs, () => {
         try {
@@ -389,10 +394,10 @@ async function maybeUpdate(
   );
 
   if (!force) {
-    const ok = await confirm(
-      `Update to ${planned.latestVersion} now? [Y/n] `,
-      { input: process.stdin, output: process.stdout },
-    );
+    const ok = await confirm(`Update to ${planned.latestVersion} now? [Y/n] `, {
+      input: process.stdin,
+      output: process.stdout,
+    });
     if (!ok) {
       log("Update declined. Continuing with the current version.");
       return { skipped: "declined" };

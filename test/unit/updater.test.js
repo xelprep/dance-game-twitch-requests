@@ -157,8 +157,14 @@ test("pickAsset chooses the current platform/arch asset", () => {
   const target = targetFor("darwin", "arm64");
   const asset = pickAsset(
     [
-      { name: "dance-game-twitch-requests-1.0.13-windows-x64.zip", browser_download_url: "https://windows" },
-      { name: "dance-game-twitch-requests-1.0.13-macos-arm64.zip", browser_download_url: "https://macos" },
+      {
+        name: "dance-game-twitch-requests-1.0.13-windows-x64.zip",
+        browser_download_url: "https://windows",
+      },
+      {
+        name: "dance-game-twitch-requests-1.0.13-macos-arm64.zip",
+        browser_download_url: "https://macos",
+      },
     ],
     target,
   );
@@ -185,7 +191,9 @@ test("extractZipEntry handles real zip archives", async () => {
     fs.mkdirSync(songDir);
     fs.writeFileSync(`${songDir}/dance-game-twitch-requests`, "new-binary");
     const zipPath = `${tmp}/archive.zip`;
-    const zip = childProcess.spawnSync("zip", ["-r", zipPath, "bin/dance-game-twitch-requests"], { cwd: tmp });
+    const zip = childProcess.spawnSync("zip", ["-r", zipPath, "bin/dance-game-twitch-requests"], {
+      cwd: tmp,
+    });
     assert.equal(zip.status, 0);
     assert.equal(zip.signal, null);
     const archive = fs.readFileSync(zipPath);
@@ -338,7 +346,9 @@ function makeRealZip() {
     fs.mkdirSync(`${tmp}/bin`);
     fs.writeFileSync(`${tmp}/bin/dance-game-twitch-requests`, "new-binary");
     const zipPath = `${tmp}/archive.zip`;
-    const zip = childProcess.spawnSync("zip", ["-r", zipPath, "bin/dance-game-twitch-requests"], { cwd: tmp });
+    const zip = childProcess.spawnSync("zip", ["-r", zipPath, "bin/dance-game-twitch-requests"], {
+      cwd: tmp,
+    });
     assert.equal(zip.status, 0);
     assert.equal(zip.signal, null);
     return fs.readFileSync(zipPath);
@@ -369,28 +379,23 @@ test("maybeUpdate downloads, extracts, replaces, and restarts a binary", async (
     download: () => ({ buffer: zip }),
     extract: (archive, basename) => extractZipEntry(archive, basename),
     perform: async (newBinary, execPath, args) => {
-      const exitCode = await performUpdate(
-        newBinary,
-        execPath,
-        args,
-        {
-          platform: "linux",
-          pid: 123,
-          writeFile(path, buffer) {
-            wrotePath = path;
-          },
-          chmod() {},
-          unlink() {},
-          rm() {},
-          rename(path) {
-            renamedPath = path;
-          },
-          spawn(exec, childArgs) {
-            spawnedPath = exec;
-            return { exitCode: 0 };
-          },
+      const exitCode = await performUpdate(newBinary, execPath, args, {
+        platform: "linux",
+        pid: 123,
+        writeFile(path, buffer) {
+          wrotePath = path;
         },
-      );
+        chmod() {},
+        unlink() {},
+        rm() {},
+        rename(path) {
+          renamedPath = path;
+        },
+        spawn(exec, childArgs) {
+          spawnedPath = exec;
+          return { exitCode: 0 };
+        },
+      });
       return exitCode;
     },
   });

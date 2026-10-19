@@ -279,8 +279,7 @@ async function processSongArtwork(
     if (!silent && total > 0) {
       const pct = ((completedCount / total) * 100).toFixed(1);
       const elapsedSec = ((performance.now() - startTime) / 1000).toFixed(2);
-      const progressLine =
-        `Processing artwork: ${completedCount}/${total} (${pct}%) - ${elapsedSec}s elapsed`;
+      const progressLine = `Processing artwork: ${completedCount}/${total} (${pct}%) - ${elapsedSec}s elapsed`;
       if (process.stdout.isTTY) {
         process.stdout.write(`\r${progressLine}`);
       }
