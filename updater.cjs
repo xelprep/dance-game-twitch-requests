@@ -23,6 +23,24 @@
 // takeover happens by spawning the new binary as a child. This is the same
 // pattern gh/ripgrep/etc. use for self-update.
 //
+// Windows is stricter: while a process runs, Windows can refuse to *delete or
+// replace* the directory entry of its own executable image outright
+// (ACCESS_DENIED -> "EPERM: operation not permitted, rename ..."), which is
+// what launched apps hit (e.g. an exe extracted onto the Desktop and
+// double-clicked). Two-stage fallback: retry the in-place replace a few times
+// with short waits (covers transient handles, e.g. Explorer's), then hand off
+// to a detached PowerShell helper — the parent exits immediately, the helper
+// waits until the image stops being "in use", retries the move, and relaunches
+// the app in a fresh console window (Start-Process gives a console-subsystem
+// exe its own conhost, so double-click UX is preserved after the restart).
+//
+// macOS .app bundles: the binary lives at `<App>.app/Contents/MacOS/<exe>`,
+// and the bundle carries metadata that must follow the binary: after a
+// successful replace inside a bundle we restamp Contents/Info.plist
+// (CFBundleShortVersionString + CFBundleVersion) and re-run the same ad-hoc
+// `codesign --force --sign - <App>.app` the build applies, so Finder metadata
+// and Gatekeeper state match the new version.
+//
 // The lock is NOT involved: start.js runs the updater *before* acquiring the
 // single-instance lock, so the parent never holds a lock and the re-exec'd
 // child acquires one cleanly.
@@ -247,8 +265,108 @@ function extractZipEntry(zipBuffer, wantedBasename) {
   return null;
 }
 
+// True when the executable is the binary inside a macOS .app bundle
+// (`<App>.app/Contents/MacOS/<exe>`); returns the bundle root or null.
+function macAppBundlePath(execPath = process.execPath, platform = process.platform) {
+  if (platform !== "darwin") return null;
+  const match = /^(.*\.app)[\/]Contents[\/]MacOS[\/]/.exec(String(execPath));
+  return match ? match[1] : null;
+}
+
+// Restamp the version keys in a bundle's Info.plist (CFBundleShortVersionString
+// and CFBundleVersion) so Finder metadata matches the replaced binary. Pure —
+// the same `<key>...<string>` shapes packageApp.mjs generates.
+function patchInfoPlistVersions(plistText, version) {
+  const safe = String(version).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  let out = String(plistText).replace(
+    /<key>CFBundleShortVersionString<\/key>\s*<string>[^<]*<\/string>/,
+    `<key>CFBundleShortVersionString</key>\n\t<string>${safe}</string>`,
+  );
+  out = out.replace(
+    /<key>CFBundleVersion<\/key>\s*<string>[^<]*<\/string>/,
+    `<key>CFBundleVersion</key>\n\t<string>${safe}</string>`,
+  );
+  return out;
+}
+
+// After replacing the binary *inside* a .app bundle, restamp its metadata and
+// re-apply the build's ad-hoc bundle signature. Best-effort: a bundle without
+// an Info.plist (or without codesign) still has the updated binary.
+function restampMacAppBundle(execPath, newVersion = null, { platform = process.platform, read = fs.readFileSync, write = fs.writeFileSync, codesign = childProcess.spawnSync } = {}) {
+  const bundlePath = macAppBundlePath(execPath, platform);
+  if (!bundlePath || !newVersion) return;
+  const plistPath = path.join(bundlePath, "Contents", "Info.plist");
+  try {
+    const plist = read(plistPath, "utf8");
+    write(plistPath, patchInfoPlistVersions(plist, newVersion), "utf8");
+  } catch {
+    /* not a built bundle (no Info.plist) — nothing to restamp */
+  }
+  try {
+    // Same command scripts/packageApp.mjs runs after wrapping the binary.
+    codesign("codesign", ["--force", "--sign", "-", bundlePath], { stdio: "pipe" });
+  } catch {
+    /* best effort — a fresh unsigned binary still runs when launched locally */
+  }
+}
+
+// In-place binary swap: rename the temp file over the target (atomic on POSIX;
+// the still-running image keeps the old inode). Windows additionally needs the
+// old file unlinked first (rename cannot overwrite an existing file).
+function replaceBinaryInPlace(execPath, tempPath, { platform = process.platform, unlink = fs.unlinkSync, rename = fs.renameSync } = {}) {
+  if (platform === "win32") {
+    try {
+      unlink(execPath);
+    } catch {
+      /* may not exist */
+    }
+  }
+  rename(tempPath, execPath);
+}
+
+// PowerShell/POSIX single-quote escaping for baking paths into command strings.
+function powershellQuote(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+// Synchronous wait via PowerShell (only used on the Windows retry path; tests
+// inject a fake). `spawnSync` injectable.
+function sleepSync(ms, { spawnSync = childProcess.spawnSync } = {}) {
+  if (ms <= 0) return;
+  spawnSync("powershell.exe", ["-NoProfile", "-Command", `Start-Sleep -Milliseconds ${Math.round(ms)}`], { stdio: "ignore" });
+}
+
+// Windows deferred takeover: the in-place replace was refused while the image
+// is running, so spawn a *detached* PowerShell that (1) waits for the parent
+// to exit, (2) retries the move until the image stops being "in use", and
+// (3) relaunches the app with the original argv in a fresh console window.
+// Returns 0 — the parent must exit immediately (the old app stops running).
+function deferredWindowsTakeover(
+  execPath,
+  tempPath,
+  argv,
+  { detachedSpawn = childProcess.spawn, log = console.log } = {},
+) {
+  log("Could not replace the running .exe while it was executing; restarting with the new version in a new window…");
+  const argList = (argv || []).map(powershellQuote).join(", ");
+  const launch = argList
+    ? `Start-Process -FilePath ${powershellQuote(execPath)} -ArgumentList ${argList}`
+    : `Start-Process -FilePath ${powershellQuote(execPath)}`;
+  const script =
+    "Start-Sleep -Milliseconds 750; " +
+    "$ok = false; " +
+    "for ($i = 0; $i < 20; i++) { " +
+    `try { Move-Item -Force ${powershellQuote(tempPath)} ${powershellQuote(execPath)}; $ok = true; break } ` +
+    "catch { Start-Sleep -Milliseconds 500 } } " +
+    `if ($ok) { ${launch} } else { Remove-Item -Force ${powershellQuote(tempPath)} -ErrorAction Ignore }`;
+  detachedSpawn("powershell.exe", ["-NoProfile", "-Command", script], { detached: true, stdio: "ignore" });
+  return 0;
+}
+
 // Replace the running binary with the new bytes, then re-exec it with the
-// original argv. Returns the child's exit code. All I/O injectable for tests.
+// original argv. Returns the child's exit code (or 0 for the deferred Windows
+// takeover, where the detached helper runs the app). All I/O injectable for
+// tests.
 async function performUpdate(
   newBinaryBuffer,
   execPath,
@@ -262,11 +380,19 @@ async function performUpdate(
     rm = fs.rmSync,
     platform = process.platform,
     pid = process.pid,
+    newVersion = null,
+    read = fs.readFileSync,
+    write = fs.writeFileSync,
+    codesign = childProcess.spawnSync,
+    spawnSync = childProcess.spawnSync,
+    detachedSpawn = childProcess.spawn,
+    log = console.log,
+    retries = 3,
+    retryDelayMs = 250,
   } = {},
 ) {
   // Write the new binary to a temp file beside the target, then rename over it
-  // (atomic; the still-running image keeps the old inode). On Windows, rename
-  // cannot overwrite an existing file, so unlink first.
+  // (atomic; the still-running image keeps the old inode).
   const tempPath = `${execPath}.update-${pid}.tmp`;
   writeFile(tempPath, newBinaryBuffer);
   try {
@@ -276,23 +402,37 @@ async function performUpdate(
   } catch {
     /* chmod is a no-op on Windows */
   }
-  try {
-    if (platform === "win32") {
-      try {
-        unlink(execPath);
-      } catch {
-        /* may not exist */
-      }
-    }
-    rename(tempPath, execPath);
-  } catch (err) {
+
+  // POSIX rename-over usually succeeds while running; Windows may outright
+  // refuse while the image lives, so retry a few times before the deferred
+  // fallback (short waits cover transient handles, e.g. Explorer's).
+  let replaced = false;
+  let lastError = null;
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    if (attempt > 0) sleepSync(retryDelayMs, { spawnSync });
     try {
-      rm(tempPath, { force: true });
-    } catch {
-      /* ignore */
+      replaceBinaryInPlace(execPath, tempPath, { platform, unlink, rename });
+      replaced = true;
+      break;
+    } catch (err) {
+      lastError = err;
+      if (platform !== "win32") break;
     }
-    throw new Error(`Could not replace the app binary: ${err.message}`);
   }
+
+  if (!replaced) {
+    if (platform !== "win32") {
+      try {
+        rm(tempPath, { force: true });
+      } catch {
+        /* ignore */
+      }
+      throw new Error(`Could not replace the app binary: ${lastError.message}`);
+    }
+    return deferredWindowsTakeover(execPath, tempPath, argv, { detachedSpawn: spawn, log });
+  }
+
+  restampMacAppBundle(execPath, newVersion, { platform, read, write, codesign });
 
   const child = spawn(execPath, argv, { stdio: "inherit" });
   const code = await childPromiseExit(child, spawn);
@@ -424,7 +564,7 @@ async function maybeUpdate(
   }
 
   log(`Replacing the app binary and restarting as ${planned.latestVersion}…`);
-  const exitCode = await perform(newBinary, execPath, argv);
+  const exitCode = await perform(newBinary, execPath, argv, { newVersion: planned.latestVersion });
   return { updated: true, latestVersion: planned.latestVersion, exitCode };
 }
 
@@ -443,6 +583,13 @@ module.exports = {
   pickAsset,
   extractZipEntry,
   childPromiseExit,
+  macAppBundlePath,
+  patchInfoPlistVersions,
+  restampMacAppBundle,
+  replaceBinaryInPlace,
+  powershellQuote,
+  sleepSync,
+  deferredWindowsTakeover,
   performUpdate,
   planUpdate,
   maybeUpdate,

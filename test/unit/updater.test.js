@@ -16,6 +16,8 @@ const {
   performUpdate,
   planUpdate,
   maybeUpdate,
+  macAppBundlePath,
+  patchInfoPlistVersions,
 } = require("../../updater.cjs");
 
 function makeStoredZip(name, contents) {
@@ -282,6 +284,111 @@ test("performUpdate renames a temp binary and spawns the new executable", async 
   assert.deepEqual(calls[3].args, ["--no-scan"]);
 });
 
+test("macAppBundlePath recognizes the bundle binary layout only on macOS", () => {
+  const bundle = "/Applications/Dance Game Twitch Requests.app/Contents/MacOS/dance-game-twitch-requests";
+  assert.equal(macAppBundlePath(bundle, "darwin"), "/Applications/Dance Game Twitch Requests.app");
+  assert.equal(macAppBundlePath("/app/dance-game-twitch-requests", "darwin"), null);
+  assert.equal(macAppBundlePath(bundle, "win32"), null);
+});
+
+test("patchInfoPlistVersions restamps both bundle version keys", () => {
+  const plist = buildSamplePlist("1.0.13");
+  const patched = patchInfoPlistVersions(plist, "1.0.14");
+  assert.equal(patched.match(/<string>1\.0\.14<\/string>/g).length, 2);
+  assert.equal(patched.match(/<string>1\.0\.13<\/string>/g), null);
+});
+
+test("performUpdate defers the takeover when Windows refuses to replace a running .exe", async () => {
+  const execPath = "C:\\Users\\User Desktop\\dance-game-twitch-requests.exe";
+  const calls = [];
+  const sleeps = [];
+  const logs = [];
+  const exitCode = await performUpdate(
+    Buffer.from("new-binary"),
+    execPath,
+    ["--no-scan"],
+    {
+      platform: "win32",
+      pid: 99,
+      writeFile(path, buffer) {
+        calls.push({ type: "write", path });
+      },
+      unlink() {
+        throw new Error("EPERM: operation not permitted, unlink");
+      },
+      rename(temp, target) {
+        throw new Error("EPERM: operation not permitted, rename");
+      },
+      spawnSync(cmd, args) {
+        sleeps.push(args);
+        return { status: 0 };
+      },
+      spawn(cmd, args, opts) {
+        calls.push({ type: "spawn", cmd, args, opts });
+        return { exitCode: 0 };
+      },
+      log(message) {
+        logs.push(message);
+      },
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  assert.equal(calls[0].type, "write");
+  assert.equal(calls[0].path, `${execPath}.update-99.tmp`);
+  assert.equal(sleeps.length, 2);
+  const takeover = calls[1];
+  assert.equal(takeover.cmd, "powershell.exe");
+  assert.equal(takeover.args[0], "-NoProfile");
+  assert.equal(takeover.args[1], "-Command");
+  assert.match(takeover.args[2], /Move-Item -Force/);
+  assert.match(takeover.args[2], /Start-Sleep -Milliseconds 750/);
+  assert.match(takeover.args[2], /-ArgumentList '--no-scan'/);
+  assert.equal(takeover.opts.detached, true);
+  assert.match(logs.join("\n"), /restarting with the new version in a new window/);
+});
+
+test("performUpdate restamps .app bundle metadata after replacing the binary", async () => {
+  const execPath = "/Applications/Dance Game Twitch Requests.app/Contents/MacOS/dance-game-twitch-requests";
+  const plist = buildSamplePlist("1.0.13");
+  let plistPath = null;
+  let plistContent = null;
+  let signedWith = null;
+  const exitCode = await performUpdate(
+    Buffer.from("new-binary"),
+    execPath,
+    ["--no-scan"],
+    {
+      platform: "darwin",
+      pid: 123,
+      newVersion: "1.0.14",
+      writeFile() {},
+      chmod() {},
+      rename() {},
+      read(path, encoding) {
+        assert.equal(path, "/Applications/Dance Game Twitch Requests.app/Contents/Info.plist");
+        return plist;
+      },
+      write(path, content, encoding) {
+        plistPath = path;
+        plistContent = content;
+      },
+      codesign(cmd, args, opts) {
+        signedWith = args;
+        return { status: 0 };
+      },
+      spawn(exec, args) {
+        return { exitCode: 3 };
+      },
+    },
+  );
+
+  assert.equal(exitCode, 3);
+  assert.equal(plistPath, "/Applications/Dance Game Twitch Requests.app/Contents/Info.plist");
+  assert.equal(plistContent.match(/<string>1\.0\.14<\/string>/g).length, 2);
+  assert.deepEqual(signedWith, ["--force", "--sign", "-", "/Applications/Dance Game Twitch Requests.app"]);
+});
+
 test("maybeUpdate skips non-compiled source runs without forcing", async () => {
   const result = await maybeUpdate("1.0.13", { compiled: false });
   assert.deepEqual(result, { skipped: "not-compiled" });
@@ -336,6 +443,44 @@ test("maybeUpdate continues app startup when no newer release exists", async () 
   assert.deepEqual(result, { skipped: "up-to-date", latestVersion: "1.0.14" });
   assert.match(logs.join("\n"), /Already on the latest version/);
 });
+
+function makeBundleZip() {
+  const childProcess = require("node:child_process");
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const tmp = fs.mkdtempSync(`${os.tmpdir()}/dgr-bundle-zip-`);
+  try {
+    const binary = `${tmp}/Dance Game Twitch Requests.app/Contents/MacOS/dance-game-twitch-requests`;
+    fs.mkdirSync(binary.replace(/\/[^/]*$/, ""), { recursive: true });
+    fs.writeFileSync(binary, "new-binary");
+    const zipPath = `${tmp}/archive.zip`;
+    const zip = childProcess.spawnSync("zip", ["-r", zipPath, "Dance Game Twitch Requests.app"], {
+      cwd: tmp,
+    });
+    assert.equal(zip.status, 0);
+    assert.equal(zip.signal, null);
+    return fs.readFileSync(zipPath);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+function buildSamplePlist(version) {
+  return [
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+    "<!DOCTYPE plist PUBLIC\"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">",
+    "<plist version=\"1.0\">",
+    "<dict>",
+    "\t<key>CFBundleExecutable</key>",
+    "\t<string>dance-game-twitch-requests</string>",
+    "\t<key>CFBundleShortVersionString</key>",
+    `\t<string>${version}</string>`,
+    "\t<key>CFBundleVersion</key>",
+    `\t<string>${version}</string>`,
+    "</dict>",
+    "</plist>",
+  ].join("\n");
+}
 
 function makeRealZip() {
   const childProcess = require("node:child_process");
@@ -404,4 +549,48 @@ test("maybeUpdate downloads, extracts, replaces, and restarts a binary", async (
   assert.equal(wrotePath, "/app/dance-game-twitch-requests.update-123.tmp");
   assert.equal(renamedPath, "/app/dance-game-twitch-requests.update-123.tmp");
   assert.equal(spawnedPath, "/app/dance-game-twitch-requests");
+});
+
+test("maybeUpdate restamps a macOS .app bundle when updating from inside it", async () => {
+  const zip = makeBundleZip();
+  const execPath = "/Applications/Dance Game Twitch Requests.app/Contents/MacOS/dance-game-twitch-requests";
+  let plistContent = null;
+  const result = await maybeUpdate("1.0.13", {
+    compiled: true,
+    force: true,
+    tty: true,
+    execPath,
+    argv: ["--no-scan"],
+    plan: () => ({
+      currentVersion: "1.0.13",
+      latestVersion: "1.0.14",
+      target: { os: "macos", arch: "arm64" },
+      asset: { browser_download_url: "https://download" },
+      updateAvailable: true,
+    }),
+    download: () => ({ buffer: zip }),
+    extract: (archive, basename) => extractZipEntry(archive, basename),
+    perform: (newBinary, exec, args, opts) =>
+      performUpdate(newBinary, exec, args, {
+        platform: "darwin",
+        pid: 7,
+        newVersion: opts.newVersion,
+        writeFile() {},
+        chmod() {},
+        rename() {},
+        read() {
+          return buildSamplePlist("1.0.13");
+        },
+        write(path, content) {
+          plistContent = content;
+        },
+        codesign() {},
+        spawn() {
+          return { exitCode: 0 };
+        },
+      }),
+  });
+
+  assert.deepEqual(result, { updated: true, latestVersion: "1.0.14", exitCode: 0 });
+  assert.equal(plistContent.match(/<string>1\.0\.14<\/string>/g).length, 2);
 });

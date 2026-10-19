@@ -374,6 +374,11 @@ Dance\ Game\ Twitch\ Requests.app/Contents/MacOS/dance-game-twitch-requests --no
 
 When launched as a standalone binary from a terminal, the app checks GitHub for a newer release matching the current OS + architecture and, if found, asks `Update to <version>? [Y/n]`. On yes it downloads that release's archive, replaces the running executable in place, and restarts itself using the new binary (the old process hands off to the new one). Pass `--update` to skip the prompt (useful for scripted/CI updates). This only applies to the packaged binary — when running from source (`npm start`), update by pulling the latest release from git instead.
 
+Platform notes:
+
+- **Windows**: while a process is running, Windows can refuse to replace the directory entry of its own `.exe` (the double-clicked-from-a-folder case). When that happens, the updater restarts the app from a detached helper after the running copy exits — you'll see the console window close and a fresh one open running the new version.
+- **macOS**: when the binary runs inside the `.app` bundle, the bundle metadata follows the binary — `Contents/Info.plist` version keys are restamped and the bundle is re-signed, so the version shown next to the app matches the updated copy.
+
 ### macOS notes
 
 The macOS release is a `.app` bundle. Double-clicking it opens a Terminal window with live logs — the app detects the GUI launch and hands off to Terminal automatically. To run it with flags such as `--no-scan` or `--setup`, run the inner executable from a terminal instead:
