@@ -2353,6 +2353,32 @@ function createApi(app, options = {}) {
       } catch (_error) {}
       res.json({ ok: true });
     });
+    app.post("/api/moderator/queue/:id/moveTo", (req, res) => {
+      const id = Number(req.params.id);
+      const toRequested = Number(req.body.to);
+      const tx = db.transaction(() => {
+        const queued = db
+          .prepare(
+            "SELECT id, created_at FROM requests WHERE status='queued' ORDER BY created_at ASC, id ASC",
+          )
+          .all();
+        const from = queued.findIndex((request) => request.id === id);
+        if (from < 0) return false;
+        const target = Math.max(0, Math.min(Number(toRequested), queued.length - 1));
+        if (from === target) return true;
+        const item = queued.splice(from, 1)[0];
+        queued.splice(target, 0, item);
+        const baseTimestamp = Math.min(...queued.map((request) => request.created_at));
+        const update = db.prepare("UPDATE requests SET created_at=? WHERE id=?");
+        queued.forEach((request, queueIndex) => update.run(baseTimestamp + queueIndex, request.id));
+        return true;
+      });
+      if (!tx()) return res.status(404).json({ error: "Queued request not found." });
+      try {
+        if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
+      } catch (_error) {}
+      res.json({ ok: true });
+    });
     app.post("/api/moderator/queue/:id/complete", (req, res) => {
       const ok = setRequestStatus(Number(req.params.id), "completed");
       res.json({ ok });
@@ -3232,6 +3258,33 @@ function createApi(app, options = {}) {
         if (index < 0) return false;
         if (neighborIndex < 0 || neighborIndex >= queued.length) return true;
         [queued[index], queued[neighborIndex]] = [queued[neighborIndex], queued[index]];
+        const baseTimestamp = Math.min(...queued.map((request) => request.created_at));
+        const update = db.prepare("UPDATE requests SET created_at=? WHERE id=?");
+        queued.forEach((request, queueIndex) => update.run(baseTimestamp + queueIndex, request.id));
+        return true;
+      });
+      if (!tx()) return res.status(404).json({ error: "Queued request not found." });
+      try {
+        if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
+      } catch (e) {}
+      res.json({ ok: true });
+    });
+
+    app.post("/api/queue/:id/moveTo", (req, res) => {
+      const id = Number(req.params.id);
+      const toRequested = Number(req.body.to);
+      const tx = db.transaction(() => {
+        const queued = db
+          .prepare(
+            "SELECT id, created_at FROM requests WHERE status='queued' ORDER BY created_at ASC, id ASC",
+          )
+          .all();
+        const from = queued.findIndex((request) => request.id === id);
+        if (from < 0) return false;
+        const target = Math.max(0, Math.min(Number(toRequested), queued.length - 1));
+        if (from === target) return true;
+        const item = queued.splice(from, 1)[0];
+        queued.splice(target, 0, item);
         const baseTimestamp = Math.min(...queued.map((request) => request.created_at));
         const update = db.prepare("UPDATE requests SET created_at=? WHERE id=?");
         queued.forEach((request, queueIndex) => update.run(baseTimestamp + queueIndex, request.id));

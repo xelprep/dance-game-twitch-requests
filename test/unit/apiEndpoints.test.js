@@ -753,6 +753,106 @@ test("songs API marks queued and playing songs when markActive is set", async ()
   }
 });
 
+test("queue moveTo endpoint reorders a queued request to an absolute position", async () => {
+  resetSettings();
+  // The control panel gates every /api/* request with verifyStreamerAuth (Basic
+  // streamer:CONTROL_PASSWORD). In this test file CONTROL_PASSWORD is
+  // "test-control-password" and STREAMER_VANITY_NAME is "Streamer" (both set at
+  // the top).
+  const controlAuth = "Basic " + Buffer.from("Streamer:test-control-password").toString("base64");
+  const base = Date.now();
+  const songIds = [0, 1, 2].map(
+    (i) =>
+      db
+        .prepare("INSERT INTO songs (file_path, title, last_modified) VALUES (?, ?, 0)")
+        .run(`move-to-${i}.sm`, `Move To ${i}`).lastInsertRowid,
+  );
+  const insertRequest = (songId, createdOffset) =>
+    db
+      .prepare(
+        "INSERT INTO requests (song_id, requested_by, requested_display, status, created_at) VALUES (?, 'tester', 'Tester', 'queued', ?)",
+      )
+      .run(songId, base + createdOffset);
+  const requestIds = [0, 1, 2].map((i) => insertRequest(songIds[i], i * 1000).lastInsertRowid);
+
+  try {
+    const control = await startControlApp();
+    const port = control.address().port;
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/queue/${requestIds[0]}/moveTo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: controlAuth },
+        body: JSON.stringify({ to: 2 }),
+      });
+      assert.equal(res.status, 200);
+      assert.deepEqual(await res.json(), { ok: true });
+      const queue = await (
+        await fetch(`http://127.0.0.1:${port}/api/queue`, {
+          headers: { Authorization: controlAuth },
+        })
+      ).json();
+      const order = queue.map((row) => row.id);
+      assert.equal(order[2], requestIds[0]);
+      assert.equal(order[0], requestIds[1]);
+      assert.equal(order[1], requestIds[2]);
+    } finally {
+      control.close();
+    }
+  } finally {
+    db.prepare("DELETE FROM requests WHERE requested_by = 'tester'").run();
+    db.prepare("DELETE FROM songs WHERE id IN (?, ?, ?)").run(...songIds);
+  }
+});
+
+test("moderator queue moveTo endpoint reorders a queued request to an absolute position", async () => {
+  resetSettings();
+  setSetting("moderatorEnabled", true);
+  setSetting("moderatorCredentials", [
+    { username: "alice", passwordHash: hashModeratorPassword("hunter2") },
+  ]);
+  const base = Date.now();
+  const songIds = [0, 1, 2].map(
+    (i) =>
+      db
+        .prepare("INSERT INTO songs (file_path, title, last_modified) VALUES (?, ?, 0)")
+        .run(`mod-move-to-${i}.sm`, `Mod Move To ${i}`).lastInsertRowid,
+  );
+  const insertRequest = (songId, createdOffset) =>
+    db
+      .prepare(
+        "INSERT INTO requests (song_id, requested_by, requested_display, status, created_at) VALUES (?, 'tester', 'Tester', 'queued', ?)",
+      )
+      .run(songId, base + createdOffset);
+  const requestIds = [0, 1, 2].map((i) => insertRequest(songIds[i], i * 1000).lastInsertRowid);
+  const modAuth = "Basic " + Buffer.from("alice:hunter2").toString("base64");
+
+  try {
+    const server = await startPublicModeratorApp();
+    const port = server.address().port;
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/api/moderator/queue/${requestIds[2]}/moveTo`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: modAuth },
+          body: JSON.stringify({ to: 0 }),
+        },
+      );
+      assert.equal(res.status, 200);
+      assert.deepEqual(await res.json(), { ok: true });
+      const order = getQueue(10000).map((row) => row.id);
+      assert.equal(order[0], requestIds[2]);
+      assert.equal(order[1], requestIds[0]);
+      assert.equal(order[2], requestIds[1]);
+    } finally {
+      server.close();
+    }
+  } finally {
+    db.prepare("DELETE FROM requests WHERE requested_by = 'tester'").run();
+    db.prepare("DELETE FROM songs WHERE id IN (?, ?, ?)").run(...songIds);
+  }
+});
+
 test("songs API filters by BPM range and duration range", async () => {
   resetSettings();
   const insertSong = (title, bpmMin, bpmMax, coreBpm, duration) =>

@@ -448,6 +448,10 @@ window.addToQueue = async (songId, chartId) => {
 };
 
 async function render() {
+  // While a card is being dragged, the queue DOM is in an intermediate
+  // (translated) state. Skip the periodic / action-triggered re-render so we
+  // don't clobber the dragged element mid-gesture.
+  if (dragState) return;
   try {
     const [stats, now, queue, blocked, settings] = await Promise.all([
       api("/api/stats"),
@@ -496,7 +500,7 @@ async function render() {
       ? queue
           .map(
             (r, i) => `
-      <article class="request">
+      <article class="request" data-request-id="${r.id}">
         <div class="rank">${i + 1}</div>
         <div class="info">
           <strong>${esc(r.title)}</strong>
@@ -1179,6 +1183,177 @@ window.move = async (id, direction) => {
     movingRequests.delete(id);
   }
 };
+
+// Drag-and-drop queue reordering. Grab a queued card (the rank number or the
+// song info — not the action buttons) and slide it up or down the list; release
+// between other cards to land there. Works with a mouse and with touch (tap-and-
+// hold then slide). The ↑ / ↓ buttons above remain available as a simple fallback.
+let dragState = null;
+
+window.moveTo = async (id, to) => {
+  try {
+    await api(`/api/queue/${id}/moveTo`, {
+      method: "POST",
+      body: JSON.stringify({ to }),
+    });
+    await render();
+  } catch (e) {
+    toast(e.message);
+  }
+};
+
+const queueContainer = $("queue");
+if (queueContainer) {
+  // The other cards slide aside to open a visible gap where the dragged card
+  // will land. Only the cards whose original slot lies between the dragged
+  // card's slot and the landing slot move — each shifts by exactly one card
+  // height toward the vacated slot — while the rest of the queue stays put.
+  // Positions are computed from base rects snapshotted at drag start plus the
+  // currently applied shift; sampling live getBoundingClientRect() during a
+  // drag would read mid-transition positions and make the preview flicker.
+  let draggedHeight = 0;
+  let baseRects = [];
+  let appliedShift = [];
+
+  const shiftFor = (o, to) => {
+    const from = dragState.from;
+    if (to > from && o > from && o <= to) return -draggedHeight;
+    if (to < from && o >= to && o < from) return draggedHeight;
+    return 0;
+  };
+
+  const layoutGap = (to) => {
+    const cards = Array.from(queueContainer.querySelectorAll(".request"));
+    for (let o = 0; o < cards.length; o++) {
+      if (cards[o] === dragState.el) continue;
+      appliedShift[o] = shiftFor(o, to);
+      cards[o].style.translate = appliedShift[o] === 0 ? "" : `0px ${appliedShift[o]}px`;
+      if (appliedShift[o] !== 0 || cards[o].style.transition) {
+        cards[o].style.transition = "translate 160ms ease";
+      }
+    }
+    // Dashed outline of the landing slot: the strip between the card that
+    // ends up just above the gap and the card that ends up just below it.
+    const from = dragState.from;
+    const n = cards.length;
+    const beforeDom = to === 0 ? -1 : to - 1 < from ? to - 1 : to;
+    const afterDom = to < from ? to : to + 1;
+    let gapTop;
+    let gapBottom;
+    if (beforeDom < 0) {
+      gapBottom = baseRects[afterDom].top + appliedShift[afterDom];
+      gapTop = gapBottom - draggedHeight;
+    } else if (afterDom >= n) {
+      gapTop = baseRects[beforeDom].bottom + appliedShift[beforeDom];
+      gapBottom = gapTop + draggedHeight;
+    } else {
+      gapTop = baseRects[beforeDom].bottom + appliedShift[beforeDom];
+      gapBottom = baseRects[afterDom].top + appliedShift[afterDom];
+    }
+    const box = queueContainer.getBoundingClientRect();
+    const borderTop = parseFloat(getComputedStyle(queueContainer).borderTopWidth) || 0;
+    const offset = box.top + borderTop;
+    queueContainer.style.setProperty("--gap-top", `${gapTop - offset}px`);
+    queueContainer.style.setProperty("--gap-height", `${gapBottom - gapTop}px`);
+  };
+
+  const clearGap = () => {
+    for (const c of queueContainer.querySelectorAll(".request")) {
+      if (c.style.translate) {
+        c.style.translate = "";
+        c.style.transition = "";
+      }
+    }
+  };
+
+  const originalRank = (card) => Number(card.querySelector(".rank")?.textContent) - 1;
+
+  queueContainer.addEventListener("pointerdown", (e) => {
+    if (dragState) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const node = e.target;
+    if (!node) return;
+    const card = node.closest(".request");
+    if (!card) return;
+    // Ignore grabs starting on action buttons / inputs so they keep working normally.
+    if (node.closest(".row-actions") || node.matches("button, input, select")) return;
+    const rect = card.getBoundingClientRect();
+    draggedHeight = rect.height;
+    const cards = Array.from(queueContainer.querySelectorAll(".request"));
+    baseRects = cards.map((c) => {
+      const r = c.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom };
+    });
+    appliedShift = cards.map(() => 0);
+    dragState = {
+      el: card,
+      id: Number(card.dataset.requestId),
+      pointerId: e.pointerId,
+      startTop: rect.top,
+      grabOffsetY: e.clientY - rect.top,
+      from: originalRank(card),
+      to: originalRank(card),
+      originTop: rect.top,
+    };
+    card.classList.add("dragging");
+    queueContainer.classList.add("drag-active");
+    e.preventDefault();
+  });
+  queueContainer.addEventListener("pointermove", (e) => {
+    if (!dragState) return;
+    if (dragState.pointerId !== e.pointerId) return;
+    const draggedTop = e.clientY - dragState.grabOffsetY;
+    // Which slot the dragged card's centre is over right now: compare it against
+    // the other cards' midpoints at their settled positions (snapshot rect plus
+    // the shift we've applied). Reading live rects instead would sample
+    // mid-transition positions and make the index flicker between frames.
+    const draggedCenter = draggedTop + draggedHeight / 2;
+    let to = 0;
+    for (let o = 0; o < baseRects.length; o++) {
+      if (o === dragState.from) continue;
+      const mid = (baseRects[o].top + baseRects[o].bottom) / 2 + appliedShift[o];
+      if (draggedCenter < mid) break;
+      to++;
+    }
+    if (to !== dragState.to) {
+      dragState.to = to;
+      layoutGap(to);
+    }
+    dragState.el.style.transform = `translateY(${draggedTop - dragState.startTop}px)`;
+  });
+  const finishDrag = (e) => {
+    if (!dragState) return;
+    if (dragState.pointerId !== e.pointerId) return;
+    const dragged = dragState.el;
+    const draggedId = dragState.id;
+    const from = dragState.from;
+    const to = dragState.to;
+    const moved = Math.abs(e.clientY - dragState.originTop) > 4;
+    dragged.classList.remove("dragging");
+    dragged.style.transform = "";
+    queueContainer.classList.remove("drag-active");
+    queueContainer.style.removeProperty("--gap-top");
+    queueContainer.style.removeProperty("--gap-height");
+    clearGap();
+    dragState = null;
+    // A plain click (no real movement) shouldn't reorder anything.
+    if (!moved || to === from) return;
+    void window.moveTo(draggedId, to);
+  };
+  queueContainer.addEventListener("pointerup", finishDrag);
+  queueContainer.addEventListener("pointercancel", (e) => {
+    if (!dragState) return;
+    if (dragState.pointerId !== e.pointerId) return;
+    dragState.el.classList.remove("dragging");
+    dragState.el.style.transform = "";
+    queueContainer.classList.remove("drag-active");
+    queueContainer.style.removeProperty("--gap-top");
+    queueContainer.style.removeProperty("--gap-height");
+    clearGap();
+    dragState = null;
+  });
+}
+
 window.blockSong = async (songId) => {
   try {
     await api("/api/blocked/song", { method: "POST", body: JSON.stringify({ songId }) });

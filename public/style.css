@@ -104,7 +104,44 @@ button:hover {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
-.muted,
+/* Queue drag-and-drop affordances are scoped to the authenticated panels only.
+   The unauthenticated public viewing page also renders .request/.rank/.info
+   cards inside a section.panel, but its JS never adds .row-actions to the cards
+   nor sets touch-action on #queue, so :has() keeps those selectors from matching
+   it. Modern browsers only; degrades to no affordance (harmless) elsewhere. */
+#queue:has(.row-actions) {
+  touch-action: none;
+  position: relative;
+  -webkit-user-select: none;
+  user-select: none;
+}
+#queue.drag-active {
+  position: relative;
+}
+#queue.drag-active::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  top: var(--gap-top, 0);
+  height: var(--gap-height, 64px);
+  border: 2px dashed rgba(129, 138, 153, 0.55);
+  border-radius: 10px;
+  pointer-events: none;
+  z-index: 1;
+}
+#queue:has(.row-actions) .rank,
+#queue:has(.row-actions) .info {
+  cursor: grab;
+}
+#queue:has(.row-actions) .request.dragging {
+  cursor: grabbing;
+  position: relative;
+  z-index: 5;
+  background: #12161d;
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+}
 .black-item small {
   color: #8e97a5;
 }
