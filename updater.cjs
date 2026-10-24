@@ -29,10 +29,21 @@
 // what launched apps hit (e.g. an exe extracted onto the Desktop and
 // double-clicked). Two-stage fallback: retry the in-place replace a few times
 // with short waits (covers transient handles, e.g. Explorer's), then hand off
-// to a detached PowerShell helper — the parent exits immediately, the helper
-// waits until the image stops being "in use", retries the move, and relaunches
-// the app in a fresh console window (Start-Process gives a console-subsystem
-// exe its own conhost, so double-click UX is preserved after the restart).
+// to a restart helper — the parent exits immediately, the helper waits until
+// the image stops being "in use", retries the move, and relaunches the app in a
+// fresh console window (Start-Process gives a console-subsystem exe its own
+// conhost, so double-click UX is preserved after the restart).
+//
+// The helper must NOT be a plain detached child: a process Node spawns on
+// Windows inherits the parent's *console*, and when a double-clicked console
+// subsystem exe exits Explorer closes that window, which terminates everything
+// still attached to it. A detached `powershell.exe` died mid-sleep in that
+// window close, so the .tmp binary sat next to an unchanged .exe and nothing
+// ever respawned. Instead the helper lives in a generated `.cmd` + `.ps1` pair
+// launched with `explorer.exe <path>.cmd` — the same process Explorer starts
+// when a user double-clicks a .cmd, so it gets a brand-new console and an
+// independent process tree that survives the parent (mirrors what macHandoff
+// does with `open <path>.command`).
 //
 // macOS .app bundles: the binary lives at `<App>.app/Contents/MacOS/<exe>`,
 // and the bundle carries metadata that must follow the binary: after a
@@ -337,9 +348,49 @@ function replaceBinaryInPlace(
   rename(tempPath, execPath);
 }
 
-// PowerShell/POSIX single-quote escaping for baking paths into command strings.
+// PowerShell single-quote escaping for baking paths/argv into script text.
 function powershellQuote(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+// The PowerShell half of the Windows restart helper: wait until the parent's
+// image stops being "in use", retry the move, relaunch in a new console window.
+// Lives in a `.ps1` file rather than a `-Command` string so the app's argv never
+// passes through cmd's quoting (a `"` or `%` in an argument would otherwise
+// mangle or abort the line). The UTF-8 BOM makes PowerShell 5.1 read the file as
+// UTF-8 instead of the system codepage, so non-ASCII paths survive.
+function buildWindowsHandoffScript(execPath, tempPath, argv) {
+  const argList = (argv || []).map(powershellQuote).join(", ");
+  const launch = argList
+    ? `Start-Process -FilePath ${powershellQuote(execPath)} -ArgumentList ${argList}`
+    : `Start-Process -FilePath ${powershellQuote(execPath)}`;
+  const lines = [
+    // First wait covers the parent exiting and Windows unmapping its image.
+    "Start-Sleep -Milliseconds 750",
+    "$ok = false",
+    "for ($i = 0; $i -lt 20; i++) {",
+    // -ErrorAction Stop so the access-denied failure actually reaches catch.
+    `  try { Move-Item -Force ${powershellQuote(tempPath)} ${powershellQuote(execPath)} -ErrorAction Stop; $ok = true; break }`,
+    "  catch { Start-Sleep -Milliseconds 500 }",
+    "}",
+    `if ($ok) { ${launch} } else { Remove-Item -Force ${powershellQuote(tempPath)} -ErrorAction Ignore }`,
+  ];
+  // No cleanup here: the .cmd wrapper deletes both helper files only after
+  // powershell.exe has exited, which is the safe point to unlink the script.
+  return "\uFEFF" + lines.join("\r\n") + "\r\n";
+}
+
+// The cmd wrapper Explorer launches. `%~f0` is the .cmd's own path, so the
+// `.ps1` name (its path + ".ps1") and the cleanup lines never bake a possibly
+// non-ASCII path into a file cmd reads as ANSI. cmd waits for powershell.exe to
+// exit before deleting, so the .ps1 is never pulled out from under the runner.
+function buildWindowsHandoffCmd() {
+  return [
+    "@echo off",
+    'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~f0.ps1"',
+    'del "%~f0.ps1" >nul 2>&1',
+    'del "%~f0" >nul 2>&1',
+  ].join("\r\n");
 }
 
 // Synchronous wait via PowerShell (only used on the Windows retry path; tests
@@ -354,34 +405,45 @@ function sleepSync(ms, { spawnSync = childProcess.spawnSync } = {}) {
 }
 
 // Windows deferred takeover: the in-place replace was refused while the image
-// is running, so spawn a *detached* PowerShell that (1) waits for the parent
-// to exit, (2) retries the move until the image stops being "in use", and
-// (3) relaunches the app with the original argv in a fresh console window.
+// is running, so hand the move off to a restart helper that (1) waits for the
+// parent to exit, (2) retries the move until the image stops being "in use",
+// and (3) relaunches the app with the original argv in a fresh console window.
+// The helper is staged as a `.cmd` + `.ps1` pair beside the binary (same folder
+// we already proved writable, since the downloaded temp binary lives there) and
+// started with `explorer.exe`, which detaches it into a new console window.
 // Returns 0 — the parent must exit immediately (the old app stops running).
 function deferredWindowsTakeover(
   execPath,
   tempPath,
   argv,
-  { detachedSpawn = childProcess.spawn, log = console.log } = {},
+  {
+    detachedSpawn = childProcess.spawn,
+    writeFile = fs.writeFileSync,
+    pid = process.pid,
+    log = console.log,
+    warn = console.error,
+  } = {},
 ) {
   log(
     "Could not replace the running .exe while it was executing; restarting with the new version in a new window…",
   );
-  const argList = (argv || []).map(powershellQuote).join(", ");
-  const launch = argList
-    ? `Start-Process -FilePath ${powershellQuote(execPath)} -ArgumentList ${argList}`
-    : `Start-Process -FilePath ${powershellQuote(execPath)}`;
-  const script =
-    "Start-Sleep -Milliseconds 750; " +
-    "$ok = false; " +
-    "for ($i = 0; $i < 20; i++) { " +
-    `try { Move-Item -Force ${powershellQuote(tempPath)} ${powershellQuote(execPath)}; $ok = true; break } ` +
-    "catch { Start-Sleep -Milliseconds 500 } } " +
-    `if ($ok) { ${launch} } else { Remove-Item -Force ${powershellQuote(tempPath)} -ErrorAction Ignore }`;
-  detachedSpawn("powershell.exe", ["-NoProfile", "-Command", script], {
-    detached: true,
-    stdio: "ignore",
-  });
+  const helperCmdPath = `${execPath}.update-${pid}.cmd`;
+  const helperPs1Path = `${helperCmdPath}.ps1`;
+  try {
+    writeFile(helperPs1Path, buildWindowsHandoffScript(execPath, tempPath, argv));
+    writeFile(helperCmdPath, buildWindowsHandoffCmd());
+  } catch (err) {
+    // Nothing can be spawned; leave the downloaded binary where it is and say
+    // so, rather than silently deleting the new version the user asked for.
+    warn(
+      `Could not stage the Windows restart helper: ${err.message}. The ${tempPath} file holds the new version — close this app, replace ${execPath} with it (keep the .exe name), then start it again.`,
+    );
+    return 0;
+  }
+  // explorer.exe, not a direct spawn: the child needs its own console, or
+  // Explorer closing the parent's window when the app exits kills it (see the
+  // file header). explorer itself exits immediately; the .cmd keeps running.
+  detachedSpawn("explorer.exe", [helperCmdPath], { detached: true, stdio: "ignore" });
   return 0;
 }
 
@@ -409,6 +471,7 @@ async function performUpdate(
     spawnSync = childProcess.spawnSync,
     detachedSpawn = childProcess.spawn,
     log = console.log,
+    warn = console.error,
     retries = 3,
     retryDelayMs = 250,
   } = {},
@@ -451,7 +514,13 @@ async function performUpdate(
       }
       throw new Error(`Could not replace the app binary: ${lastError.message}`);
     }
-    return deferredWindowsTakeover(execPath, tempPath, argv, { detachedSpawn: spawn, log });
+    return deferredWindowsTakeover(execPath, tempPath, argv, {
+      detachedSpawn: spawn,
+      writeFile,
+      pid,
+      log,
+      warn,
+    });
   }
 
   restampMacAppBundle(execPath, newVersion, { platform, read, write, codesign });
@@ -611,6 +680,8 @@ module.exports = {
   replaceBinaryInPlace,
   powershellQuote,
   sleepSync,
+  buildWindowsHandoffScript,
+  buildWindowsHandoffCmd,
   deferredWindowsTakeover,
   performUpdate,
   planUpdate,

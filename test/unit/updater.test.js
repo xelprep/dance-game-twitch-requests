@@ -18,6 +18,8 @@ const {
   maybeUpdate,
   macAppBundlePath,
   patchInfoPlistVersions,
+  buildWindowsHandoffScript,
+  buildWindowsHandoffCmd,
 } = require("../../updater.cjs");
 
 function makeStoredZip(name, contents) {
@@ -308,7 +310,7 @@ test("performUpdate defers the takeover when Windows refuses to replace a runnin
     platform: "win32",
     pid: 99,
     writeFile(path, buffer) {
-      calls.push({ type: "write", path });
+      calls.push({ type: "write", path, buffer });
     },
     unlink() {
       throw new Error("EPERM: operation not permitted, unlink");
@@ -333,13 +335,28 @@ test("performUpdate defers the takeover when Windows refuses to replace a runnin
   assert.equal(calls[0].type, "write");
   assert.equal(calls[0].path, `${execPath}.update-99.tmp`);
   assert.equal(sleeps.length, 2);
-  const takeover = calls[1];
-  assert.equal(takeover.cmd, "powershell.exe");
-  assert.equal(takeover.args[0], "-NoProfile");
-  assert.equal(takeover.args[1], "-Command");
-  assert.match(takeover.args[2], /Move-Item -Force/);
-  assert.match(takeover.args[2], /Start-Sleep -Milliseconds 750/);
-  assert.match(takeover.args[2], /-ArgumentList '--no-scan'/);
+
+  // The helper is staged as a .cmd + .ps1 pair beside the binary, then handed to
+  // explorer.exe so it runs in its own console instead of the window Explorer
+  // closes when the app exits.
+  const helperCmdPath = `${execPath}.update-99.cmd`;
+  const helperPs1Path = `${helperCmdPath}.ps1`;
+  const writes = calls.filter((call) => call.type === "write");
+  assert.deepEqual(
+    writes.map((call) => call.path),
+    [`${execPath}.update-99.tmp`, helperPs1Path, helperCmdPath],
+  );
+  const ps1 = Buffer.from(writes[1].buffer).toString("utf8");
+  assert.equal(ps1.codePointAt(0), 0xfeff);
+  assert.match(ps1, /Start-Sleep -Milliseconds 750/);
+  assert.match(ps1, /Move-Item -Force .* -ErrorAction Stop/);
+  assert.match(ps1, /-ArgumentList '--no-scan'/);
+  assert.match(ps1, /Start-Process -FilePath 'C:.*exe'/);
+  assert.equal(Buffer.from(writes[2].buffer).toString("utf8"), buildWindowsHandoffCmd());
+
+  const takeover = calls.find((call) => call.type === "spawn");
+  assert.equal(takeover.cmd, "explorer.exe");
+  assert.deepEqual(takeover.args, [helperCmdPath]);
   assert.equal(takeover.opts.detached, true);
   assert.match(logs.join("\n"), /restarting with the new version in a new window/);
 });
