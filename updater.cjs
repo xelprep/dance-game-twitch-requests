@@ -364,14 +364,19 @@ function buildWindowsHandoffScript(execPath, tempPath, argv) {
   const launch = argList
     ? `Start-Process -FilePath ${powershellQuote(execPath)} -ArgumentList ${argList}`
     : `Start-Process -FilePath ${powershellQuote(execPath)}`;
+  // Keep this script maximally conservative for PowerShell 5.1 (the Windows
+  // default): the for-increment clause MUST be `$i++` — a bare `i++` parses as a
+  // command invocation ("The term 'i++' is not recognized as a name of a cmdlet"
+  // — 5.1 flags the bogus token on the `$ok` line) — `$ok` stays numeric 0/1 so
+  // no bare true/false token can land in command position, and try/catch stays
+  // on one line since 5.1 is pickier about catch placement than pwsh 7.
   const lines = [
     // First wait covers the parent exiting and Windows unmapping its image.
     "Start-Sleep -Milliseconds 750",
-    "$ok = false",
-    "for ($i = 0; $i -lt 20; i++) {",
+    "$ok = 0",
+    "for ($i = 0; $i -lt 20; $i++) {",
     // -ErrorAction Stop so the access-denied failure actually reaches catch.
-    `  try { Move-Item -Force ${powershellQuote(tempPath)} ${powershellQuote(execPath)} -ErrorAction Stop; $ok = true; break }`,
-    "  catch { Start-Sleep -Milliseconds 500 }",
+    `  try { Move-Item -Force ${powershellQuote(tempPath)} ${powershellQuote(execPath)} -ErrorAction Stop; $ok = 1; break } catch { Start-Sleep -Milliseconds 500 }`,
     "}",
     `if ($ok) { ${launch} } else { Remove-Item -Force ${powershellQuote(tempPath)} -ErrorAction Ignore }`,
   ];

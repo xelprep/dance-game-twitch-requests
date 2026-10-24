@@ -349,6 +349,10 @@ test("performUpdate defers the takeover when Windows refuses to replace a runnin
   const ps1 = Buffer.from(writes[1].buffer).toString("utf8");
   assert.equal(ps1.codePointAt(0), 0xfeff);
   assert.match(ps1, /Start-Sleep -Milliseconds 750/);
+  // PowerShell 5.1 would run a bare `i++` or `false` token as a command, so the
+  // loop increment must be `$i++` and `$ok` numeric.
+  assert.match(ps1, /\$ok = 0/);
+  assert.match(ps1, /\$i\+\+/);
   assert.match(ps1, /Move-Item -Force .* -ErrorAction Stop/);
   assert.match(ps1, /-ArgumentList '--no-scan'/);
   assert.match(ps1, /Start-Process -FilePath 'C:.*exe'/);
