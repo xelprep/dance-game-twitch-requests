@@ -1303,6 +1303,12 @@ const controlApiRequestLimiter = rateLimit({
   standardHeaders: "draft-8",
   legacyHeaders: false,
   message: { error: "Too many requests. Please slow down." },
+  // The authenticated streamer's own requests (the control panel page) are
+  // self-throttled by its timers, so they don't consume the anonymous budget;
+  // moderators (permanent and temp) and unauthenticated callers still count.
+  // Same credential check as the control gate's verifyStreamerAuth below.
+  skip: (req) =>
+    !!CONTROL_PASSWORD && verifyStreamerAuth(req.headers.authorization, CONTROL_PASSWORD),
 });
 const failedAuthenticationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
