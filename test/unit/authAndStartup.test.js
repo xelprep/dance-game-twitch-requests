@@ -18,6 +18,8 @@ const {
   verifyModeratorPassword,
   verifyStreamerAuth,
   sanitizeCourseName,
+  escapeCourseName,
+  escapeCourseValue,
   generateRandomPassword,
   normalizeEventSubUrl,
   getModeratorCredentialsList,
@@ -73,6 +75,19 @@ test("streamer auth accepts the vanity name username case-insensitively and reje
 test("course names remove arbitrarily long trailing periods without regex backtracking", () => {
   assert.equal(sanitizeCourseName(`Course${".".repeat(20_000)}`), "Course");
   assert.equal(sanitizeCourseName("  Course Name...  "), "Course Name");
+});
+
+test("course header names only escape the backslash and semicolon, not commas", () => {
+  // A `#COURSE:title;` value ends at the first unescaped `;`; commas are literal text.
+  assert.equal(escapeCourseName("Oops, All Huberts"), "Oops, All Huberts");
+  assert.equal(escapeCourseName("a;b"), "a\\;b");
+  assert.equal(escapeCourseName("back\\slash"), "back\\\\slash");
+});
+
+test("SONGSELECT values still escape list/param control characters", () => {
+  // Inside `#SONGSELECT:PARAM=VALUE;`, `,` separates lists and `:`/`=` delimit params.
+  assert.equal(escapeCourseValue("Oops, All Huberts"), "Oops\\, All Huberts");
+  assert.equal(escapeCourseValue("a:b=c;d#e"), "a\\:b\\=c\\;d\\#e");
 });
 
 test("temporary moderator passwords preserve their format", () => {

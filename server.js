@@ -794,6 +794,20 @@ function resolveCourseOutputPath(courseName) {
   return path.join(baseDir, fileName);
 }
 
+// A `#COURSE:title;` header value is a single field that ends at the first
+// *unescaped* `;` (see the tag parser), so only `\` and `;` are control
+// characters here. Commas, `#`, `:` and `=` are ordinary literal text in a
+// course name and must NOT be escaped, otherwise StepMania shows them as `\,`.
+function escapeCourseName(value) {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;");
+}
+
+// Inside a `#SONGSELECT:PARAM=VALUE:PARAM=VALUE;` statement, `:` separates
+// parameters, `=` separates a name from its value, `,` separates list items,
+// and `;` ends the statement. Those (plus `#`) must be escaped so a literal
+// character in a song title/group/etc. isn't read as a delimiter.
 function escapeCourseValue(value) {
   return String(value ?? "")
     .replace(/\\/g, "\\\\")
@@ -827,7 +841,7 @@ function buildCourseText(courseName, queue) {
     );
   }
 
-  const lines = [`#COURSE:${escapeCourseValue(courseName)};`];
+  const lines = [`#COURSE:${escapeCourseName(courseName)};`];
   for (const entry of queue) {
     const chart = entry?.chart || {};
     const group = String(entry?.pack_folder || entry?.pack || "").trim() || "Unknown Pack";
@@ -3898,6 +3912,8 @@ module.exports = {
   verifyStreamerAuth,
   isStreamerUsername,
   sanitizeCourseName,
+  escapeCourseName,
+  escapeCourseValue,
   generateRandomPassword,
   normalizeEventSubUrl,
   createTwitchAuthTransaction,
