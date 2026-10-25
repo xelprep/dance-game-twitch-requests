@@ -99,14 +99,13 @@ function songCard(song) {
         .map((chart) => {
           const isActive = activeCharts.has(chart.id);
           const isRestricted = !isActive && !!chart.disallowed;
+          const isDisabled = isActive || isRestricted;
           const disabledTitle = isActive
             ? "Already queued or playing"
             : chart.disallowReason || "Not allowed right now";
           return `
-          <button type="button" class="song-chart${isActive || isRestricted ? " dimmed" : ""}" ${
-            isActive || isRestricted
-              ? `disabled title="${escapeHTML(disabledTitle)}"`
-              : `data-command="${escapeHTML(chartCommand(song.id, chart))}"`
+          <button type="button" data-chart-id="${escapeHTML(String(chart.id))}" data-command="${escapeHTML(chartCommand(song.id, chart))}" class="song-chart${isDisabled ? " dimmed" : ""}"${
+            isDisabled ? ` disabled title="${escapeHTML(disabledTitle)}"` : ""
           }>
             <span class="song-chart-label">${escapeHTML(chartText(chart))}</span>
             ${
@@ -136,8 +135,11 @@ function songCard(song) {
     </div>
   `;
 
-  article.querySelectorAll("button.song-chart:not([disabled])").forEach((button) => {
-    button.addEventListener("click", () => copyRequestCommand(button.dataset.command));
+  // Register this song's chart buttons so the periodic active-state refresh can
+  // patch queued/restricted state in place (see refreshActiveStates) instead of
+  // rebuilding the results list, which would reset the reader's scroll position.
+  article.querySelectorAll("button.song-chart").forEach((button) => {
+    chartButtonsByChartId.set(button.dataset.chartId, button);
   });
 
   return article;
@@ -148,20 +150,15 @@ async function search() {
   loadSongs(1);
 }
 
-async function queue() {
-  const container = $("queue");
-  container.replaceChildren();
+let lastQueueHTML = null;
 
+async function queue() {
   try {
     const items = await getJSON("/api/queue");
-    if (!items.length) {
-      container.innerHTML = '<p class="muted">Queue is empty.</p>';
-      return;
-    }
-
-    container.innerHTML = items
-      .map(
-        (r, i) => `
+    const html = items.length
+      ? items
+          .map(
+            (r, i) => `
       <article class="request">
         <div class="rank">${i + 1}</div>
         <div class="info">
@@ -173,35 +170,67 @@ async function queue() {
         </div>
       </article>
     `,
-      )
-      .join("");
+          )
+          .join("")
+      : '<p class="muted">Queue is empty.</p>';
+    if (html !== lastQueueHTML) {
+      lastQueueHTML = html;
+      $("queue").innerHTML = html;
+    }
   } catch (e) {
-    container.innerHTML = `<p class="muted">${escapeHTML(e.message)}</p>`;
+    const err = `<p class="muted">${escapeHTML(e.message)}</p>`;
+    if (err !== lastQueueHTML) {
+      lastQueueHTML = err;
+      $("queue").innerHTML = err;
+    }
   }
 }
 
-let activeSongsKey = "";
-async function refreshSongsIfActiveChanged() {
-  // Reload the picker when a chart enters or leaves the queue / now playing, or when the
-  // streamer changes the request constraints, so the dimmed "queued" / "restricted"
-  // states stay current without a manual refresh.
+// Chart buttons rendered for the current page, keyed by chart id. The periodic
+// active-state refresh uses this to patch dimmed/queued/restricted state in place
+// instead of rebuilding the results container (which would reset the reader's
+// scroll position because their scroll offset refers to the removed nodes).
+const chartButtonsByChartId = new Map();
+
+function applyChartState(button, chart, isActive) {
+  const disallowed = !isActive && !!chart.disallowed;
+  const disabled = isActive || disallowed;
+  button.classList.toggle("dimmed", disabled);
+  button.disabled = disabled;
+  if (disabled) {
+    button.title = isActive ? "Already queued or playing" : (chart.disallowReason || "Not allowed right now");
+  } else {
+    button.removeAttribute("title");
+  }
+  const stateSpan = button.querySelector("span.song-chart-state");
+  const label = isActive ? "Queued" : disallowed ? "Restricted" : "";
+  if (label) {
+    if (stateSpan) stateSpan.textContent = label;
+    else {
+      const span = document.createElement("span");
+      span.className = "song-chart-state";
+      button.appendChild(span);
+      span.textContent = label;
+    }
+  } else if (stateSpan) {
+    stateSpan.remove();
+  }
+}
+
+async function refreshActiveStates() {
+  if (!currentParams) return;
+  const seq = ++pageRequestSeq;
   try {
-    const [queueItems, nowPlaying, constraints] = await Promise.all([
-      getJSON("/api/queue"),
-      getJSON("/api/now-playing"),
-      getJSON("/api/request-constraints"),
-    ]);
-    const ids = new Set(
-      (queueItems || []).map((r) => (r.chart ? r.chart.id : `song:${r.song_id}`)),
-    );
-    if (nowPlaying && nowPlaying.chart) ids.add(nowPlaying.chart.id);
-    const key =
-      [...ids].sort((a, b) => String(a).localeCompare(String(b))).join(",") +
-      "|" +
-      JSON.stringify(constraints);
-    if (key !== activeSongsKey) {
-      activeSongsKey = key;
-      loadSongs(currentPage);
+    const res = await getJSON(`/api/songs?${currentParams}`);
+    if (seq !== pageRequestSeq) return;
+    for (const song of res.songs || []) {
+      const activeCharts = new Set(song.activeCharts || []);
+      for (const chart of song.charts || []) {
+        const button =
+          chartButtonsByChartId.get(chart.id) ||
+          chartButtonsByChartId.get(String(chart.id));
+        if (button) applyChartState(button, chart, activeCharts.has(chart.id));
+      }
     }
   } catch {}
 }
@@ -233,6 +262,7 @@ let timer;
 let currentPage = 1;
 let totalPages = 1;
 let pageRequestSeq = 0;
+let currentParams = "";
 
 function getPerPage() {
   return Number($("per-page").value) || 25;
@@ -420,6 +450,7 @@ async function loadSongs(page = 1) {
   const seq = ++pageRequestSeq;
   const results = $("results");
   results.replaceChildren();
+  chartButtonsByChartId.clear();
 
   const pack = $("filter-pack").value;
   const genre = $("filter-genre").value;
@@ -454,9 +485,10 @@ async function loadSongs(page = 1) {
   if (q) params.set("q", q);
   // Flag songs that are already queued or now playing so their rows can be dimmed.
   params.set("markActive", "1");
+  currentParams = params.toString();
 
   try {
-    const res = await getJSON(`/api/songs?${params.toString()}`);
+    const res = await getJSON(`/api/songs?${currentParams}`);
     if (seq !== pageRequestSeq) return;
     const songs = res.songs || [];
     const total = res.total || 0;
@@ -512,8 +544,20 @@ stats();
 queue();
 getFilters();
 loadSongs(1);
+
+// One delegated handler instead of per-button listeners: chart buttons can flip
+// between enabled/disabled during the in-place active-state refresh, so a single
+// listener that checks the current button state is more robust than re-attaching
+// listeners whenever a chart's state changes.
+$("results").addEventListener("click", (e) => {
+  const button = e.target.closest("button");
+  if (button && !button.disabled && button.dataset.command) {
+    copyRequestCommand(button.dataset.command);
+  }
+});
+
 setInterval(() => {
   queue();
   stats();
-  refreshSongsIfActiveChanged();
+  refreshActiveStates();
 }, 5000);
