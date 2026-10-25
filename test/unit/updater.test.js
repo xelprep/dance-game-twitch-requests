@@ -353,6 +353,10 @@ test("performUpdate defers the takeover when Windows refuses to replace a runnin
   // cache) no longer let every retry inside the loop hit a still-in-use image.
   assert.match(ps1, /\$parentPid = 99/);
   assert.match(ps1, /Get-Process -Id \$parentPid/);
+  // The waiting line prints BEFORE the wait loop so the window the user
+  // watches is never blank while waiting (the 1.1.8/1.1.9 test sat on one).
+  assert.match(ps1, /Waiting for the app to exit and Windows to release/);
+  assert.ok(ps1.indexOf("Write-Host") < ps1.indexOf("Get-Process"));
   // PowerShell 5.1 would run a bare `i++` or `false` token as a command, so the
   // loop increment must be `$i++` and `$ok` numeric.
   assert.match(ps1, /\$ok = 0/);
@@ -535,6 +539,33 @@ function makeRealZip() {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
+
+test("maybeUpdate warns about the blank-window Windows handoff before consent", async () => {
+  const logs = [];
+  const result = await maybeUpdate("1.1.8", {
+    compiled: true,
+    tty: true,
+    platform: "win32",
+    execPath: "C:\\Users\\User\\dance-game-twitch-requests.exe",
+    plan: () => ({
+      currentVersion: "1.1.8",
+      latestVersion: "1.1.9",
+      target: { os: "windows", arch: "x64" },
+      asset: { browser_download_url: "https://download" },
+      updateAvailable: true,
+    }),
+    confirm: () => Promise.resolve(false),
+    log(message) {
+      logs.push(message);
+    },
+  });
+
+  // Consent declined: no download, but the heads-up printed BEFORE the prompt
+  // so a user who is about to press Y has read it already.
+  assert.deepEqual(result, { skipped: "declined" });
+  assert.match(logs.join("\n"), /Heads-up for Windows/);
+  assert.match(logs.join("\n"), /look blank or stuck for several seconds/);
+});
 
 test("maybeUpdate downloads, extracts, replaces, and restarts a binary", async () => {
   const zip = makeRealZip();

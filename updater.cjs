@@ -412,6 +412,9 @@ function buildWindowsHandoffScript(
     // Wait for the parent Node PID to actually exit (up to ~20 s), so the
     // retry below does not burn its whole budget against a still-in-use image
     // when Node's cleanup is slow or the OS still holds the mapped image.
+    // The Write-Host goes BEFORE the loop so the cmd window is not blank while
+    // waiting (the user's 1.1.8/1.1.9 test sat on an empty window for seconds).
+    "Write-Host 'Waiting for the app to exit and Windows to release the running .exe image...'",
     "$waited = 0",
     "while (Get-Process -Id $parentPid -ErrorAction Ignore) { Start-Sleep -Milliseconds 200; $waited = $waited + 1; if ($waited -gt 100) { break } }",
     // 60 retries * 500 ms = 30 s of move retries. Windows can hold the .exe
@@ -419,7 +422,6 @@ function buildWindowsHandoffScript(
     // Explorer's icon cache had touched the file after a SmartScreen-flagged
     // download, which is what the user saw as the cmd window sitting open for
     // "a while" and then everything disappearing.
-    "Write-Host 'Waiting for Windows to release the running .exe image...'",
     "$ok = 0",
     "for ($i = 0; $i -lt 60; $i++) {",
     `  try { Move-Item -LiteralPath $src -Destination $exe -Force -ErrorAction Stop; $ok = 1; break } catch { Write-Host "Try $i of 60 failed: $($_.Exception.Message)"; Start-Sleep -Milliseconds 500 }`,
@@ -440,9 +442,15 @@ function buildWindowsHandoffScript(
 // `.ps1` name (its path + ".ps1") and the cleanup lines never bake a possibly
 // non-ASCII path into a file cmd reads as ANSI. cmd waits for powershell.exe to
 // exit before deleting, so the .ps1 is never pulled out from under the runner.
+// The leading echoes print before powershell.exe even cold-starts (~1 s), so
+// the window is never blank the moment Explorer opens it — the blank-window
+// "hang" the user saw in the 1.1.8/1.1.9 tests came from that cold start.
 function buildWindowsHandoffCmd() {
   return [
     "@echo off",
+    'echo Dance Game Twitch Requests is updating. Do NOT close this window.',
+    'echo It waits for Windows to release the running app, replaces the .exe,',
+    'echo then starts the new version in a new window and cleans up after itself.',
     'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~f0.ps1"',
     'del "%~f0.ps1" >nul 2>&1',
     'del "%~f0" >nul 2>&1',
@@ -643,6 +651,7 @@ async function maybeUpdate(
     confirm = confirmUpdate,
     log = console.log,
     warn = console.error,
+    platform = process.platform,
   } = {},
 ) {
   if (!compiled) {
@@ -679,6 +688,21 @@ async function maybeUpdate(
     `A newer version is available: ${planned.latestVersion} (you are on ${planned.currentVersion}). ` +
       `Target: ${planned.target.os}-${planned.target.arch}.`,
   );
+
+  if (platform === "win32") {
+    // Windows often refuses to replace the .exe of the *running* app, which
+    // routes the update through the deferred helper: this app exits, and a
+    // separate cmd window does the move + relaunch. Cold PowerShell start and
+    // the image-release wait make that window look stuck for several seconds,
+    // so warn *before* consent — once the user says Y they must not close it.
+    log(
+      "Heads-up for Windows: replacing a running .exe is usually refused, so this app may " +
+        "exit and a separate command-prompt window will finish the update. That window can " +
+        "look blank or stuck for several seconds (it is waiting for Windows to release the " +
+        "running copy) - that is normal. Do NOT close it mid-update, or the new binary is " +
+        "left half-staged; it relaunches the app in a new window and cleans up after itself.",
+    );
+  }
 
   if (!force) {
     const ok = await confirm(`Update to ${planned.latestVersion} now? [Y/n] `, {
