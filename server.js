@@ -2265,6 +2265,13 @@ function createApi(app, options = {}) {
           settings.chatRequestsRequireRole,
         );
       }
+      if (current.chatRequestsEnabled !== settings.chatRequestsEnabled) {
+        // Push the new flag to the OBS overlay right away so its empty-queue hint
+        // flips without waiting for the next queue change.
+        try {
+          if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
+        } catch (e) {}
+      }
       res.json({ ok: true, ...settings });
     });
     app.post("/api/moderator/logout", async (req, res) => {
@@ -2659,6 +2666,12 @@ function createApi(app, options = {}) {
 
   app.get("/api/queue", (_req, res) => res.json(getQueue()));
   app.get("/api/now-playing", (_req, res) => res.json(getNowPlaying()));
+  // Public chat-request switch, polled by the overlay so it can pick the right
+  // empty-queue hint when the SSE stream isn't available.
+  app.get("/api/overlay/chat-requests-status", (_req, res) => {
+    res.json({ chatRequestsEnabled: !!getSetting("chatRequestsEnabled", true) });
+  });
+
   app.get("/api/overlay/temp-mod-status", (_req, res) => {
     if (activeTempMod && Date.now() < activeTempMod.expiresAt) {
       return res.json({ displayName: activeTempMod.displayname });
@@ -3545,6 +3558,9 @@ function buildOverlayState() {
     queue,
     nowPlaying,
     tempModDisplayName,
+    // The overlay switches its empty-queue hint on this so viewers aren't told to
+    // use chat commands while the streamer has chat requests turned off.
+    chatRequestsEnabled: !!getSetting("chatRequestsEnabled", true),
   };
 }
 

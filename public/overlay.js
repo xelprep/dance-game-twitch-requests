@@ -40,6 +40,7 @@ let showSampleData = false;
 let showSafeArea = false;
 let liveQueue = [];
 let liveNowPlaying = null;
+let liveChatRequestsEnabled = true;
 let activeOverlayStyle = DEFAULT_OVERLAY_STYLE;
 
 function normalizeOverlayStyle(value) {
@@ -233,11 +234,14 @@ function formatNowPlaying(song) {
 
 function formatQueue(queue) {
   if (!queue || !queue.length) {
+    const message = liveChatRequestsEnabled
+      ? "No songs in request queue - Try requesting one in chat (!queue, !search, !requestid)"
+      : "No songs in request queue - Chat requests are currently disabled";
     return `
       <div class="queue-empty-state">
         <div class="queue-empty-row"></div>
         <div class="queue-empty-row"></div>
-        <div class="queue-empty-row queue-empty-row--message">No songs in request queue - Try requesting one in chat (!queue, !search, !requestid)</div>
+        <div class="queue-empty-row queue-empty-row--message">${message}</div>
       </div>
     `;
   }
@@ -505,6 +509,22 @@ async function pollTempModStatus() {
   }
 }
 
+// The preview iframe has no SSE queue stream, so it learns the chat-request switch
+// (which decides the empty-queue hint) from the public API instead.
+async function refreshChatRequestsStatus() {
+  try {
+    const resp = await fetch("/api/overlay/chat-requests-status", { cache: "no-store" });
+    if (!resp.ok) throw new Error("Chat request status unavailable");
+    const enabled = !!((await resp.json()).chatRequestsEnabled);
+    if (enabled !== liveChatRequestsEnabled) {
+      liveChatRequestsEnabled = enabled;
+      renderOverlayData();
+    }
+  } catch (error) {
+    if (!isPreview) console.warn("Could not load chat request status", error);
+  }
+}
+
 // Try EventSource first; fall back to polling if not available.
 function startSSE() {
   try {
@@ -523,6 +543,9 @@ function startSSE() {
 
         if (queue) {
           liveQueue = queue;
+        }
+        if (data && "chatRequestsEnabled" in data) {
+          liveChatRequestsEnabled = !!data.chatRequestsEnabled;
         }
         liveNowPlaying = nowPlaying;
         renderOverlayData();
@@ -544,9 +567,10 @@ function startSSE() {
 
 async function poll() {
   try {
-    const [queueResp, nowPlayingResp] = await Promise.all([
+    const [queueResp, nowPlayingResp, chatResp] = await Promise.all([
       fetch("/api/queue"),
       fetch("/api/now-playing"),
+      fetch("/api/overlay/chat-requests-status"),
     ]);
 
     if (!queueResp.ok) throw new Error("Queue fetch failed");
@@ -556,6 +580,10 @@ async function poll() {
     const nowPlaying = await nowPlayingResp.json();
     liveQueue = queue;
     liveNowPlaying = nowPlaying;
+    if (chatResp.ok) {
+      const chatStatus = await chatResp.json();
+      liveChatRequestsEnabled = !!chatStatus.chatRequestsEnabled;
+    }
     renderOverlayData();
     await pollTempModStatus();
   } catch (e) {
@@ -565,6 +593,10 @@ async function poll() {
 
 updateUpcomingLabel(null);
 pollTempModStatus();
+refreshChatRequestsStatus();
+if (isPreview) {
+  setInterval(refreshChatRequestsStatus, 15000);
+}
 
 if (!startSSE()) {
   poll();
