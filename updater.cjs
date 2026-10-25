@@ -29,10 +29,16 @@
 // what launched apps hit (e.g. an exe extracted onto the Desktop and
 // double-clicked). Two-stage fallback: retry the in-place replace a few times
 // with short waits (covers transient handles, e.g. Explorer's), then hand off
-// to a restart helper — the parent exits immediately, the helper waits until
-// the image stops being "in use", retries the move, and relaunches the app in a
-// fresh console window (Start-Process gives a console-subsystem exe its own
-// conhost, so double-click UX is preserved after the restart).
+// to a restart helper that (1) waits until the parent's Node PID has actually
+// exited (Windows can hold the .exe image mapped for longer than a fixed sleep
+// once Defender or Explorer's icon cache has touched the file, which is what a
+// fixed 750 ms wait kept missing on real machines), (2) retries the move with
+// -LiteralPath so paths containing * ? [ ] + ( ) never become PS globs, (3)
+// relaunches via Start-Process in a fresh console window, and (4) falls back to
+// `explorer.exe <exe>` if Start-Process throws — on Windows 11 that's the
+// SmartScreen "Run this app anyway" gate an unsigned downloaded binary hits,
+// and Explorer's open path surfaces that prompt for one click-through exactly
+// like a manual double-click does.
 //
 // The helper must NOT be a plain detached child: a process Node spawns on
 // Windows inherits the parent's *console*, and when a double-clicked console
@@ -359,26 +365,71 @@ function powershellQuote(value) {
 // passes through cmd's quoting (a `"` or `%` in an argument would otherwise
 // mangle or abort the line). The UTF-8 BOM makes PowerShell 5.1 read the file as
 // UTF-8 instead of the system codepage, so non-ASCII paths survive.
-function buildWindowsHandoffScript(execPath, tempPath, argv) {
-  const argList = (argv || []).map(powershellQuote).join(", ");
-  const launch = argList
-    ? `Start-Process -FilePath ${powershellQuote(execPath)} -ArgumentList ${argList}`
-    : `Start-Process -FilePath ${powershellQuote(execPath)}`;
-  // Keep this script maximally conservative for PowerShell 5.1 (the Windows
-  // default): the for-increment clause MUST be `$i++` — a bare `i++` parses as a
-  // command invocation ("The term 'i++' is not recognized as a name of a cmdlet"
-  // — 5.1 flags the bogus token on the `$ok` line) — `$ok` stays numeric 0/1 so
-  // no bare true/false token can land in command position, and try/catch stays
-  // on one line since 5.1 is pickier about catch placement than pwsh 7.
+//
+// Notes on the shape that PowerShell 5.1 accepts (the Windows default is still
+// 5.1 everywhere except explicit pwsh installs):
+//  - The for-increment clause MUST be `$i++` — a bare `i++` parses as a command
+//    invocation ("The term 'i++' is not recognized as a name of a cmdlet").
+//  - `$ok` stays numeric 0/1 so no bare true/false token can land in command
+//    position.
+//  - `} catch {` stays on the same line as the try; 5.1 is pickier about catch
+//    placement than pwsh 7.
+//  - `-ErrorAction Stop` on Move-Item so the access-denied failure actually
+//    reaches catch (default is a non-throwing WriteError for file ops).
+//  - `-LiteralPath ... -Destination ...` on Move-Item so a path containing
+//    `* ? [ ] + ( )` never becomes a PS glob (a `Move-Item -Force src dst`
+//    positional form on a Desktop path with parens was silently glob-matching
+//    and reporting "not found", which the user's report looked exactly like —
+//    retries all failing, .tmp removed, original .exe untouched).
+//  - Wait on `Get-Process -Id $parentPid` instead of a fixed sleep, since
+//    Defender's on-access scan or Explorer's icon cache can keep the running
+//    .exe image mapped for longer than 750 ms after Node exits.
+//  - `Start-Process` in try/catch, with `explorer.exe $exe` as the fallback
+//    launch: SmartScreen can make CreateProcess fail for a freshly written
+//    unsigned binary, and Explorer's open action surfaces the SmartScreen
+//    "Windows Protected Your PC / Run anyway" prompt so the user can complete
+//    the update with one click-through — the same interaction a manual
+//    download already requires.
+function buildWindowsHandoffScript(
+  execPath,
+  tempPath,
+  argv,
+  parentPid = process.pid,
+) {
+  const quoted = (argv || []).map(powershellQuote);
+  const startProcessCall = quoted.length
+    ? `Start-Process -FilePath $exe -ArgumentList ${quoted.join(", ")} -ErrorAction Stop`
+    : `Start-Process -FilePath $exe -ErrorAction Stop`;
+  const launchBlock =
+    `try { ${startProcessCall} } catch { Write-Host "Start-Process failed: $($_.Exception.Message)"; explorer.exe $exe }`;
   const lines = [
-    // First wait covers the parent exiting and Windows unmapping its image.
-    "Start-Sleep -Milliseconds 750",
+    // Bake the paths once as PS variables so every later line stays short and
+    // no shell-level quoting is involved; single quotes preserve backslashes
+    // literally, and powershellQuote doubles any apostrophe in a path.
+    `$parentPid = ${parentPid}`,
+    `$exe = ${powershellQuote(execPath)}`,
+    `$src = ${powershellQuote(tempPath)}`,
+    // Wait for the parent Node PID to actually exit (up to ~20 s), so the
+    // retry below does not burn its whole budget against a still-in-use image
+    // when Node's cleanup is slow or the OS still holds the mapped image.
+    "$waited = 0",
+    "while (Get-Process -Id $parentPid -ErrorAction Ignore) { Start-Sleep -Milliseconds 200; $waited = $waited + 1; if ($waited -gt 100) { break } }",
+    // 60 retries * 500 ms = 30 s of move retries. Windows can hold the .exe
+    // image open longer than the earlier 20 * 500 ms covered when Defender or
+    // Explorer's icon cache had touched the file after a SmartScreen-flagged
+    // download, which is what the user saw as the cmd window sitting open for
+    // "a while" and then everything disappearing.
+    "Write-Host 'Waiting for Windows to release the running .exe image...'",
     "$ok = 0",
-    "for ($i = 0; $i -lt 20; $i++) {",
-    // -ErrorAction Stop so the access-denied failure actually reaches catch.
-    `  try { Move-Item -Force ${powershellQuote(tempPath)} ${powershellQuote(execPath)} -ErrorAction Stop; $ok = 1; break } catch { Start-Sleep -Milliseconds 500 }`,
+    "for ($i = 0; $i -lt 60; $i++) {",
+    `  try { Move-Item -LiteralPath $src -Destination $exe -Force -ErrorAction Stop; $ok = 1; break } catch { Write-Host "Try $i of 60 failed: $($_.Exception.Message)"; Start-Sleep -Milliseconds 500 }`,
     "}",
-    `if ($ok) { ${launch} } else { Remove-Item -Force ${powershellQuote(tempPath)} -ErrorAction Ignore }`,
+    // On Move-Item failure, do NOT delete the downloaded .tmp — leaving the new
+    // binary beside the old one so the user can rename it manually is strictly
+    // better than losing the update they just paid for, and printing the paths
+    // means the message survives a window-close (they can screenshot or scroll
+    // back through the visible cmd-window lines above).
+    `if ($ok) { Write-Host 'Binary replaced. Relaunching in a new console...'; ${launchBlock} } else { Write-Host "Could not replace the running .exe. Close this window, rename $src to $exe (keep the .exe name), then double-click it; Windows shows the SmartScreen 'Run anyway' prompt if it does not start on its own." }`,
   ];
   // No cleanup here: the .cmd wrapper deletes both helper files only after
   // powershell.exe has exited, which is the safe point to unlink the script.
@@ -435,7 +486,7 @@ function deferredWindowsTakeover(
   const helperCmdPath = `${execPath}.update-${pid}.cmd`;
   const helperPs1Path = `${helperCmdPath}.ps1`;
   try {
-    writeFile(helperPs1Path, buildWindowsHandoffScript(execPath, tempPath, argv));
+    writeFile(helperPs1Path, buildWindowsHandoffScript(execPath, tempPath, argv, pid));
     writeFile(helperCmdPath, buildWindowsHandoffCmd());
   } catch (err) {
     // Nothing can be spawned; leave the downloaded binary where it is and say

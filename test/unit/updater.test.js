@@ -348,14 +348,30 @@ test("performUpdate defers the takeover when Windows refuses to replace a runnin
   );
   const ps1 = Buffer.from(writes[1].buffer).toString("utf8");
   assert.equal(ps1.codePointAt(0), 0xfeff);
-  assert.match(ps1, /Start-Sleep -Milliseconds 750/);
+  // The wait is driven by the parent's own PID, not a fixed sleep, so Windows
+  // image-hold stretches past a few hundred ms (Defender scan, Explorer's icon
+  // cache) no longer let every retry inside the loop hit a still-in-use image.
+  assert.match(ps1, /\$parentPid = 99/);
+  assert.match(ps1, /Get-Process -Id \$parentPid/);
   // PowerShell 5.1 would run a bare `i++` or `false` token as a command, so the
   // loop increment must be `$i++` and `$ok` numeric.
   assert.match(ps1, /\$ok = 0/);
   assert.match(ps1, /\$i\+\+/);
-  assert.match(ps1, /Move-Item -Force .* -ErrorAction Stop/);
+  // -LiteralPath so a path with `* ? [ ] + ( )` is never globbed; the positional
+  // form on a Desktop path silently reported "not found" on every retry, which
+  // is exactly the "empty cmd window, .tmp deleted, .exe unchanged" case.
+  assert.match(ps1, /Move-Item -LiteralPath \$src -Destination \$exe -Force -ErrorAction Stop/);
   assert.match(ps1, /-ArgumentList '--no-scan'/);
-  assert.match(ps1, /Start-Process -FilePath 'C:.*exe'/);
+  assert.match(ps1, /Start-Process -FilePath \$exe/);
+  // If Start-Process throws (SmartScreen / CreateProcess denial for the
+  // unsigned downloaded binary), fall back to `explorer.exe $exe` so the
+  // SmartScreen "Run this app anyway" prompt is visible for one click-through,
+  // matching the manual double-click UX the user already had to complete.
+  assert.match(ps1, /explorer\.exe \$exe/);
+  // On Move-Item failure, do NOT delete the downloaded .tmp: leaving the new
+  // version on disk with printed rename instructions is strictly better than
+  // losing the update the user paid for.
+  assert.ok(!/Remove-Item -Force/.test(ps1));
   assert.equal(Buffer.from(writes[2].buffer).toString("utf8"), buildWindowsHandoffCmd());
 
   const takeover = calls.find((call) => call.type === "spawn");
