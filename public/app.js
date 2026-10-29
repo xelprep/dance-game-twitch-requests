@@ -198,7 +198,9 @@ function applyChartState(button, chart, isActive) {
   button.classList.toggle("dimmed", disabled);
   button.disabled = disabled;
   if (disabled) {
-    button.title = isActive ? "Already queued or playing" : (chart.disallowReason || "Not allowed right now");
+    button.title = isActive
+      ? "Already queued or playing"
+      : chart.disallowReason || "Not allowed right now";
   } else {
     button.removeAttribute("title");
   }
@@ -227,8 +229,7 @@ async function refreshActiveStates() {
       const activeCharts = new Set(song.activeCharts || []);
       for (const chart of song.charts || []) {
         const button =
-          chartButtonsByChartId.get(chart.id) ||
-          chartButtonsByChartId.get(String(chart.id));
+          chartButtonsByChartId.get(chart.id) || chartButtonsByChartId.get(String(chart.id));
         if (button) applyChartState(button, chart, activeCharts.has(chart.id));
       }
     }

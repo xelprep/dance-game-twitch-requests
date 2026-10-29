@@ -390,18 +390,12 @@ function powershellQuote(value) {
 //    "Windows Protected Your PC / Run anyway" prompt so the user can complete
 //    the update with one click-through — the same interaction a manual
 //    download already requires.
-function buildWindowsHandoffScript(
-  execPath,
-  tempPath,
-  argv,
-  parentPid = process.pid,
-) {
+function buildWindowsHandoffScript(execPath, tempPath, argv, parentPid = process.pid) {
   const quoted = (argv || []).map(powershellQuote);
   const startProcessCall = quoted.length
     ? `Start-Process -FilePath $exe -ArgumentList ${quoted.join(", ")} -ErrorAction Stop`
     : `Start-Process -FilePath $exe -ErrorAction Stop`;
-  const launchBlock =
-    `try { ${startProcessCall} } catch { Write-Host "Start-Process failed: $($_.Exception.Message)"; explorer.exe $exe }`;
+  const launchBlock = `try { ${startProcessCall} } catch { Write-Host "Start-Process failed: $($_.Exception.Message)"; explorer.exe $exe }`;
   const lines = [
     // Bake the paths once as PS variables so every later line stays short and
     // no shell-level quoting is involved; single quotes preserve backslashes
@@ -448,9 +442,9 @@ function buildWindowsHandoffScript(
 function buildWindowsHandoffCmd() {
   return [
     "@echo off",
-    'echo Dance Game Twitch Requests is updating. Do NOT close this window.',
-    'echo It waits for Windows to release the running app, replaces the .exe,',
-    'echo then starts the new version in a new window and cleans up after itself.',
+    "echo Dance Game Twitch Requests is updating. Do NOT close this window.",
+    "echo It waits for Windows to release the running app, replaces the .exe,",
+    "echo then starts the new version in a new window and cleans up after itself.",
     'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~f0.ps1"',
     'del "%~f0.ps1" >nul 2>&1',
     'del "%~f0" >nul 2>&1',

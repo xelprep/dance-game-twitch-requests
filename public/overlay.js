@@ -515,7 +515,7 @@ async function refreshChatRequestsStatus() {
   try {
     const resp = await fetch("/api/overlay/chat-requests-status", { cache: "no-store" });
     if (!resp.ok) throw new Error("Chat request status unavailable");
-    const enabled = !!((await resp.json()).chatRequestsEnabled);
+    const enabled = !!(await resp.json()).chatRequestsEnabled;
     if (enabled !== liveChatRequestsEnabled) {
       liveChatRequestsEnabled = enabled;
       renderOverlayData();
