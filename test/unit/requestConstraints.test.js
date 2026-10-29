@@ -38,6 +38,22 @@ writeSong("Beta Pack", "Other Pack Song", "other-pack-song.sm", [
   "#BPM:90;",
   "#NOTES:dance-single:1:Hard:12:1.000000:0.000000:0.000000;",
 ]);
+
+// Packs declare their series in a pack ini (`pack.ini` / `Pack.ini` spellings both occur
+// in the wild). Alpha Pack is a DDR Official pack, Beta Pack is not, so the DDR Officials
+// filter can be exercised in both directions.
+function writePackIni(pack, fileName, lines) {
+  fs.writeFileSync(path.join(tmpSongsDir, pack, fileName), lines.join("\n") + "\n", "utf8");
+}
+writePackIni("Alpha Pack", "pack.ini", [
+  "[Group]",
+  "Version=2",
+  "DisplayTitle=Alpha Pack",
+  "Series=DDR Official",
+  "SeriesBanner=not-a-series.png",
+]);
+writePackIni("Beta Pack", "Pack.ini", ["[Group]", "DisplayTitle=Beta Pack", "Series=Beta Series"]);
+
 process.env.SONGS_DIR = tmpSongsDir;
 
 const { db, addRequest, scanSongs, setSetting, createApi } = require("../../server.js");
@@ -156,6 +172,41 @@ test("addRequest enforces the pack constraint", () => {
   assert.equal(ok.song.id, alpha.id);
 });
 
+test("addRequest enforces the DDR Officials filter", () => {
+  resetState();
+  const official = getSongByTitle("Constraint Song"); // Alpha Pack, Series=DDR Official
+  const other = getSongByTitle("Other Pack Song"); // Beta Pack
+  assert.equal(official.series, "DDR Official");
+  assert.notEqual(other.series, "DDR Official");
+
+  setSetting("requestConstraintDdrOfficials", "only");
+  assert.throws(
+    () =>
+      addRequest(other.id, "ddr-user-a", "A", {
+        chartId: getChart(other.id, "dance-single", 12).id,
+      }),
+    /Only songs from DDR Official packs can be requested right now\./,
+  );
+  const officialOk = addRequest(official.id, "ddr-user-b", "B", {
+    chartId: getChart(official.id, "dance-single", 12).id,
+  });
+  assert.equal(officialOk.song.id, official.id);
+
+  resetState();
+  setSetting("requestConstraintDdrOfficials", "excluded");
+  assert.throws(
+    () =>
+      addRequest(official.id, "ddr-user-c", "C", {
+        chartId: getChart(official.id, "dance-single", 12).id,
+      }),
+    /Songs from DDR Official packs can't be requested right now\./,
+  );
+  const otherOk = addRequest(other.id, "ddr-user-d", "D", {
+    chartId: getChart(other.id, "dance-single", 12).id,
+  });
+  assert.equal(otherOk.song.id, other.id);
+});
+
 test("addRequest enforces the BPM range constraint", () => {
   resetState();
   const alpha = getSongByTitle("Constraint Song"); // 140 BPM
@@ -220,6 +271,7 @@ test("GET /api/request-constraints reflects the stored constraints", async () =>
     assert.deepEqual(json, {
       style: "double",
       pack: "",
+      ddrOfficials: "any",
       meterMin: 8,
       meterMax: null,
       bpmMin: null,
@@ -269,6 +321,37 @@ test("GET /api/songs annotates charts that violate the request constraints", asy
   }
 });
 
+test("GET /api/songs annotates songs by the DDR Officials filter", async () => {
+  resetState();
+  setSetting("requestConstraintDdrOfficials", "only");
+
+  const server = await startApp();
+  const port = server.address().port;
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/songs?perPage=100`, {
+      headers: { Accept: "application/json" },
+    });
+    assert.equal(res.status, 200);
+    const json = await res.json();
+    const official = json.songs.find((s) => s.title === "Constraint Song");
+    const other = json.songs.find((s) => s.title === "Other Pack Song");
+    assert.ok(official.charts.every((c) => !c.disallowed));
+    assert.ok(other.charts.every((c) => c.disallowed === true));
+    assert.match(other.charts[0].disallowReason, /Only songs from DDR Official packs/);
+
+    setSetting("requestConstraintDdrOfficials", "excluded");
+    const excludedRes = await fetch(`http://127.0.0.1:${port}/api/songs?perPage=100`, {
+      headers: { Accept: "application/json" },
+    });
+    const excludedJson = await excludedRes.json();
+    const excludedOfficial = excludedJson.songs.find((s) => s.title === "Constraint Song");
+    assert.ok(excludedOfficial.charts.every((c) => c.disallowed === true));
+    assert.match(excludedOfficial.charts[0].disallowReason, /Songs from DDR Official packs/);
+  } finally {
+    server.close();
+  }
+});
+
 test("control settings API persists request constraint fields", async () => {
   resetState();
   const server = await startApp({ control: true });
@@ -285,6 +368,7 @@ test("control settings API persists request constraint fields", async () => {
       body: JSON.stringify({
         requestConstraintStyle: "single",
         requestConstraintPack: "Alpha Pack",
+        requestConstraintDdrOfficials: "excluded",
         requestConstraintMeterMin: 7,
         requestConstraintMeterMax: 10,
         requestConstraintBpmMin: 100,
@@ -297,6 +381,7 @@ test("control settings API persists request constraint fields", async () => {
     const payload = await res.json();
     assert.equal(payload.requestConstraintStyle, "single");
     assert.equal(payload.requestConstraintPack, "Alpha Pack");
+    assert.equal(payload.requestConstraintDdrOfficials, "excluded");
     assert.equal(payload.requestConstraintMeterMin, 7);
     assert.equal(payload.requestConstraintMeterMax, 10);
     assert.equal(payload.requestConstraintBpmMin, 100);
@@ -311,6 +396,7 @@ test("control settings API persists request constraint fields", async () => {
       body: JSON.stringify({
         requestConstraintStyle: "any",
         requestConstraintPack: "",
+        requestConstraintDdrOfficials: "any",
         requestConstraintMeterMin: "",
         requestConstraintMeterMax: "",
         requestConstraintBpmMin: "",
@@ -323,6 +409,7 @@ test("control settings API persists request constraint fields", async () => {
     const clearPayload = await clearRes.json();
     assert.equal(clearPayload.requestConstraintStyle, "any");
     assert.equal(clearPayload.requestConstraintPack, "");
+    assert.equal(clearPayload.requestConstraintDdrOfficials, "any");
     assert.equal(clearPayload.requestConstraintMeterMin, null);
     assert.equal(clearPayload.requestConstraintDurationMax, null);
   } finally {

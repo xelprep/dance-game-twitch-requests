@@ -300,6 +300,10 @@ function renderRequestConstraints(settings) {
   applyConstraintSelect("requestConstraintStyle", settings.requestConstraintStyle || "any");
   applyConstraintSelect("requestConstraintPack", settings.requestConstraintPack || "");
   applyConstraintSelect(
+    "requestConstraintDdrOfficials",
+    settings.requestConstraintDdrOfficials || "any",
+  );
+  applyConstraintSelect(
     "requestConstraintMeterMin",
     settings.requestConstraintMeterMin != null ? String(settings.requestConstraintMeterMin) : "",
   );
@@ -920,6 +924,7 @@ $("forceArtwork")?.addEventListener("click", () => startArtworkProcessing(true))
 [
   "requestConstraintStyle",
   "requestConstraintPack",
+  "requestConstraintDdrOfficials",
   "requestConstraintMeterMin",
   "requestConstraintMeterMax",
   "requestConstraintBpmMin",

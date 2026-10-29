@@ -134,6 +134,9 @@ The **Configuration → Request Constraints** panel lets the streamer limit whic
 
 - **Style** — allow any style, Single only, or Double only.
 - **Pack** — allow songs from a single pack only.
+- **DDR Officials Filter** — No Restrictions, DDR Officials Only, or DDR Officials Excluded. A song
+  counts as a DDR Official when its pack folder declares `Series=DDR Official` in its `pack.ini`
+  (or `Pack.ini`), which the scanner records per song when the library is scanned.
 - **Meter** — an inclusive range (e.g. 7–10); charts outside the range are blocked.
 - **BPM** — an inclusive min/max range based on the song's core BPM.
 - **Duration** — an inclusive min/max range in seconds.

@@ -459,6 +459,28 @@ function readPackIniDisplayTitle(packDir) {
   return "";
 }
 
+// The pack's `Series` key groups related packs (DDR A's official packs use
+// `Series=DDR Official`), which the request constraints filter on. Anchored so
+// sibling keys like `SeriesBanner` never match.
+function readPackIniSeries(packDir) {
+  const iniNames = ["pack.ini", "Pack.ini"];
+  for (const fileName of iniNames) {
+    const iniPath = path.join(packDir, fileName);
+    if (!fs.existsSync(iniPath)) continue;
+
+    const text = fs.readFileSync(iniPath, "utf8");
+    for (const line of text.split(/\r?\n/)) {
+      const match = line.match(/^\s*Series\s*[:=]\s*(.*?)\s*$/i);
+      if (!match) continue;
+
+      const value = (match[1] || "").trim();
+      return value;
+    }
+  }
+
+  return "";
+}
+
 function computeChartCoreBpm(chart, songTags, isSSC) {
   const timing = chartTiming(chart, songTags, isSSC);
   if (!timing.bpms || !timing.bpms.length) return null;
@@ -533,7 +555,7 @@ function computeCoreBpm(charts, songTags, isSSC) {
 }
 
 function readSongFile(filePath, packOverride, packFolderOverride, options = {}) {
-  const { includeNeutral = false } = options;
+  const { includeNeutral = false, series = "" } = options;
   const text = fs.readFileSync(filePath, "utf8");
   const tags = parseTags(text);
   const headerTags = parseTags(songHeader(text));
@@ -556,6 +578,7 @@ function readSongFile(filePath, packOverride, packFolderOverride, options = {}) 
     music: tags.MUSIC || "",
     pack,
     packFolder,
+    series,
     lastModified: stat.mtimeMs,
     bpmMin,
     bpmMax,
@@ -651,7 +674,9 @@ async function parseSongFilesParallel(tasks, numThreads, onProgress) {
     let completed = 0;
     for (const task of tasks) {
       try {
-        const song = readSongFile(task.filePath, task.pack, task.packFolder);
+        const song = readSongFile(task.filePath, task.pack, task.packFolder, {
+          series: task.series,
+        });
         results.push(song);
       } catch (err) {
         recordFailure(task.filePath, err);
@@ -678,6 +703,7 @@ async function parseSongFilesParallel(tasks, numThreads, onProgress) {
           filePath: task.filePath,
           pack: task.pack,
           packFolder: task.packFolder,
+          series: task.series,
         });
       }
     }
@@ -827,6 +853,8 @@ async function scanSongs(songsDir, db, options = {}) {
   // mergeDuplicateSongs.
   const tasks = [];
   const seenPaths = new Set();
+  // Each pack's ini file is read once per scan, not once per song file.
+  const packIniInfoByDir = new Map();
 
   for (const dir of songsDirs) {
     for (const filePath of collectSongFiles(dir)) {
@@ -836,10 +864,23 @@ async function scanSongs(songsDir, db, options = {}) {
       const relativePath = path.relative(dir, normalizedPath);
       const folderName = relativePath.split(path.sep)[0] || "";
       const packDir = path.join(dir, folderName);
-      const pack = readPackIniDisplayTitle(packDir) || folderName;
+      let packInfo = packIniInfoByDir.get(packDir);
+      if (!packInfo) {
+        packInfo = {
+          pack: readPackIniDisplayTitle(packDir),
+          series: readPackIniSeries(packDir),
+        };
+        packIniInfoByDir.set(packDir, packInfo);
+      }
+      const pack = packInfo.pack || folderName;
 
       seenPaths.add(normalizedPath);
-      tasks.push({ filePath: normalizedPath, pack, packFolder: folderName });
+      tasks.push({
+        filePath: normalizedPath,
+        pack,
+        packFolder: folderName,
+        series: packInfo.series,
+      });
     }
   }
 
@@ -863,10 +904,10 @@ async function scanSongs(songsDir, db, options = {}) {
 
   const upsertSong = db.prepare(`
     INSERT INTO songs
-      (file_path, title, subtitle, artist, genre, pack, pack_folder, music, last_modified,
+      (file_path, title, subtitle, artist, genre, pack, pack_folder, series, music, last_modified,
        bpm_min, bpm_max, core_bpm, duration_seconds)
     VALUES
-      (@filePath, @title, @subtitle, @artist, @genre, @pack, @packFolder, @music, @lastModified,
+      (@filePath, @title, @subtitle, @artist, @genre, @pack, @packFolder, @series, @music, @lastModified,
        @bpmMin, @bpmMax, @coreBpm, @durationSeconds)
     ON CONFLICT(file_path) DO UPDATE SET
       title = excluded.title,
@@ -875,6 +916,7 @@ async function scanSongs(songsDir, db, options = {}) {
       genre = excluded.genre,
       pack = excluded.pack,
       pack_folder = excluded.pack_folder,
+      series = excluded.series,
       music = excluded.music,
       last_modified = excluded.last_modified,
       bpm_min = excluded.bpm_min,

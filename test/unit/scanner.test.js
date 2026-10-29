@@ -42,6 +42,7 @@ function createMemoryDb() {
       genre TEXT DEFAULT '',
       pack TEXT DEFAULT '',
       pack_folder TEXT DEFAULT '',
+      series TEXT DEFAULT '',
       music TEXT DEFAULT '',
       last_modified INTEGER NOT NULL,
       bpm_min INTEGER,
@@ -551,6 +552,49 @@ test("scanSongs persists bpm and duration columns", async () => {
   assert.equal(row.bpm_min, 120);
   assert.equal(row.bpm_max, 120);
   assert.equal(row.duration_seconds, 2);
+});
+
+test("scanSongs stores the pack.ini Series value per song", async () => {
+  const tmp = tempDir();
+  // DDR Official is matched case-insensitively downstream, but the scanner keeps the
+  // ini value verbatim. `pack.ini` and `Pack.ini` spellings both count, and sibling
+  // keys such as `SeriesBanner` must not be mistaken for `Series`.
+  fs.mkdirSync(path.join(tmp, "Official Pack"), { recursive: true });
+  fs.writeFileSync(
+    path.join(tmp, "Official Pack", "pack.ini"),
+    [
+      "[Group]",
+      "Version=2",
+      "DisplayTitle=Official Pack",
+      "Series=DDR Official",
+      "SeriesBanner=x.png",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  writeSongFile(path.join(tmp, "Official Pack", "A Song"), "a.sm", "#TITLE:A Song;\n#ARTIST:T;\n");
+  const other = path.join(tmp, "other");
+  fs.mkdirSync(other, { recursive: true });
+  fs.writeFileSync(
+    path.join(other, "Pack.ini"),
+    ["[Group]", "DisplayTitle=Other Pack", "Series=Rockhill Cup 3", ""].join("\n"),
+    "utf8",
+  );
+  writeSongFile(path.join(other, "B Song"), "b.sm", "#TITLE:B Song;\n#ARTIST:T;\n");
+
+  fs.mkdirSync(path.join(tmp, "no-ini"), { recursive: true });
+  writeSongFile(path.join(tmp, "no-ini", "C Song"), "c.sm", "#TITLE:C Song;\n#ARTIST:T;\n");
+
+  const db = createMemoryDb();
+  const result = await scanSongs(tmp, db, { threads: 2 });
+  assert.equal(result.songs, 3);
+
+  const rows = db.prepare("SELECT pack, pack_folder, series FROM songs ORDER BY pack").all();
+  assert.equal(rows.length, 3);
+  const series = Object.fromEntries(rows.map((row) => [row.pack, row.series]));
+  assert.equal(series["Official Pack"], "DDR Official");
+  assert.equal(series["Other Pack"], "Rockhill Cup 3");
+  assert.equal(series["no-ini"], "");
 });
 
 test("resolveThreadCount handles -1, environment variables, user options, and clamping", () => {

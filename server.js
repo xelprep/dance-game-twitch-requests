@@ -371,6 +371,7 @@ CREATE TABLE IF NOT EXISTS songs (
   genre TEXT DEFAULT '',
   pack TEXT DEFAULT '',
   pack_folder TEXT DEFAULT '',
+  series TEXT DEFAULT '',
   music TEXT DEFAULT '',
   last_modified INTEGER NOT NULL,
   bpm_min INTEGER,
@@ -430,7 +431,7 @@ CREATE TABLE IF NOT EXISTS settings (
     .prepare("PRAGMA table_info(songs)")
     .all()
     .map((r) => r.name);
-  for (const column of ["pack_folder"]) {
+  for (const column of ["pack_folder", "series"]) {
     if (!songColumns.includes(column)) {
       db.exec(`ALTER TABLE songs ADD COLUMN ${column} TEXT DEFAULT ''`);
     }
@@ -1038,6 +1039,9 @@ function getControlSettings() {
     instructionsMinutes: Number(getRuntimeInstructionsMinutes()),
     requestConstraintStyle: getSetting("requestConstraintStyle", "any"),
     requestConstraintPack: String(getSetting("requestConstraintPack", "") || ""),
+    requestConstraintDdrOfficials: normalizeDdrOfficialsMode(
+      getSetting("requestConstraintDdrOfficials", "any"),
+    ),
     requestConstraintMeterMin: getSetting("requestConstraintMeterMin", null),
     requestConstraintMeterMax: getSetting("requestConstraintMeterMax", null),
     requestConstraintBpmMin: getSetting("requestConstraintBpmMin", null),
@@ -1698,6 +1702,23 @@ function chartLabel(chart) {
 
 // --- Request constraints: streamer-configured limits on which charts may be requested ---
 
+// Packs are grouped by their pack.ini `Series` key, which the scanner stores per song
+// (`songs.series`). DDR A's official packs are `Series=DDR Official`, and the filter
+// below can require them, exclude them, or do nothing.
+const DDR_OFFICIAL_SERIES = "ddr official";
+
+function isDdrOfficialPackSong(song) {
+  return (
+    String(song.series || "")
+      .trim()
+      .toLowerCase() === DDR_OFFICIAL_SERIES
+  );
+}
+
+function normalizeDdrOfficialsMode(value) {
+  return value === "only" || value === "excluded" ? value : "any";
+}
+
 function getRequestConstraints() {
   const style = getSetting("requestConstraintStyle", "any");
   const toNumber = (key) => {
@@ -1707,6 +1728,7 @@ function getRequestConstraints() {
   return {
     style: style === "single" || style === "double" ? style : "any",
     pack: String(getSetting("requestConstraintPack", "") || "").trim(),
+    ddrOfficials: normalizeDdrOfficialsMode(getSetting("requestConstraintDdrOfficials", "any")),
     meterMin: toNumber("requestConstraintMeterMin"),
     meterMax: toNumber("requestConstraintMeterMax"),
     bpmMin: toNumber("requestConstraintBpmMin"),
@@ -1720,6 +1742,7 @@ function hasActiveRequestConstraints(constraints) {
   return (
     constraints.style !== "any" ||
     constraints.pack !== "" ||
+    constraints.ddrOfficials !== "any" ||
     constraints.meterMin != null ||
     constraints.meterMax != null ||
     constraints.bpmMin != null ||
@@ -1751,6 +1774,15 @@ function chartRequestConstraintReason(song, chart) {
   }
   if (c.pack && (song.pack || "") !== c.pack) {
     return `Only songs from the "${c.pack}" pack can be requested right now.`;
+  }
+  if (c.ddrOfficials !== "any") {
+    const ddrOfficial = isDdrOfficialPackSong(song);
+    if (c.ddrOfficials === "only" && !ddrOfficial) {
+      return "Only songs from DDR Official packs can be requested right now.";
+    }
+    if (c.ddrOfficials === "excluded" && ddrOfficial) {
+      return "Songs from DDR Official packs can't be requested right now.";
+    }
   }
   const meter = Number(chart.meter);
   if (Number.isFinite(meter) && meter > 0) {
@@ -2851,6 +2883,7 @@ function createApi(app, options = {}) {
         instructionsMinutes: Number(req.body.instructionsMinutes),
         requestConstraintStyle: String(req.body.requestConstraintStyle || "any"),
         requestConstraintPack: String(req.body.requestConstraintPack || "").trim(),
+        requestConstraintDdrOfficials: String(req.body.requestConstraintDdrOfficials || "any"),
         overlayStyle: Object.prototype.hasOwnProperty.call(req.body, "overlayStyle")
           ? normalizeOverlayStyle(req.body.overlayStyle)
           : current.overlayStyle,
@@ -2945,6 +2978,12 @@ function createApi(app, options = {}) {
         )
           ? next.requestConstraintPack
           : current.requestConstraintPack,
+        requestConstraintDdrOfficials: Object.prototype.hasOwnProperty.call(
+          req.body,
+          "requestConstraintDdrOfficials",
+        )
+          ? normalizeDdrOfficialsMode(next.requestConstraintDdrOfficials)
+          : current.requestConstraintDdrOfficials,
         overlayStyle: Object.prototype.hasOwnProperty.call(req.body, "overlayStyle")
           ? next.overlayStyle
           : current.overlayStyle,
@@ -3011,6 +3050,7 @@ function createApi(app, options = {}) {
       setSetting("instructionsMinutes", settings.instructionsMinutes);
       setSetting("requestConstraintStyle", settings.requestConstraintStyle);
       setSetting("requestConstraintPack", settings.requestConstraintPack);
+      setSetting("requestConstraintDdrOfficials", settings.requestConstraintDdrOfficials);
       setSetting("requestConstraintMeterMin", settings.requestConstraintMeterMin);
       setSetting("requestConstraintMeterMax", settings.requestConstraintMeterMax);
       setSetting("requestConstraintBpmMin", settings.requestConstraintBpmMin);

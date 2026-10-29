@@ -303,7 +303,10 @@
             <p class="small muted">
               Restrict which charts can be requested (chat, public page, moderator panel, and this
               panel). Disallowed charts stay visible but grayed out, and chat requests for them are
-              rejected with the reason below. Leave a bound empty to allow any value.
+              rejected with the reason below. Leave a bound empty to allow any value. The DDR
+              Officials Filter reads each pack's <code>pack.ini</code> (<code>Pack.ini</code> on
+              newer themes): a song counts as a DDR Official when its pack declares
+              <code>Series=DDR Official</code>.
             </p>
 
             <div class="settings-field">
@@ -319,6 +322,15 @@
               <label for="requestConstraintPack">Allowed pack</label>
               <select id="requestConstraintPack">
                 <option value="">Any pack</option>
+              </select>
+            </div>
+
+            <div class="settings-field">
+              <label for="requestConstraintDdrOfficials">DDR Officials Filter</label>
+              <select id="requestConstraintDdrOfficials">
+                <option value="any">No Restrictions</option>
+                <option value="only">DDR Officials Only</option>
+                <option value="excluded">DDR Officials Excluded</option>
               </select>
             </div>
 
