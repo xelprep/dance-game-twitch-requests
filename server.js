@@ -1146,6 +1146,13 @@ function verifyStreamerAuth(authHeader, expectedPassword) {
 const MODERATOR_TOKEN_SECRET = crypto.randomBytes(32);
 const MODERATOR_TOKEN_TTL_MS = 60 * 60 * 1000; // hard cap; also bounded by the session
 
+// How long an armed-but-not-yet-opened temp moderator gets to open the
+// authenticated link before their session arms. The session countdown does NOT
+// start at nomination time — it begins on the moderator's first authenticated
+// access to the panel (see authenticateModerator). If they never open the link
+// within this grace window, the grace timer expires the armed session.
+const NOMINATION_ARM_GRACE_MS = 10 * 60 * 1000;
+
 function createTempModeratorToken(username, expiresAtMs) {
   const exp = Number.isFinite(expiresAtMs)
     ? Number(expiresAtMs)
@@ -1219,6 +1226,21 @@ function getModeratorCredentials() {
   };
 }
 
+// Begin (arm) the countdown of an armed-but-not-yet-started temp-mod session
+// the first time the moderator successfully authenticates to the panel. Until
+// then activeTempMod.expiresAt sits at nominatedAt + grace purely as an access
+// gate; here we replace it with the real expiry and re-schedule the timer so the
+// guest moderator's session timer effectively starts on their first authenticated
+// access, not at nomination time.
+function armTempModSession() {
+  if (!activeTempMod || activeTempMod.sessionStarted === true) return;
+  const now = Date.now();
+  activeTempMod.sessionStarted = true;
+  activeTempMod.startedAt = now;
+  activeTempMod.expiresAt = now + (activeTempMod.tempModTime || 15) * 60 * 1000;
+  scheduleTempModExpiration();
+}
+
 function authenticateModerator(req, res, next) {
   const credentials = getModeratorCredentials();
   const basicCredential = parseAuthorizationCredential(req.headers.authorization, "Basic");
@@ -1261,6 +1283,8 @@ function authenticateModerator(req, res, next) {
     if (Date.now() >= activeTempMod.expiresAt) {
       activeTempMod = null;
     } else {
+      // First authenticated access: begin the session countdown now.
+      armTempModSession();
       req.moderatorUsername = activeTempMod.username;
       req.moderatorDisplayName = activeTempMod.displayname;
       return next();
@@ -1277,6 +1301,8 @@ function authenticateModerator(req, res, next) {
     tokenUsername === activeTempMod.username.toLowerCase() &&
     Date.now() < activeTempMod.expiresAt
   ) {
+    // First authenticated access: begin the session countdown now.
+    armTempModSession();
     req.moderatorUsername = activeTempMod.username;
     req.moderatorDisplayName = activeTempMod.displayname;
     return next();
@@ -2135,22 +2161,27 @@ async function expireTempMod(options = {}) {
 
   const displayname = activeTempMod.displayname;
   const username = activeTempMod.username;
+  // A session armed at nomination but never opened (grace expired) never
+  // actually began, so there is nothing to announce to chat for it.
+  const started = activeTempMod.sessionStarted === true;
   activeTempMod = null;
 
-  try {
-    await sendChatMessage(
-      twitchClient,
-      twitchConfig.channel,
-      manual
-        ? `@${displayname}'s temporary moderator session has ended early.`
-        : `@${displayname} is no longer moderating the request queue.`,
-    );
-  } catch (e) {
-    console.error("Failed to announce temp mod expiration:", e && e.message ? e.message : e);
+  if (started || manual) {
+    try {
+      await sendChatMessage(
+        twitchClient,
+        twitchConfig.channel,
+        manual
+          ? `@${displayname}'s temporary moderator session has ended early.`
+          : `@${displayname} is no longer moderating the request queue.`,
+      );
+    } catch (e) {
+      console.error("Failed to announce temp mod expiration:", e && e.message ? e.message : e);
+    }
+    try {
+      if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
+    } catch (e) {}
   }
-  try {
-    if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
-  } catch (e) {}
 
   console.log(
     `[temp-mod] ${displayname}'s temporary moderator session ${manual ? "ended early" : "has expired"}.`,
@@ -3069,31 +3100,36 @@ function createApi(app, options = {}) {
       const now = Date.now();
       let tempMod = null;
       let tempModRemaining = 0;
+      let tempModAwaiting = false;
+      let graceRemaining = 0;
       if (activeTempMod && now < activeTempMod.expiresAt) {
+        const started = activeTempMod.sessionStarted === true;
         tempMod = {
           username: activeTempMod.username,
           displayName: activeTempMod.displayname,
           expiresAt: activeTempMod.expiresAt,
+          started,
         };
-        tempModRemaining = Math.max(0, activeTempMod.expiresAt - now);
+        if (started) {
+          // Session countdown: begun on the moderator's first authenticated access.
+          tempModRemaining = Math.max(0, activeTempMod.expiresAt - now);
+        } else {
+          // Armed but the link has not been opened yet: countdown not started.
+          tempModAwaiting = true;
+          graceRemaining = Math.max(0, activeTempMod.expiresAt - now);
+        }
       } else if (activeTempMod && now >= activeTempMod.expiresAt) {
         // Expired but timer hasn't fired yet — expire it now
         expireTempMod().catch((e) => console.error("[temp-mod] Error expiring:", e));
       }
 
-      let nominationCooldown = 0;
-      if (pendingNomination) {
-        nominationCooldown = Math.max(
-          0,
-          NOMINATION_COOLDOWN_MS - (now - pendingNomination.nominatedAt),
-        );
-      }
-
       res.json({
         tempMod,
         tempModRemaining,
-        hasPendingNomination: !!pendingNomination,
-        nominationCooldown,
+        tempModAwaiting,
+        graceRemaining,
+        hasPendingNomination: false,
+        nominationCooldown: 0,
         publicUrl: PUBLIC_URL,
       });
     });
@@ -3183,17 +3219,49 @@ function createApi(app, options = {}) {
       const chatUser = chatUsers.get(userKey);
       const displayname = chatUser ? chatUser.displayName : username.trim();
 
-      pendingNomination = {
+      // No Y/N confirmation round-trip: inbound whisper replies are regularly
+      // not caught by the bot, so we immediately arm the temp moderator and
+      // hand them the authenticated link plus fallback credentials. The session
+      // countdown starts on the moderator's first authenticated access to the
+      // panel (see authenticateModerator) — until then the session sits in a
+      // grace window and expires if they never open the link.
+      const password = generateRandomPassword(12);
+      const passwordHash = hashModeratorPassword(password);
+      const armedUntil = Date.now() + NOMINATION_ARM_GRACE_MS;
+      // The signed link must stay valid across the grace window AND the whole
+      // session that begins on first access, so cap the token at grace + duration.
+      const tokenCap = armedUntil + modTime * 60 * 1000;
+      const ssoToken = createTempModeratorToken(userKey, tokenCap);
+
+      activeTempMod = {
         username: userKey,
         displayname,
-        nominatedAt: Date.now(),
+        passwordHash,
+        expiresAt: armedUntil,
         tempModTime: modTime,
+        token: ssoToken,
+        sessionStarted: false,
       };
 
+      if (!getControlSettings().moderatorEnabled) {
+        setSetting("moderatorEnabled", true);
+      }
+
+      // Grace timer: expires the armed session if the link is never opened. On
+      // first authenticated access this is rescheduled to the real session
+      // expiry (see authenticateModerator / armTempModSession).
+      scheduleTempModExpiration();
+
       try {
+        const moderatorLink = `${PUBLIC_URL}/requestModerator.html?token=${encodeURIComponent(ssoToken)}`;
         await sendWhisper(
           userKey,
-          `${twitchConfig.username} wants to know if you would like to moderate the request queue. Please reply Y or N`,
+          `You're a temporary moderator for the next ${modTime} minutes. Open the link below to manage the request queue:`,
+        );
+        await sendWhisper(userKey, moderatorLink);
+        await sendWhisper(
+          userKey,
+          `(If the link doesn't work, open ${PUBLIC_URL}/requestModerator.html and log in with:\nUsername: ${userKey}\nPassword: ${password})`,
         );
         await announceTempModNomination({
           username: userKey,
@@ -3204,8 +3272,10 @@ function createApi(app, options = {}) {
         });
         res.json({ ok: true, username: userKey, displayname, tempModTime: modTime });
       } catch (e) {
-        pendingNomination = null;
-        res.status(500).json({ error: `Failed to send whisper: ${e.message}` });
+        // Roll the armed session back if the credentials could not be delivered.
+        clearTempModExpirationTimer();
+        activeTempMod = null;
+        res.status(500).json({ error: `Failed to send credentials: ${e.message}` });
       }
     });
 

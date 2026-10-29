@@ -1608,15 +1608,24 @@ async function renderTempMod() {
     if (status.tempMod) {
       activeTempModUsername = status.tempMod.username;
       statusDiv.style.display = "";
-      activeDiv.style.display = "";
       cooldownDiv.style.display = "none";
-      const remaining = Math.ceil(status.tempModRemaining / 1000);
-      const mins = Math.floor(remaining / 60);
-      const secs = remaining % 60;
-      activeDiv.textContent = `🟢 ${status.tempMod.displayName} is moderating (${mins}:${secs.toString().padStart(2, "0")} remaining)`;
       document.querySelectorAll(".temp-mod-nominate-btn").forEach((btn) => {
         btn.disabled = true;
       });
+      if (status.tempMod.started) {
+        // Session countdown: begun on the moderator's first authenticated access.
+        activeDiv.style.display = "";
+        const remaining = Math.ceil(status.tempModRemaining / 1000);
+        const mins = Math.floor(remaining / 60);
+        const secs = remaining % 60;
+        activeDiv.textContent = `🟢 ${status.tempMod.displayName} is moderating (${mins}:${secs.toString().padStart(2, "0")} remaining)`;
+      } else {
+        // Armed at nomination but they have not opened the link yet: no countdown
+        // has begun. Show the grace window until the link times out.
+        activeDiv.style.display = "";
+        const secs = Math.ceil((status.graceRemaining || 0) / 1000);
+        activeDiv.textContent = `🟡 Nominated ${status.tempMod.displayName}: waiting for them to open the link (${secs}s)`;
+      }
     } else if (status.hasPendingNomination) {
       activeTempModUsername = null;
       statusDiv.style.display = "";
