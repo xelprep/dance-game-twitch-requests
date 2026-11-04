@@ -38,12 +38,12 @@ module.exports = {
   // compression brings the executable back down to a reasonable download size.
   compress: "Brotli",
   targets: [
-    "node24-macos-arm64",
-    "node24-macos-x64",
-    "node24-win-x64",
-    "node24-win-arm64",
-    "node24-linux-x64",
-    "node24-linux-arm64",
+    "node26-macos-arm64",
+    "node26-macos-x64",
+    "node26-win-x64",
+    "node26-win-arm64",
+    "node26-linux-x64",
+    "node26-linux-arm64",
   ],
   assets: [
     // Static web UIs served from the snapshot via __dirname-relative paths.

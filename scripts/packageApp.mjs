@@ -27,7 +27,9 @@ const APP_NAME = "Dance Game Twitch Requests";
 const BUNDLE_IDENTIFIER = "com.dancegame.twitchrequests";
 // Must match the `bin` key in package.json (the name pkg gives the output).
 const BINARY_NAME = "dance-game-twitch-requests";
-// Oldest macOS the Node 24 runtime supports; shown as the bundle's floor.
+// macOS floor for the distributed app bundle. Node 26 binaries impose no
+// OS-level minimum (no LC_MAC_OS_INFO record in the Mach-O, verified), so this
+// floor is our own product decision, kept at Ventura for the native payloads.
 const MIN_MACOS = "13.0";
 
 function log(message) {

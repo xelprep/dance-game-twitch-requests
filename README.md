@@ -29,7 +29,7 @@ A small local application that:
 
 ## Requirements
 
-- Node.js 24+
+- Node.js 26+
 - A local dance game Songs directory that contains .sm/.ssc simfiles
 - A Twitch app
   - Go to dev.twitch.com and register an application
