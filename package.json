@@ -35,7 +35,7 @@
     "ws": "^8.21.3"
   },
   "allowScripts": {
-    "better-sqlite3@13.0.3": true,
+    "better-sqlite3@13.1.1": true,
     "esbuild@0.28.2": true
   },
   "devDependencies": {
