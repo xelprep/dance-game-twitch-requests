@@ -971,6 +971,7 @@ async function scanSongs(songsDir, db, options = {}) {
           meter: chart.meter,
         };
         const key = chartKey(chartValues);
+        if (currentChartKeys.has(key)) continue;
         currentChartKeys.add(key);
         const existingChart = existingChartsByKey.get(key);
         if (existingChart) {

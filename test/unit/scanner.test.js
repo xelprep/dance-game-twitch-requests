@@ -57,7 +57,8 @@ function createMemoryDb() {
       difficulty TEXT DEFAULT '',
       difficulty_raw TEXT DEFAULT '',
       meter TEXT DEFAULT '',
-      radar TEXT DEFAULT ''
+      radar TEXT DEFAULT '',
+      UNIQUE(song_id, chart_type, difficulty, meter)
     );
     CREATE TABLE requests (
       id INTEGER PRIMARY KEY,
@@ -221,6 +222,26 @@ test("scanSongs prefers .ssc files when both .sm and .ssc exist", async () => {
   const songRow = db.prepare("SELECT title, pack FROM songs").get();
   assert.equal(songRow.title, "Preferred Title");
   assert.equal(songRow.pack, "pack");
+});
+
+test("scanSongs ignores duplicate chart keys within a song file", async () => {
+  const tmp = tempDir();
+  writeSongFile(
+    path.join(tmp, "pack", "Song A"),
+    "a.sm",
+    "#TITLE:Song A;\n#ARTIST:Artist;\n#MUSIC:a.ogg;\n" +
+      "#NOTES:dance-single:1:Hard:8:1.0:0.0:0.0;\n" +
+      "#NOTES:dance-single:2:Hard:8:2.0:0.0:0.0;\n",
+  );
+
+  const db = createMemoryDb();
+  const result = await scanSongs(tmp, db, { silent: true });
+
+  assert.equal(result.songs, 1);
+  assert.equal(result.charts, 1);
+  assert.deepEqual(db.prepare("SELECT chart_type, difficulty, meter, radar FROM charts").all(), [
+    { chart_type: "dance-single", difficulty: "Hard", meter: "8", radar: "1.0" },
+  ]);
 });
 
 test("scanSongs reports unreadable song files instead of failing silently", async (t) => {
