@@ -16,7 +16,7 @@
     "test": "NODE_ENV=test node --test --test-concurrency=1",
     "test:watch": "NODE_ENV=test node --test --watch --test-concurrency=1",
     "format": "prettier --write \"**/*.{js,cjs,mjs,css,html,md,json,yml,yaml}\" --ignore-path .prettierignore",
-    "format:check": "prettier --check \"**/*.{js,cjs,mjs,css,html,mdjson,yml,yaml}\" --ignore-path .prettierignore"
+    "format:check": "prettier --check \"**/*.{js,cjs,mjs,css,html,md,json,yml,yaml}\" --ignore-path .prettierignore"
   },
   "engines": {
     "node": ">=26"
@@ -24,7 +24,6 @@
   "dependencies": {
     "@inquirer/prompts": "^8.7.4",
     "better-sqlite3": "^13.0.3",
-    "chokidar": "^5.0.0",
     "dotenv": "^18.0.1",
     "express": "^5.1.0",
     "express-rate-limit": "^8.7.0",
