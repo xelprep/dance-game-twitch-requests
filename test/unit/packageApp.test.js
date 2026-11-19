@@ -25,8 +25,8 @@ test("buildInfoPlist emits a valid macOS bundle plist", async () => {
   );
   assert.match(plist, /<key>CFBundlePackageType<\/key>\s*<string>APPL<\/string>/);
   assert.match(plist, /<key>CFBundleShortVersionString<\/key>\s*<string>1\.2\.3<\/string>/);
-  assert.match(plist, /<key>CFBundleIconFile<\/key>\s*<string>icon\.icns<\/string>/);
   assert.match(plist, /<key>CFBundleIconName<\/key>\s*<string>AppIcon<\/string>/);
+  assert.doesNotMatch(plist, /<key>CFBundleIconFile<\/key>/);
   assert.match(plist, /<key>LSMinimumSystemVersion<\/key>\s*<string>13\.0<\/string>/);
   // CFBundleName and CFBundleDisplayName default to the app name.
   assert.match(plist, /<key>CFBundleName<\/key>\s*<string>Dance Game Twitch Requests<\/string>/);

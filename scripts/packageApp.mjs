@@ -71,8 +71,6 @@ export function buildInfoPlist({
 \t<string>${version}</string>
 \t<key>CFBundleVersion</key>
 \t<string>${version}</string>
-\t<key>CFBundleIconFile</key>
-\t<string>icon.icns</string>
 \t<key>CFBundleIconName</key>
 \t<string>AppIcon</string>
 \t<key>LSMinimumSystemVersion</key>
@@ -267,7 +265,8 @@ function wrapMacApp(binaryPath) {
   // has to `chmod +x` the nested binary by hand).
   fs.chmodSync(bundledBinary, 0o755);
 
-  // Copy the icon.
+  // Keep the legacy icon bundled, but don't set CFBundleIconFile: Launch
+  // Services would prefer that file over the AppIcon asset catalog entry.
   const iconSrc = path.join(__dirname, "..", "assets", "icon.icns");
   if (fs.existsSync(iconSrc)) fs.copyFileSync(iconSrc, path.join(resourcesDir, "icon.icns"));
   compileMacAssetsCar({
