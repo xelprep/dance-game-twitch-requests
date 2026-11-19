@@ -103,30 +103,36 @@
             </label>
             <label
               >Meter
-              <select id="filter-meter-min">
-                <option value="">Min</option>
-              </select>
-              <select id="filter-meter-max">
-                <option value="">Max</option>
-              </select>
+              <div class="range-pair">
+                <select id="filter-meter-min" aria-label="Minimum meter">
+                  <option value="">Min</option>
+                </select>
+                <select id="filter-meter-max" aria-label="Maximum meter">
+                  <option value="">Max</option>
+                </select>
+              </div>
             </label>
             <label
               >Core BPM
-              <select id="filter-bpm-min">
-                <option value="">Min</option>
-              </select>
-              <select id="filter-bpm-max">
-                <option value="">Max</option>
-              </select>
+              <div class="range-pair">
+                <select id="filter-bpm-min" aria-label="Minimum core BPM">
+                  <option value="">Min</option>
+                </select>
+                <select id="filter-bpm-max" aria-label="Maximum core BPM">
+                  <option value="">Max</option>
+                </select>
+              </div>
             </label>
             <label
               >Duration
-              <select id="filter-duration-min">
-                <option value="">Min</option>
-              </select>
-              <select id="filter-duration-max">
-                <option value="">Max</option>
-              </select>
+              <div class="range-pair">
+                <select id="filter-duration-min" aria-label="Minimum duration">
+                  <option value="">Min</option>
+                </select>
+                <select id="filter-duration-max" aria-label="Maximum duration">
+                  <option value="">Max</option>
+                </select>
+              </div>
             </label>
             <label
               >Sort
@@ -256,7 +262,7 @@
               <input type="checkbox" id="artworkEnabled" />
               Enable song artwork
             </label>
-            <div class="twitch-actions">
+            <div class="twitch-actions artwork-actions">
               <button id="buildArtwork" type="button" disabled>Build artwork</button>
               <button id="forceArtwork" type="button" disabled>Force refresh</button>
               <span id="artworkJobStatus" class="small muted" role="status"></span>
@@ -264,8 +270,7 @@
 
             <label>
               <input type="checkbox" id="prioritizeViewerRequests" checked />
-              Prioritize viewer requests above streamer requests (chat requests &gt; streamer
-              requests)
+              Prioritize viewer requests
             </label>
             <p class="small muted">
               When enabled (default), requests made via Twitch chat will be placed ahead of any
@@ -336,32 +341,38 @@
 
             <div class="settings-field">
               <label>Meter range</label>
-              <select id="requestConstraintMeterMin">
-                <option value="">Min</option>
-              </select>
-              <select id="requestConstraintMeterMax">
-                <option value="">Max</option>
-              </select>
+              <div class="range-pair">
+                <select id="requestConstraintMeterMin" aria-label="Minimum meter constraint">
+                  <option value="">Min</option>
+                </select>
+                <select id="requestConstraintMeterMax" aria-label="Maximum meter constraint">
+                  <option value="">Max</option>
+                </select>
+              </div>
             </div>
 
             <div class="settings-field">
               <label>Core BPM range</label>
-              <select id="requestConstraintBpmMin">
-                <option value="">Min</option>
-              </select>
-              <select id="requestConstraintBpmMax">
-                <option value="">Max</option>
-              </select>
+              <div class="range-pair">
+                <select id="requestConstraintBpmMin" aria-label="Minimum core BPM constraint">
+                  <option value="">Min</option>
+                </select>
+                <select id="requestConstraintBpmMax" aria-label="Maximum core BPM constraint">
+                  <option value="">Max</option>
+                </select>
+              </div>
             </div>
 
             <div class="settings-field">
               <label>Duration range</label>
-              <select id="requestConstraintDurationMin">
-                <option value="">Min</option>
-              </select>
-              <select id="requestConstraintDurationMax">
-                <option value="">Max</option>
-              </select>
+              <div class="range-pair">
+                <select id="requestConstraintDurationMin" aria-label="Minimum duration constraint">
+                  <option value="">Min</option>
+                </select>
+                <select id="requestConstraintDurationMax" aria-label="Maximum duration constraint">
+                  <option value="">Max</option>
+                </select>
+              </div>
             </div>
           </div>
         </section>

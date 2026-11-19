@@ -25,20 +25,32 @@ header,
   justify-content: space-between;
   gap: 16px;
 }
+header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title actions"
+    "tabs actions";
+  align-items: center;
+  gap: 8px 16px;
+}
 .section-head + * {
   display: block;
   margin-top: 16px;
 }
 .header-main {
+  grid-area: title;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
 }
 .category-tabs {
+  grid-area: tabs;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
 }
 .category-button {
   min-width: 140px;
@@ -79,6 +91,10 @@ button:hover {
   filter: brightness(1.15);
 }
 .actions {
+  grid-area: actions;
+  align-self: center;
+  justify-content: flex-end;
+  min-width: 0;
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
@@ -194,6 +210,9 @@ button:hover {
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 4px;
+}
+.artwork-actions {
+  margin-bottom: 12px;
 }
 #networkStatus {
   min-height: 1em;
@@ -585,6 +604,18 @@ input[type="checkbox"] {
   min-width: 0;
   width: 100%;
 }
+.range-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.settings-field .range-pair {
+  width: min(420px, 100%);
+}
+.range-pair select {
+  width: 100%;
+}
 .pager {
   display: flex;
   align-items: center;
@@ -708,12 +739,19 @@ input[type="checkbox"] {
     font-size: 16px;
   }
   header {
+    display: flex;
     align-items: flex-start;
     flex-direction: column;
   }
+  .category-tabs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    width: 100%;
+  }
   .category-button {
     min-width: 0;
-    flex: 1;
+    width: 100%;
+    overflow-wrap: anywhere;
   }
   .request {
     align-items: flex-start;
@@ -724,7 +762,23 @@ input[type="checkbox"] {
     width: 100%;
   }
   .song-main {
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .song-main:has(.song-artwork) {
+    grid-template-columns: 112px minmax(0, 1fr);
+  }
+  .song-main .song-meta {
+    grid-column: 1 / -1;
+  }
+  .song-main:has(.song-artwork) .song-meta {
+    grid-column: 2;
+  }
+  .song-charts {
+    grid-column: 1 / -1;
+    align-items: flex-start;
+    width: 100%;
+    max-width: none;
   }
   .song-actions {
     justify-content: flex-start;
