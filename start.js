@@ -53,6 +53,16 @@ function printUsage() {
   );
 }
 
+function printBanner() {
+  console.log(
+    "      .---------------------------------------------------.\n" +
+      "      |  \\o/                DANCE GAME                    |\n" +
+      "      |   |               TWITCH REQUESTS                 |\n" +
+      "      |  / \\   < v ^ >  REQUEST SOME SONGS  < v ^ >       |\n" +
+      "      '---------------------------------------------------'",
+  );
+}
+
 async function main() {
   // macOS .app double-click: hand off to Terminal before doing anything else.
   // This never touches the data dir or the lock; the Terminal-side instance
@@ -161,6 +171,7 @@ async function main() {
       return;
     }
   }
+  printBanner();
   process.argv = [process.argv[0], path.join(__dirname, "server.js"), ...process.argv.slice(2)];
   require("./server.js");
 }
