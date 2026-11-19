@@ -467,11 +467,19 @@ CREATE INDEX IF NOT EXISTS idx_charts_standard_hash ON charts(standard_hash);
   ensureArtworkSchema(db);
 }
 
-async function refreshDatabase() {
+let artworkJobPromise = null;
+
+async function refreshDatabase({ waitForArtwork = false } = {}) {
   const additionalDirs = ADDITIONAL_SONGS_DIR ? [path.resolve(ADDITIONAL_SONGS_DIR)] : [];
   const result = await scanSongs(SONGS_DIR, db, { additionalDirs });
   if (getSetting("artworkEnabled", false)) {
-    setImmediate(() => startArtworkJob(false));
+    if (waitForArtwork) {
+      if (startArtworkJob(false) || artworkJobPromise) {
+        await artworkJobPromise;
+      }
+    } else {
+      setImmediate(() => startArtworkJob(false));
+    }
   }
   return result;
 }
@@ -483,7 +491,7 @@ function startArtworkJob(force = false) {
     .filter(Boolean)
     .map((directory) => path.resolve(directory));
 
-  processSongArtwork(db, {
+  artworkJobPromise = processSongArtwork(db, {
     songsRoots,
     cacheDirectory: ARTWORK_CACHE_DIR,
     force,
@@ -511,6 +519,9 @@ function startArtworkJob(force = false) {
         error: error.message || String(error),
       };
       if (typeof broadcastQueueUpdate === "function") broadcastQueueUpdate();
+    })
+    .finally(() => {
+      artworkJobPromise = null;
     });
   return true;
 }
@@ -5144,7 +5155,7 @@ Fix your .env file, then restart the application.
         process.exit(1);
       }
 
-      const result = await refreshDatabase();
+      const result = await refreshDatabase({ waitForArtwork: true });
 
       if (result.songs === 0) {
         const scannedDirs = [
