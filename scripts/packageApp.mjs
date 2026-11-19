@@ -25,14 +25,13 @@ import { spawnSync } from "node:child_process";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_NAME = "Dance Game Twitch Requests";
 const BUNDLE_IDENTIFIER = "com.dancegame.twitchrequests";
+const ICON_COMPOSER_PATH = path.join(__dirname, "..", "assets", "AppIcon.icon");
 // Must match the `bin` key in package.json (the name pkg gives the output).
 const BINARY_NAME = "dance-game-twitch-requests";
 // macOS floor for the distributed app bundle. Node 26 binaries impose no
 // OS-level minimum (no LC_MAC_OS_INFO record in the Mach-O, verified), so this
 // floor is our own product decision, kept at Ventura for the native payloads.
 const MIN_MACOS = "13.0";
-const ASSET_CATALOG_MIN_MACOS = "11.0";
-const MAC_ICON_BACKGROUND = { r: 211, g: 211, b: 211 };
 
 function log(message) {
   console.log(`[packageApp] ${message}`);
@@ -172,7 +171,7 @@ function runLaunchSmokeTest(binaryPath) {
 }
 
 export async function compileMacAssetsCar({
-  sourcePngPath,
+  iconComposerPath = ICON_COMPOSER_PATH,
   appResourcesDir,
   platform = process.platform,
   run = spawnSync,
@@ -183,52 +182,30 @@ export async function compileMacAssetsCar({
   }
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dgr-macos-icon-"));
-  const xcassetsDir = path.join(tempDir, "AppIcon.xcassets");
-  const appIconSetDir = path.join(xcassetsDir, "AppIcon.appiconset");
-  const iconPngPath = path.join(appIconSetDir, "icon_1024.png");
   const partialPlistPath = path.join(tempDir, "partial-info.plist");
 
   try {
-    fs.mkdirSync(appIconSetDir, { recursive: true });
     fs.mkdirSync(appResourcesDir, { recursive: true });
-    const sharp = (await import("sharp")).default;
-    await sharp(sourcePngPath)
-      .flatten({ background: MAC_ICON_BACKGROUND })
-      .toColourspace("srgb")
-      .png()
-      .toFile(iconPngPath);
-    fs.writeFileSync(
-      path.join(xcassetsDir, "Contents.json"),
-      JSON.stringify({ info: { author: "xcode", version: 1 } }, null, 2),
-    );
-    fs.writeFileSync(
-      path.join(appIconSetDir, "Contents.json"),
-      JSON.stringify(
-        {
-          images: [
-            { filename: "icon_1024.png", idiom: "mac", scale: "1x", size: "512x512" },
-            { filename: "icon_1024.png", idiom: "mac", scale: "2x", size: "512x512" },
-          ],
-          info: { author: "xcode", version: 1 },
-        },
-        null,
-        2,
-      ),
-    );
-
     const result = await run(
       "xcrun",
       [
         "actool",
-        xcassetsDir,
+        iconComposerPath,
         "--compile",
         appResourcesDir,
         "--platform",
         "macosx",
+        "--target-device",
+        "mac",
         "--minimum-deployment-target",
-        ASSET_CATALOG_MIN_MACOS,
+        MIN_MACOS,
         "--app-icon",
         "AppIcon",
+        "--include-all-app-icons",
+        "--enable-on-demand-resources",
+        "NO",
+        "--development-region",
+        "en",
         "--output-partial-info-plist",
         partialPlistPath,
       ],
@@ -277,7 +254,7 @@ async function wrapMacApp(binaryPath) {
   const iconSrc = path.join(__dirname, "..", "assets", "icon.icns");
   if (fs.existsSync(iconSrc)) fs.copyFileSync(iconSrc, path.join(resourcesDir, "icon.icns"));
   await compileMacAssetsCar({
-    sourcePngPath: path.join(__dirname, "..", "assets", "icon.png"),
+    iconComposerPath: ICON_COMPOSER_PATH,
     appResourcesDir: resourcesDir,
   });
 

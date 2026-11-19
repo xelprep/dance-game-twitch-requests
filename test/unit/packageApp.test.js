@@ -32,76 +32,53 @@ test("buildInfoPlist emits a valid macOS bundle plist", async () => {
   assert.match(plist, /<key>CFBundleName<\/key>\s*<string>Dance Game Twitch Requests<\/string>/);
 });
 
-test("compileMacAssetsCar compiles a temporary catalog from the full-size source icon", async (t) => {
+test("compileMacAssetsCar compiles the Icon Composer document", async (t) => {
   const { compileMacAssetsCar } = await loadPackageApp();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dgr-package-icon-test-"));
   t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
 
-  const sourcePngPath = path.join(tempDir, "icon.png");
+  const iconComposerPath = path.join(__dirname, "..", "..", "assets", "AppIcon.icon");
   const appResourcesDir = path.join(tempDir, "Resources");
-  const sharp = (await import("sharp")).default;
-  const sourcePixels = Buffer.alloc(1024 * 1024 * 4);
-  const centerPixel = (512 * 1024 + 512) * 4;
-  sourcePixels.fill(255, centerPixel, centerPixel + 4);
-  await sharp(sourcePixels, { raw: { width: 1024, height: 1024, channels: 4 } })
-    .png()
-    .toFile(sourcePngPath);
-  let temporaryCatalogDir;
   let partialPlistPath;
-  const run = async (command, args, options) => {
+  const run = (command, args, options) => {
     assert.equal(command, "xcrun");
     assert.deepEqual(options, { stdio: "pipe" });
-    temporaryCatalogDir = args[1];
-    partialPlistPath = args[args.indexOf("--output-partial-info-plist") + 1];
     assert.equal(args[0], "actool");
+    assert.equal(args[1], iconComposerPath);
     assert.equal(args[args.indexOf("--compile") + 1], appResourcesDir);
     assert.equal(args[args.indexOf("--platform") + 1], "macosx");
-    assert.equal(args[args.indexOf("--minimum-deployment-target") + 1], "11.0");
+    assert.equal(args[args.indexOf("--target-device") + 1], "mac");
+    assert.equal(args[args.indexOf("--minimum-deployment-target") + 1], "13.0");
     assert.equal(args[args.indexOf("--app-icon") + 1], "AppIcon");
-
-    const appIconSetDir = path.join(temporaryCatalogDir, "AppIcon.appiconset");
+    assert.ok(args.includes("--include-all-app-icons"));
     assert.deepEqual(
-      JSON.parse(fs.readFileSync(path.join(temporaryCatalogDir, "Contents.json"), "utf8")),
-      { info: { author: "xcode", version: 1 } },
+      args.slice(
+        args.indexOf("--enable-on-demand-resources"),
+        args.indexOf("--enable-on-demand-resources") + 2,
+      ),
+      ["--enable-on-demand-resources", "NO"],
+    );
+    assert.equal(args[args.indexOf("--development-region") + 1], "en");
+    assert.ok(
+      fs.existsSync(path.join(iconComposerPath, "Assets", "icon.png")),
+      "the Icon Composer document includes its image layer",
     );
     assert.deepEqual(
-      JSON.parse(fs.readFileSync(path.join(appIconSetDir, "Contents.json"), "utf8")),
-      {
-        images: [
-          { filename: "icon_1024.png", idiom: "mac", scale: "1x", size: "512x512" },
-          { filename: "icon_1024.png", idiom: "mac", scale: "2x", size: "512x512" },
-        ],
-        info: { author: "xcode", version: 1 },
-      },
+      JSON.parse(fs.readFileSync(path.join(iconComposerPath, "icon.json"), "utf8")).fill,
+      { solid: "extended-srgb:0.82745,0.82745,0.82745,1.00000" },
+      "the Icon Composer document uses the chosen light-gray background",
     );
-    const iconPath = path.join(appIconSetDir, "icon_1024.png");
-    const iconMetadata = await sharp(iconPath).metadata();
-    assert.equal(iconMetadata.width, 1024);
-    assert.equal(iconMetadata.height, 1024);
-    assert.equal(iconMetadata.hasAlpha, false, "the image has an opaque background");
-    assert.equal(iconMetadata.space, "srgb");
-    const { data, info } = await sharp(iconPath).raw().toBuffer({ resolveWithObject: true });
-    assert.deepEqual(
-      [...data.subarray(0, 3)],
-      [211, 211, 211],
-      "transparent pixels use light gray",
-    );
-    const center = (512 * info.width + 512) * info.channels;
-    assert.deepEqual(
-      [...data.subarray(center, center + 3)],
-      [255, 255, 255],
-      "artwork is retained",
-    );
+    partialPlistPath = args[args.indexOf("--output-partial-info-plist") + 1];
+    fs.writeFileSync(partialPlistPath, "partial");
     fs.writeFileSync(path.join(appResourcesDir, "Assets.car"), "compiled");
     return { error: null, status: 0, stderr: Buffer.alloc(0) };
   };
 
   assert.equal(
-    await compileMacAssetsCar({ sourcePngPath, appResourcesDir, platform: "darwin", run }),
+    await compileMacAssetsCar({ iconComposerPath, appResourcesDir, platform: "darwin", run }),
     true,
   );
   assert.equal(fs.readFileSync(path.join(appResourcesDir, "Assets.car"), "utf8"), "compiled");
-  assert.equal(fs.existsSync(temporaryCatalogDir), false, "temporary catalog is removed");
   assert.equal(fs.existsSync(partialPlistPath), false, "temporary plist output is removed");
 });
 
@@ -109,7 +86,7 @@ test("compileMacAssetsCar skips actool on non-macOS platforms", async () => {
   const { compileMacAssetsCar } = await loadPackageApp();
   assert.equal(
     await compileMacAssetsCar({
-      sourcePngPath: "unused.png",
+      iconComposerPath: "unused.icon",
       appResourcesDir: "unused",
       platform: "linux",
       run: () => assert.fail("actool should not run outside macOS"),
