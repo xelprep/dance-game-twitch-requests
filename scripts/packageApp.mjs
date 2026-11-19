@@ -6,8 +6,8 @@
 // dev's own OS), so the host always has the tools the branch needs.
 //
 //   - macOS:   wrap the binary in a real .app bundle (Info.plist, PkgInfo,
-//              Resources/icon.icns), remove the bare binary, and ad-hoc
-//              codesign the bundle.
+//              Resources/Assets.car + icon.icns), remove the bare binary,
+//              and ad-hoc codesign the bundle.
 //   - Windows: delegate to setWindowsVersionInfo.mjs (version info + icon embed
 //              + the resedit x SEA boot smoke test).
 //   - Linux:   write a freedesktop .desktop entry, icon.png, and install.sh
@@ -31,6 +31,7 @@ const BINARY_NAME = "dance-game-twitch-requests";
 // OS-level minimum (no LC_MAC_OS_INFO record in the Mach-O, verified), so this
 // floor is our own product decision, kept at Ventura for the native payloads.
 const MIN_MACOS = "13.0";
+const ASSET_CATALOG_MIN_MACOS = "11.0";
 
 function log(message) {
   console.log(`[packageApp] ${message}`);
@@ -71,7 +72,9 @@ export function buildInfoPlist({
 \t<key>CFBundleVersion</key>
 \t<string>${version}</string>
 \t<key>CFBundleIconFile</key>
-\t<string>icon</string>
+\t<string>icon.icns</string>
+\t<key>CFBundleIconName</key>
+\t<string>AppIcon</string>
 \t<key>LSMinimumSystemVersion</key>
 \t<string>${minSystemVersion}</string>
 </dict>
@@ -169,6 +172,80 @@ function runLaunchSmokeTest(binaryPath) {
   return true;
 }
 
+export function compileMacAssetsCar({
+  sourcePngPath,
+  appResourcesDir,
+  platform = process.platform,
+  run = spawnSync,
+}) {
+  if (platform !== "darwin") {
+    log("Skipping Assets.car generation: xcrun actool is macOS-only.");
+    return false;
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dgr-macos-icon-"));
+  const xcassetsDir = path.join(tempDir, "AppIcon.xcassets");
+  const appIconSetDir = path.join(xcassetsDir, "AppIcon.appiconset");
+  const partialPlistPath = path.join(tempDir, "partial-info.plist");
+
+  try {
+    fs.mkdirSync(appIconSetDir, { recursive: true });
+    fs.mkdirSync(appResourcesDir, { recursive: true });
+    fs.copyFileSync(sourcePngPath, path.join(appIconSetDir, "icon_1024.png"));
+    fs.writeFileSync(
+      path.join(xcassetsDir, "Contents.json"),
+      JSON.stringify({ info: { author: "xcode", version: 1 } }, null, 2),
+    );
+    fs.writeFileSync(
+      path.join(appIconSetDir, "Contents.json"),
+      JSON.stringify(
+        {
+          images: [
+            { filename: "icon_1024.png", idiom: "mac", scale: "1x", size: "512x512" },
+            { filename: "icon_1024.png", idiom: "mac", scale: "2x", size: "512x512" },
+          ],
+          info: { author: "xcode", version: 1 },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const result = run(
+      "xcrun",
+      [
+        "actool",
+        xcassetsDir,
+        "--compile",
+        appResourcesDir,
+        "--platform",
+        "macosx",
+        "--minimum-deployment-target",
+        ASSET_CATALOG_MIN_MACOS,
+        "--app-icon",
+        "AppIcon",
+        "--output-partial-info-plist",
+        partialPlistPath,
+      ],
+      { stdio: "pipe" },
+    );
+    if (result.error || result.status !== 0) {
+      const details =
+        result.error?.message || result.stderr?.toString().trim() || `exit status ${result.status}`;
+      throw new Error(`xcrun actool failed: ${details}`);
+    }
+
+    const assetsCarPath = path.join(appResourcesDir, "Assets.car");
+    if (!fs.existsSync(assetsCarPath)) {
+      throw new Error(`xcrun actool completed without creating ${assetsCarPath}.`);
+    }
+    log(`Compiled ${assetsCarPath}.`);
+    return true;
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 function wrapMacApp(binaryPath) {
   const distDir = path.dirname(binaryPath);
   const executableName = path.basename(binaryPath);
@@ -193,6 +270,10 @@ function wrapMacApp(binaryPath) {
   // Copy the icon.
   const iconSrc = path.join(__dirname, "..", "assets", "icon.icns");
   if (fs.existsSync(iconSrc)) fs.copyFileSync(iconSrc, path.join(resourcesDir, "icon.icns"));
+  compileMacAssetsCar({
+    sourcePngPath: path.join(__dirname, "..", "assets", "icon.png"),
+    appResourcesDir: resourcesDir,
+  });
 
   // Info.plist + PkgInfo.
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
