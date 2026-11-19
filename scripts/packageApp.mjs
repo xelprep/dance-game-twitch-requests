@@ -32,6 +32,7 @@ const BINARY_NAME = "dance-game-twitch-requests";
 // floor is our own product decision, kept at Ventura for the native payloads.
 const MIN_MACOS = "13.0";
 const ASSET_CATALOG_MIN_MACOS = "11.0";
+const MAC_ICON_BACKGROUND = { r: 211, g: 211, b: 211 };
 
 function log(message) {
   console.log(`[packageApp] ${message}`);
@@ -170,7 +171,7 @@ function runLaunchSmokeTest(binaryPath) {
   return true;
 }
 
-export function compileMacAssetsCar({
+export async function compileMacAssetsCar({
   sourcePngPath,
   appResourcesDir,
   platform = process.platform,
@@ -184,12 +185,18 @@ export function compileMacAssetsCar({
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "dgr-macos-icon-"));
   const xcassetsDir = path.join(tempDir, "AppIcon.xcassets");
   const appIconSetDir = path.join(xcassetsDir, "AppIcon.appiconset");
+  const iconPngPath = path.join(appIconSetDir, "icon_1024.png");
   const partialPlistPath = path.join(tempDir, "partial-info.plist");
 
   try {
     fs.mkdirSync(appIconSetDir, { recursive: true });
     fs.mkdirSync(appResourcesDir, { recursive: true });
-    fs.copyFileSync(sourcePngPath, path.join(appIconSetDir, "icon_1024.png"));
+    const sharp = (await import("sharp")).default;
+    await sharp(sourcePngPath)
+      .flatten({ background: MAC_ICON_BACKGROUND })
+      .toColourspace("srgb")
+      .png()
+      .toFile(iconPngPath);
     fs.writeFileSync(
       path.join(xcassetsDir, "Contents.json"),
       JSON.stringify({ info: { author: "xcode", version: 1 } }, null, 2),
@@ -209,7 +216,7 @@ export function compileMacAssetsCar({
       ),
     );
 
-    const result = run(
+    const result = await run(
       "xcrun",
       [
         "actool",
@@ -244,7 +251,7 @@ export function compileMacAssetsCar({
   }
 }
 
-function wrapMacApp(binaryPath) {
+async function wrapMacApp(binaryPath) {
   const distDir = path.dirname(binaryPath);
   const executableName = path.basename(binaryPath);
   const appPath = path.join(distDir, `${APP_NAME}.app`);
@@ -269,7 +276,7 @@ function wrapMacApp(binaryPath) {
   // Services would prefer that file over the AppIcon asset catalog entry.
   const iconSrc = path.join(__dirname, "..", "assets", "icon.icns");
   if (fs.existsSync(iconSrc)) fs.copyFileSync(iconSrc, path.join(resourcesDir, "icon.icns"));
-  compileMacAssetsCar({
+  await compileMacAssetsCar({
     sourcePngPath: path.join(__dirname, "..", "assets", "icon.png"),
     appResourcesDir: resourcesDir,
   });
@@ -349,7 +356,7 @@ if (isMain) {
     process.exit(0);
   }
   if (process.platform === "darwin") {
-    wrapMacApp(output);
+    wrapMacApp(output).catch((err) => fail(err.message));
   } else if (process.platform === "win32") {
     runWindowsPostBuild(output);
   } else if (process.platform === "linux") {

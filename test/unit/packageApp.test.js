@@ -39,11 +39,16 @@ test("compileMacAssetsCar compiles a temporary catalog from the full-size source
 
   const sourcePngPath = path.join(tempDir, "icon.png");
   const appResourcesDir = path.join(tempDir, "Resources");
-  const sourcePng = Buffer.from("full-bleed-icon");
-  fs.writeFileSync(sourcePngPath, sourcePng);
+  const sharp = (await import("sharp")).default;
+  const sourcePixels = Buffer.alloc(1024 * 1024 * 4);
+  const centerPixel = (512 * 1024 + 512) * 4;
+  sourcePixels.fill(255, centerPixel, centerPixel + 4);
+  await sharp(sourcePixels, { raw: { width: 1024, height: 1024, channels: 4 } })
+    .png()
+    .toFile(sourcePngPath);
   let temporaryCatalogDir;
   let partialPlistPath;
-  const run = (command, args, options) => {
+  const run = async (command, args, options) => {
     assert.equal(command, "xcrun");
     assert.deepEqual(options, { stdio: "pipe" });
     temporaryCatalogDir = args[1];
@@ -69,17 +74,30 @@ test("compileMacAssetsCar compiles a temporary catalog from the full-size source
         info: { author: "xcode", version: 1 },
       },
     );
+    const iconPath = path.join(appIconSetDir, "icon_1024.png");
+    const iconMetadata = await sharp(iconPath).metadata();
+    assert.equal(iconMetadata.width, 1024);
+    assert.equal(iconMetadata.height, 1024);
+    assert.equal(iconMetadata.hasAlpha, false, "the image has an opaque background");
+    assert.equal(iconMetadata.space, "srgb");
+    const { data, info } = await sharp(iconPath).raw().toBuffer({ resolveWithObject: true });
     assert.deepEqual(
-      fs.readFileSync(path.join(appIconSetDir, "icon_1024.png")),
-      sourcePng,
-      "the source image is copied without resizing or masking",
+      [...data.subarray(0, 3)],
+      [211, 211, 211],
+      "transparent pixels use light gray",
+    );
+    const center = (512 * info.width + 512) * info.channels;
+    assert.deepEqual(
+      [...data.subarray(center, center + 3)],
+      [255, 255, 255],
+      "artwork is retained",
     );
     fs.writeFileSync(path.join(appResourcesDir, "Assets.car"), "compiled");
     return { error: null, status: 0, stderr: Buffer.alloc(0) };
   };
 
   assert.equal(
-    compileMacAssetsCar({ sourcePngPath, appResourcesDir, platform: "darwin", run }),
+    await compileMacAssetsCar({ sourcePngPath, appResourcesDir, platform: "darwin", run }),
     true,
   );
   assert.equal(fs.readFileSync(path.join(appResourcesDir, "Assets.car"), "utf8"), "compiled");
@@ -90,7 +108,7 @@ test("compileMacAssetsCar compiles a temporary catalog from the full-size source
 test("compileMacAssetsCar skips actool on non-macOS platforms", async () => {
   const { compileMacAssetsCar } = await loadPackageApp();
   assert.equal(
-    compileMacAssetsCar({
+    await compileMacAssetsCar({
       sourcePngPath: "unused.png",
       appResourcesDir: "unused",
       platform: "linux",
